@@ -1,0 +1,35 @@
+name: mypy
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  mypy:
+    name: mypy Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: update pip
+        run: python3 -m pip install --upgrade pip
+
+      - name: pip install mypy
+        # run: pip install black pylint mypy
+        run: pip install mypy
+
+      - name: mypy testing
+        #run: mypy --strict $(git ls-files '*.py' ':!:docs/source/*')
+        run: |
+          # shellcheck disable=SC2046
+          mypy --strict $(git ls-files '*.py' ':!:docs/source/*' ':!:tests/*')
