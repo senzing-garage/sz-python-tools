@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest]
+        os: [macos-13]
         # 3.8 and 3.9 are unsupported on the darwin runner
         python-version: ["3.10", "3.11"]
         senzingapi-version: [staging-v4]
