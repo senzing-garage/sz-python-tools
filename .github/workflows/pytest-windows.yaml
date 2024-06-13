@@ -1,0 +1,77 @@
+name: pytest windows
+
+on: [pull_request, workflow_dispatch]
+
+env:
+  LD_LIBRARY_PATH: 'C:\Program Files\Senzing\g2\lib'
+  PYTHONPATH: 'D:\a\g2-sdk-python-next\g2-sdk-python-next\src'
+  SENZING_TOOLS_DATABASE_URL: 'sqlite3://na:na@nowhere/C:\Temp\sqlite\G2C.db'
+
+permissions:
+  contents: read
+
+jobs:
+  pytest-windows:
+    name: "pytest Senzing: ${{ matrix.senzingapi-version }}; OS: ${{ matrix.os }}; Python ${{ matrix.python-version }}"
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest]
+        python-version: ["3.8", "3.9", "3.10", "3.11"]
+        senzingapi-version: [production-v3]
+
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v4
+
+      - name: set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install psutil pytest pytest-cov pytest-schema
+
+      - if: matrix.python-version == '3.8' || matrix.python-version == '3.9'
+        name: install python libraries for python 3.8 and 3.9
+        run: pip install typing_extensions
+
+      - name: install Senzing API
+        uses: senzing-factory/github-action-install-senzing-api@v3
+        with:
+          senzingapi-version: ${{ matrix.senzingapi-version }}
+
+      - name: add to "Path" environment variable
+        run: echo "C:\Program Files\Senzing\g2\lib" | Out-File -FilePath "$env:GITHUB_PATH" -Encoding utf8 -Append
+
+      - name: copy /etc files
+        run: copy testdata/senzing-license/g2.lic "C:\Program Files\Senzing\g2\etc\g2.lic"
+
+      - name: copy test database files
+        run: mkdir "C:\Temp\sqlite" && copy testdata/sqlite/G2C.db "C:\Temp\sqlite\G2C.db"
+
+      - name: run pytest on tests
+        run: pytest tests/ --verbose --capture=no --cov=src
+
+      - name: rename coverage file
+        env:
+          COVERAGE_FILE: ".coverage.${{ matrix.python-version }}"
+        run: |
+          Rename-Item -Path.coverage -NewName "$env:COVERAGE_FILE"
+
+      - name: Store coverage file
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: .coverage.${{ matrix.python-version }}
+
+  coverage:
+    name: coverage
+    needs: pytest-windows
+    permissions:
+      pull-requests: write
+      contents: write
+    uses: senzing-factory/build-resources/.github/workflows/python-coverage-comment.yaml@v2
