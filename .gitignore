@@ -162,3 +162,9 @@ cython_debug/
 #.idea/
 
 .history
+
+# VSCode
+# .vscode/
+
+# Synology NAS files
+.DS_Store
