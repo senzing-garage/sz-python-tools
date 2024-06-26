@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import cmd
 import configparser
 import os
 import re
@@ -40,7 +41,7 @@ with suppress(ImportError):
     PYCLIP_AVAIL = True
 
 if TYPE_CHECKING:
-    from sz_command import SzCmdShell, sz_cmds_decorator
+    from sz_command import SzCmdShell
     from sz_configtool import SzCfgShell
 
 # TODO Change to sz when changed in builds
@@ -129,14 +130,16 @@ class Colors:
         # This class is mostly for sz_explorer as it has many color requirements
         # Other tools need to do basic coloring of text, setting this theme uses
         # the colors set by the terminal preferences so a user will see the colors
-        # they expect in the output from tools.
+        # they expect in the output from tools
         elif theme.upper() == "TERMINAL":
-            cls.GOOD = "\033[0;32m"  # Green
-            cls.BAD = "\033[0;31m"  # Red
-            cls.CAUTION = "\033[0;33m"  # Yellow
-            cls.HIGHLIGHT1 = "\033[0;34m"  # Blue
-            cls.HIGHLIGHT2 = "\033[0;36m"  # Cyan
+            cls.GOOD = cls.FG_GREEN  # Green
+            cls.BAD = cls.FG_RED  # Red
+            cls.CAUTION = cls.FG_YELLOW  # Yellow
+            cls.HIGHLIGHT1 = cls.FG_BLUE  # Blue
+            cls.HIGHLIGHT2 = cls.FG_CYAN  # Cyan
             # TODO Add colors for the regex replace for colorizing json output
+            cls.JSONKEYCOLOR = cls.FG_BLUE
+            cls.JSONVALUECOLOR = cls.FG_YELLOW
 
     # Styles
     RESET = "\033[0m"
@@ -246,6 +249,9 @@ class Colors:
     POSSIBLE = SZ_ORANGE
     RELATED = SZ_GREEN
     DISCLOSED = SZ_PURPLE
+    # TODO Added
+    JSONKEYCOLOR = FG_BLUE
+    JSONVALUECOLOR = FG_YELLOW
 
 
 # TODO Fully test
@@ -259,11 +265,9 @@ def check_environment() -> None:
     # The Senzing python tools call G2Paths before starting engine to locate the engine configuration. Error if can't locate
     # a G2Module.ini or SENZING_ENGINE_CONFIGURATION_JSON
     if "SENZING_ETC_PATH" not in os.environ and "SENZING_ROOT" not in os.environ:
-
         # Check if set or not and that it's not set to null
         secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
         if not secj or (secj and len(secj) == 0):
-
             # TODO V4 doc links?
             print(
                 textwrap.dedent(
@@ -293,20 +297,18 @@ def get_g2module_path() -> Path:
     # (created with sz_create_project.py) or a 'system install' path - for example using an
     # asset from Senzing Git Hub mounting the path from the host into a container.
 
-    # Get the path of the Senzing tools incase ini file is located there
+    # Get the path of the Senzing tools in case ini file is located there
     search_paths = [Path(sys.argv[0]).resolve().parent]
 
     # Senzing container assets set SENZING_ETC_PATH, check if set. This needs to be checked first
     if "SENZING_ETC_PATH" in os.environ:
         etc_path = os.environ.get("SENZING_ETC_PATH")
-        # Check env var isn't empty
         if etc_path:
             search_paths.append(Path(etc_path))
 
     # SENZING_ROOT is set by a project setupEnv, append /etc where config file is expected
     if "SENZING_ROOT" in os.environ:
         root_path = os.environ.get("SENZING_ROOT")
-        # Check env var isn't empty
         if root_path:
             search_paths.append(Path(root_path).joinpath("etc"))
 
@@ -332,14 +334,12 @@ def get_g2module_path() -> Path:
 
 def print_config_locations(locations: List[Path]) -> None:
     """# TODO"""
-
     _ = [print(f"\t{loc}") for loc in locations]
     print()
 
 
 def get_ini_as_json_str(ini_file: Path) -> str:
     """Return a JSON string representation of an INI file."""
-
     # configparser doesn't throw an exception if file doesn't exist, test first
     try:
         with open(ini_file, encoding="utf-8") as test:
@@ -409,18 +409,18 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
 
 
 # TODO Is this one needed still?s
-def check_file_readable(file_name: Union[Path, str]) -> bool:
-    """# TODO"""
+# def check_file_readable(file_name: Union[Path, str]) -> bool:
+#     """# TODO"""
 
-    if isinstance(file_name, str):
-        file_name = Path(file_name)
+#     if isinstance(file_name, str):
+#         file_name = Path(file_name)
 
-    try:
-        _ = open(file_name, encoding="utf-8")
-    except PermissionError:
-        return False
+#     try:
+#         _ = open(file_name, encoding="utf-8")
+#     except PermissionError:
+#         return False
 
-    return True
+#     return True
 
 
 # -------------------------------------------------------------------------
@@ -430,17 +430,16 @@ def check_file_readable(file_name: Union[Path, str]) -> bool:
 
 # TODO Is this needed with colorize_output?
 # TODO colors_list is a string with multiple entries separated by ,
-def color_str(string: str, colors_list: str = "") -> str:
+def colorize_str(string: str, colors_list: str = "") -> str:
     """# TODO"""
 
     return Colors.apply(string, colors_list)
 
 
-def color_json(json_str: str) -> str:
+def colorize_json(json_str: str) -> str:
     """# TODO"""
-    # TODO Colors from the Colors class instead so they match to terminal default colors
-    key_replacer = rf"\1{Colors.FG_LIGHTBLUE}\2{Colors.RESET}\3\4"
-    value_replacer = rf"\1\2{Colors.FG_YELLOW}\3{Colors.RESET}\4\5"
+    key_replacer = rf"\1{Colors.JSONKEYCOLOR}\2{Colors.RESET}\3\4"
+    value_replacer = rf"\1\2{Colors.JSONVALUECOLOR}\3{Colors.RESET}\4\5"
     # Look for values first to make regex a little easier to construct
     # Regex is matching: ': "Robert Smith", ' and using the groups in the replacer to add color
     json_color = re.sub(
@@ -453,7 +452,7 @@ def color_json(json_str: str) -> str:
 
 
 # TODO Used to color normal output messages
-def color_output(
+def colorize_output(
     # output: Union[int, str], color_or_type: str, output_color: bool = True
     output: Union[Exception, int, str],
     color_or_type: str,
@@ -493,50 +492,56 @@ def color_output(
 # TODO msg str can contain err in f-string
 def print_error(msg: Union[Exception, str]) -> None:
     """# TODO"""
-    print(color_output(f"\nERROR: {msg}\n", "error"))
+    print(colorize_output(f"\nERROR: {msg}\n", "error"))
 
 
 # TODO msg str can contain err in f-string
 def print_info(msg: Union[Exception, str]) -> None:
     """# TODO"""
-    print(color_output(f"\n{msg}\n", "info"))
+    print(colorize_output(f"\n{msg}\n", "info"))
 
 
 # TODO msg str can contain err in f-string
 def print_warning(msg: Union[Exception, str]) -> None:
     """# TODO"""
-    print(color_output(f"\nWARNING: {msg}\n", "warning"))
+    print(colorize_output(f"\nWARNING: {msg}\n", "warning"))
 
 
 def print_response(
-    # caller_self: Union[SzCmdShell, SzCfgShell],
     response: Union[int, str],
-    output_color: bool,
+    color_json: bool,
+    color_json_cmd: bool,
     format_json: bool,
+    format_json_cmd: bool,
+    cmd_color: bool,
+    cmd_format: bool,
     color: str = "",
 ) -> str:
     """# TODO"""
+    strip_colors = True
+
     if not response:
-        print(color_output("No response!", "success"))
-        return None
+        response = "No response!"
+        color = "info"
 
     if isinstance(response, int):
-        output = color_output(response, color)
+        output = colorize_output(response, color)
     else:
         try:
             # Test if data is json and format appropriately
             _ = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
         except (JsonDecodeError, TypeError):
-            # TODO Handle error or is this still ok?
-            output = color_output(response, color)
+            output = colorize_output(response, color)
+            strip_colors = False
         else:
+            # TODO Is this check still needed?
             if type(response) not in [dict, list]:
                 response = (
                     orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
                 )
-            # if caller_self.json_output_format == "json" and not disable_format:
-            # if format_json == "json" and not output_color:
-            if format_json:
+
+            # Format JSON if global config or single command formatter specifies
+            if (format_json and not cmd_format) or (cmd_format and format_json_cmd):
                 json_ = (
                     orjson.dumps(response, option=orjson.OPT_INDENT_2)
                     if ORJSON_AVAIL
@@ -548,17 +553,20 @@ def print_response(
                 )
 
             json_str: str = json_.decode() if ORJSON_AVAIL else json_  # type: ignore
-            output = (
-                color_json(json_str)
-                # if caller_self.color_output and not caller_self.output_color
-                if output_color
-                else json_str
-            )
+
+            # Color JSON if global config or single command formatter specifies
+            if (color_json and not cmd_color) or (cmd_color and color_json_cmd):
+                output = colorize_json(json_str)
+            else:
+                output = json_str
 
     print(f"\n{output}\n", flush=True)
-    # TODO Compile regex?
-    # Return the response output to set last_response for sending to clipboard or file, removing color codes
-    return re.sub(r"(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]", "", output)
+    # Removing color codes, return output to set last_response for sending
+    # to clipboard or file or reformatting JSON
+    if strip_colors:
+        return re.sub(r"(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]", "", output)
+
+    return output
 
 
 # TODO Organise
@@ -573,27 +581,28 @@ def do_shell(self: Union[SzCmdShell, SzCfgShell], line: str) -> None:  # pylint:
 
 def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
     """# TODO"""
-    if not help_topic:
+    if not help_topic or help_topic == "overview":
         self.help_overview()
+        return
+
+    if help_topic == "all":
+        cmd.Cmd.do_help(self, "")
         return
 
     if help_topic not in self.get_names(include_hidden=True):
         help_topic = "do_" + help_topic
+        # print(help_topic)
+        # print(help_topic[3:])
+        # print(self.get_names(include_hidden=True))
         if help_topic not in self.get_names(include_hidden=True):
             # cmd.Cmd.do_help(self, help_topic[3:])
-            self.do_help(help_topic[3:])
+            # do_help(self, help_topic[3:])
+            print_warning(f"Command or help topic '{help_topic[3:]}' doesn't exist")
             return
 
     topic_docstring = getattr(self, help_topic).__doc__
     if not topic_docstring:
-        self._print_response(
-            color_output(
-                f"No help found for {help_topic[3:]}",
-                "warning",
-                # cli_args.colorDisable,
-                self.disable_color,
-            )
-        )
+        print_warning(f"No help found for {help_topic[3:]}")
         return
 
     help_text = current_section = ""
@@ -606,10 +615,6 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
         "Arguments:",
     ]
 
-    # if self.disable_color:
-    #     print(textwrap.dedent(topic_docstring))
-    #     return
-
     help_lines = textwrap.dedent(topic_docstring).split("\n")
 
     for line in help_lines:
@@ -621,7 +626,8 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
 
             if current_section == "Caution:":
                 line_color = "caution, italics"
-            elif current_section not in (
+
+            if current_section not in (
                 "Syntax:",
                 "Examples:",
                 "Example:",
@@ -632,9 +638,11 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
 
         if re.match(rf"^\s*{help_topic[3:]}", line) and not line_color:
             sep_column = line.find(help_topic[3:]) + len(help_topic[3:])
-            help_text += line[0:sep_column] + color_str(line[sep_column:], "dim") + "\n"
+            help_text += (
+                line[0:sep_column] + colorize_str(line[sep_column:], "dim") + "\n"
+            )
         else:
-            help_text += color_str(line, line_color) + "\n"
+            help_text += colorize_str(line, line_color) + "\n"
 
     print(help_text)
 
@@ -670,6 +678,7 @@ def history_setup(self: Union[SzCmdShell, SzCfgShell]) -> None:
         with open(self.hist_file_name, "a", encoding="utf-8"):
             pass
     except IOError as err:
+        # TODO Only use /tmp in a container for security
         self.hist_file_error = f"{err} - Couldn't use home, trying /tmp/..."
         self.hist_file_name = f"/tmp/{tmp_hist}"
         self.hist_file_name = Path("/tmp").joinpath(base_name)
@@ -696,56 +705,51 @@ def do_responseToClipboard(self, _) -> None:  # type: ignore[no-untyped-def]
     """# TODO"""
     # TODO Test new lines around output
     if not PYCLIP_AVAIL:
-        print(
-            color_output(
-                textwrap.dedent(
-                    """\
-                        - To send the last response to the clipboard the Python module pyclip needs to be installed
-                            - pip install pyclip"""
-                ),
-                "info",
-            ),
+        print_info(
+            textwrap.dedent(
+                """
+                    - To send the last response to the clipboard the Python module pyclip needs to be installed
+                        - pip install pyclip
+                """
+            )
         )
         return
 
     try:
         _ = pyclip.detect_clipboard()
     except ClipboardSetupException as err:
-        print(
-            color_output(f"\nWARNING: Problem detecting clipboard: {err}\n", "warning")
-        )
+        print_warning(f"Problem detecting clipboard: {err}")
         return
 
     # TODO Try and break this to see if needs try/except
     try:
         pyclip.copy(self.last_response)
     except pyclip.base.ClipboardException as err:
-        print(
-            color_output(f"\nWARNING: Couldn't copy to clipboard: {err}\n", "warning")
-        )
+        print_warning(f"Couldn't copy to clipboard: {err}")
 
 
 def do_responseToFile(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
-    with open(kwargs["parsed_args"].file_path, "w", encoding="utf-8") as data_out:
-        data_out.write(self.last_response)
-        data_out.write("\n")
+    """# TODO"""
+    try:
+        with open(kwargs["parsed_args"].file_path, "w", encoding="utf-8") as out:
+            out.write(self.last_response)
+            out.write("\n")
+    except IOError as err:
+        print_error(err)
 
 
 # TODO args? kwargs??
-# TODO Doesn't put the reformat in last_response, should it?
-def do_responseReformatJson(self, _) -> None:  # type: ignore[no-untyped-def]
+# TODO Doesn't put the reformat in last_response, should it
+def do_responseReformatJson(
+    last_response: str, color_json: bool, format_json: bool
+) -> None:
+    """# TODO"""
     try:
         # TODO Orjson?
-        _ = json.loads(self.last_response)
+        _ = json.loads(last_response)
     # TODO Correct JSONDecodeError?
     except (json.decoder.JSONDecodeError, TypeError):
-        print(color_output("\nThe last response isn't JSON\n", "warning"))
+        print_warning("The last response isn't JSON")
         return
 
-    # self.json_output_format = "json" if self.json_output_format == "jsonl" else "jsonl"
-    # json_output_format = "json" if self.json_output_format == "jsonl" else "jsonl"
-    # self.print_with_new_lines(self.last_response, "B")
-    # self.print_response(self.last_response)
-    # self.print_sdk_response2()
-    # not to negate whatever format_json was for the response
-    print_response(self.last_response, self.output_color, not self.format_json)
+    print_response(last_response, color_json, False, not format_json, False, False)

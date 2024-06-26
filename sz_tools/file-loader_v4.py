@@ -1,5 +1,8 @@
 #! /usr/bin/env python3
 
+# TODO Check if input looks like JSON or not, don't try and load a CSV or other
+# TODO Check for % of errors in first x records, quit if too high
+
 import argparse
 import concurrent.futures
 import itertools
@@ -13,12 +16,14 @@ import time
 from datetime import datetime
 
 from senzing import (
+    SzBadInputError,
     SzConfigManager,
     SzDiagnostic,
     SzEngine,
     SzEngineFlags,
     SzError,
     SzProduct,
+    SzRetryableError,
 )
 
 try:

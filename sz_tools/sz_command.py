@@ -1,14 +1,15 @@
 #! /usr/bin/env python3
 
 """ # TODO """
+# TODO Check all outputs using appropriate print_ helper
+# TODO Test all completers work
+
 
 import argparse
 import cmd
 import configparser
-import csv
 import functools
 import glob
-import json
 import os
 import pathlib
 import re
@@ -20,8 +21,8 @@ from typing import Any, Callable, Dict, List, NoReturn, ParamSpec, TypeVar, Unio
 
 from _tool_helpers import (
     Colors,
-    color_output,
-    color_str,
+    colorize_output,
+    colorize_str,
     do_help,
     do_history,
     do_responseReformatJson,
@@ -35,8 +36,7 @@ from _tool_helpers import (
     print_response,
     print_warning,
 )
-from senzing import (
-    SzConfig,
+from senzing import (  # SzConfig,
     SzConfigManager,
     SzDiagnostic,
     SzEngine,
@@ -49,12 +49,32 @@ T = TypeVar("T")
 P = ParamSpec("P")
 RT = TypeVar("RT")
 
+# Per command JSON formatting options used in decorator
+# TODO Add timer?
+formatters = [
+    "json",
+    "jsonl",
+    "color",
+    "colour",
+    "nocolor",
+    "nocolour",
+]
 
+
+# -------------------------------------------------------------------------
 # Metadata
+# -------------------------------------------------------------------------
 
+# TODO Needed for helpers?
+__all__ = ["SzCmdShell"]
 __version__ = "0.0.1"  # See https://www.python.org/dev/peps/pep-0396/
 __date__ = "2024-06-13"
 __updated__ = "2024-06-13"
+
+
+# -------------------------------------------------------------------------
+# Decorators
+# -------------------------------------------------------------------------
 
 
 # TODO Wrapped wrapper!
@@ -74,58 +94,42 @@ def sz_cmds_decorator(
         def wrapper(self, *args: Any, **kwargs: Any) -> Union[None, RT]:
             cmd_args = args[0]
 
-            # Check if command has formatters for JSON and color formatting
-            formatters = [
-                "json",
-                "jsonl",
-                "color",
-                "colour",
-                "nocolor",
-                "nocolour",
-            ]
+            # Check if command has formatters for JSON
+            if any(x in cmd_args for x in formatters):
 
-            # Capture end of args to detect if formatters and present
-            # Reverse the list to use rstrip() to remove formatters
-            cmd_formatters = cmd_args[-13:].split(" ")
-            cmd_formatters.reverse()
+                # Capture end of args to detect if formatters are present
+                # Reverse the list to use rstrip() to remove formatters
+                cmd_formatters = cmd_args[-13:].split(" ")
+                cmd_formatters.reverse()
 
-            for format_ in (f for f in cmd_formatters if f.lower() in formatters):
-                # if format_.lower() in ["json", "jsonl"]:
-                if format_.lower() == "json":
-                    self.format_json = True
-                if format_.lower() == "jsonl":
-                    self.format_json = False
-                if format_.lower() in ["color", "colour"]:
-                    self.output_color = True
-                if format_.lower() in ["nocolor", "nocolour"]:
-                    self.output_color = False
+                for format_ in (f for f in cmd_formatters if f.lower() in formatters):
+                    if format_.lower() in ["json", "jsonl"]:
+                        self.cmd_format = True
+                        if format_.lower() == "json":
+                            self.format_json_cmd = True
+                        if format_.lower() == "jsonl":
+                            self.format_json_cmd = False
 
-                # Don't remove formatters if we are setting formatting options
-                if func.__name__ not in ["do_setOutputFormat", "do_setOutputColor"]:
-                    cmd_args = cmd_args.rstrip(format_).rstrip()  # type: ignore
+                    if format_.lower() in ["color", "colour", "nocolor", "nocolour"]:
+                        self.cmd_color = True
+                        if format_.lower() in ["color", "colour"]:
+                            self.color_json_cmd = True
+                        if format_.lower() in ["nocolor", "nocolour"]:
+                            self.color_json_cmd = False
+
+                    # # Don't remove formatters if we are setting formatting options
+                    # if func.__name__ not in ["do_setOutputFormat", "do_setOutputColor"]:
+                    #     cmd_args = cmd_args.rstrip(format_).rstrip()  # type: ignore
 
             if cmd_has_args:
                 try:
                     # Parse arguments for a command and add to kwargs
+                    # to use in calling method
                     kwargs["parsed_args"] = self.parser.parse_args(
                         [f"{func.__name__[3:]}"] + self.parse(cmd_args)
                     )
 
-                    # Create a dict with a key of "flags" to unpack in calling
-                    # methods for flag argument in szengine methods
-                    # if hasattr(kwargs["parsed_args"], "flags"):
-                    #     kwargs["flags_dict"] = (
-                    #         {"flags": get_engine_flags(kwargs["parsed_args"].flags)}
-                    #         if kwargs["parsed_args"].flags
-                    #         else {}
-                    #     )
-
-                    # If wrapped method can specify flags and there is a value for flags
-                    # generate the integer for the specified flag(s) and add to kwargs
-                    if (
-                        hasattr(kwargs["parsed_args"], "flags")
-                        and kwargs["parsed_args"].flags
-                    ):
+                    if "flags" in kwargs["parsed_args"] and kwargs["parsed_args"].flags:
                         kwargs["flags"] = get_engine_flags(kwargs["parsed_args"].flags)
 
                 # Catch argument errors from parser and display the commands help
@@ -138,50 +142,85 @@ def sz_cmds_decorator(
                     return None
                 except KeyError as err:
                     # TODO Test this
-                    print_error(err, self.output_color)
+                    print_error(err)
                     return None
 
-            # TODO
-            # print(f"{kwargs = }")
             # Run the decorated method passing back kwargs for use in SDK call
             try:
-                if self.timer_on:
+                if self.timer:
                     timer_start = time.perf_counter()
                 func(self, **kwargs)  # type: ignore
-                if self.timer_on:
+                if self.timer:
                     exec_time = time.perf_counter() - timer_start
                     print_info(
-                        f"\nApproximate execution time (s): {exec_time:.5f}\n",
-                        self.disable_color,
+                        f"Approximate execution time (s): {exec_time:.5f}",
                     )
             except (SzError, IOError) as err:
                 print_error(err)
+            finally:
+                # TODO
+                self.format_json_cmd = False
+                self.color_json_cmd = False
+                self.cmd_color = False
+                self.cmd_format = False
 
         return wrapper
 
     return decorator
 
 
-# Override argparse error to format message
+# -------------------------------------------------------------------------
+# Classes
+# -------------------------------------------------------------------------
 class SzCommandArgumentParser(argparse.ArgumentParser):
     """Subclass ArgumentParser, override error() with custom message"""
 
     def error(self, message: str) -> NoReturn:
         self.exit(
             2,
-            color_output(f"\nERROR: {self.prog} - {message}\n", "error"),
+            colorize_output(f"\nERROR: {self.prog} - {message}\n", "error"),
         )
 
 
 class SzCmdShell(cmd.Cmd):
     """# TODO"""
 
-    # TODO self.args_cli ?
     def __init__(self, engine_settings: str, debug: bool, args_cli: argparse.Namespace):
         super().__init__()
 
         # TODO Check all self. are still used
         # TODO Order init vars or leave in groups?
+
+        # Acquire Senzing API engines
+        self.debug_trace = debug
+        self.engine_settings = engine_settings
+
+        try:
+            self.sz_engine = SzEngine(
+                "pySzEngine",
+                self.engine_settings,
+                verbose_logging=self.debug_trace,
+            )
+            self.sz_product = SzProduct(
+                "pySzProduct", self.engine_settings, self.debug_trace
+            )
+            self.sz_diagnostic = SzDiagnostic(
+                "pySzDiagnostic", self.engine_settings, verbose_logging=self.debug_trace
+            )
+            # self.sz_config = SzConfig(
+            #     "pySzConfig", self.engine_settings, verbose_logging=self.debug_trace
+            # )
+            self.sz_configmgr = SzConfigManager(
+                "pySzConfigmgr", self.engine_settings, verbose_logging=self.debug_trace
+            )
+        except SzError as err:
+            print(err)
+            sys.exit(1)
+
+        # TODO Move to helpers if repeated
+        # Get engine flags for use in auto completion
+        self.engine_flags_list = list(SzEngineFlags.__members__.keys())
+
         # Hide methods - could be deprecated, undocumented, not supported, experimental
         self.__hidden_cmds = (
             "do_EOF",
@@ -194,55 +233,41 @@ class SzCmdShell(cmd.Cmd):
             "do_shell",
         )
 
-        # TODO
-        # self.sz_engine = None
-        # self.sz_product = None
-        # self.sz_diagnostic = None
-        # self.sz_config = None
-        # self.sz_configmgr = None
-        self.debug_trace = debug
-        self.engine_settings = engine_settings
-
-        # TODO Move to helpers if repeated
-        # Get engine flags for use in auto completion
-        self.engine_flags_list = list(SzEngineFlags.__members__.keys())
-
+        # Cmd module settings
         self.intro = ""
         self.prompt = "(szcmd) "
-
-        # TODO Break these out when ordering
-        self.initialized = self.restart = self.restart_debug = self.quit = (
-            self.timer_on
-        ) = False
-        self.timer_start = self.timer_end = None
-        self.response = ""
-        self.last_response = ""
 
         # Readline and history
         self.hist_avail = False
         self.history_disable = args_cli.histDisable
         self.hist_file_name = self.hist_file_error = None
 
-        # Setup for pretty printing
-        self.output_color: bool = True
-        self.format_json: bool = False
-        # self.disable_color = args_cli.colorDisable
-        # self.disable_format = args_cli.formatDisable
+        # For pretty printing JSON responses
+        self.cmd_color = False
+        self.cmd_format = False
+        self.color_json = True
+        self.color_json_cmd = False
+        self.format_json = False
+        self.format_json_cmd = False
 
-        # Only display can't read/write config message once, not at all in container
+        # General
+        self.initialized = False
+        self.last_response = ""
+        self.quit = False
+        self.restart = False
+        self.restart_debug = False
+        self.timer = False
+
+        # Display can't read/write config message once, not at all in container
         self.config_error = 0
         env_launched = os.getenv("SENZING_DOCKER_LAUNCHED", None)
         self.docker_launched = (
             True if env_launched in ("y", "yes", "t", "true", "on", "1") else False
         )
 
-        # TODO Partial functions
-        # self.print_response = functools.partial(
-        #     print_response,
-        #     self,
-        # )
-
+        # -------------------------------------------------------------------------
         # do_* command parsers
+        # -------------------------------------------------------------------------
 
         self.parser = SzCommandArgumentParser(
             add_help=False,
@@ -570,17 +595,18 @@ class SzCmdShell(cmd.Cmd):
             "theme", choices=["dark", "default", "light"], nargs=1
         )
 
-        # # TODO
-        # # TODO Partial functions
-        # self.print_response = functools.partial(
-        #     print_response,
-        #     self,
-        # )
-
     # TODO Explain why doing this
-    def output_response(self, response: str, color: str = "") -> str:
+    def output_response(self, response: Union[int, str], color: str = "") -> str:
         """# TODO"""
-        return print_response(response, self.output_color, self.format_json, color)
+        return print_response(
+            response,
+            self.color_json,
+            self.color_json_cmd,
+            self.format_json,
+            self.format_json_cmd,
+            self.cmd_color,
+            self.cmd_format,
+        )
 
     def completenames(self, text: str, *ignored: Any) -> List[str]:
         """Override function from cmd module to make command completion case-insensitive"""
@@ -617,41 +643,11 @@ class SzCmdShell(cmd.Cmd):
         # Initially set theme to use the default colors set by the terminal
         Colors.set_theme("TERMINAL")
 
-        # TODO Needs to move out for file loop
-        try:
-            self.sz_engine = SzEngine(
-                # TODO Change instance name in all tools
-                "pySzEngine",
-                self.engine_settings,
-                verbose_logging=self.debug_trace,
-            )
-            self.sz_product = SzProduct(
-                "pySzProduct", self.engine_settings, self.debug_trace
-            )
-            self.sz_diagnostic = SzDiagnostic(
-                "pySzDiagnostic", self.engine_settings, verbose_logging=self.debug_trace
-            )
-            self.sz_config = SzConfig(
-                "pySzConfig", self.engine_settings, verbose_logging=self.debug_trace
-            )
-            self.sz_configmgr = SzConfigManager(
-                "pySzConfigmgr", self.engine_settings, verbose_logging=self.debug_trace
-            )
-        except SzError as err:
-            print_error(err)
-            self.postloop()
-            sys.exit(1)
-
         self.initialized = True
 
-        print(
-            # TODO
-            # colorize_output("Welcome to sz_command. Type help or ? for help", "highlight2")
-            color_output(
-                "\nWelcome to sz_command. Type help or ? for help\n",
-                "highlight1",
-            )
-        )
+        # TODO
+        # colorize_output("Welcome to sz_command. Type help or ? for help", "highlight2")
+        print_info("Welcome to sz_command. Type help or ? for help")
 
     def postloop(self) -> None:
         self.initialized = False
@@ -661,10 +657,6 @@ class SzCmdShell(cmd.Cmd):
 
     def postcmd(self, stop: bool, line: str) -> bool:
         # TODO
-        # # TODO Compile re?
-        # self.last_response = re.sub(
-        #     r"(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]", "", self.response
-        # )
         # If restart has been requested, set stop value to True to restart engines in main loop
         if self.restart:
             return cmd.Cmd.postcmd(self, True, line)
@@ -696,7 +688,7 @@ class SzCmdShell(cmd.Cmd):
 
     def default(self, line: str) -> None:
         """Unknown command"""
-        print(color_output("\nUnknown command, type help or ?\n", "error"))
+        print(colorize_output("\nUnknown command, type help or ?\n", "error"))
         return None
 
     def cmdloop(self, intro: None = None) -> None:
@@ -708,7 +700,7 @@ class SzCmdShell(cmd.Cmd):
                 break
             except KeyboardInterrupt:
                 if input(
-                    color_output(
+                    colorize_output(
                         "\n\nAre you sure you want to exit? (y/n) ",
                         "caution",
                     )
@@ -739,7 +731,7 @@ class SzCmdShell(cmd.Cmd):
                     print(f"\n{line}")
 
                     if cmd_ not in dir(self):
-                        print(color_output(f"Command {read_cmd} not found", "error"))
+                        print(colorize_output(f"Command {read_cmd} not found", "error"))
                         return None
                     # else:
 
@@ -748,10 +740,10 @@ class SzCmdShell(cmd.Cmd):
                         exec_cmd = f'self.{cmd_}({repr(" ".join(args))})'
                         exec(exec_cmd)  # pylint: disable=exec-used
                     except (ValueError, TypeError) as err:
-                        print(color_output("Command could not be run!", "error"))
+                        print(colorize_output("Command could not be run!", "error"))
                         print_error(err)
 
-    def do_hidden(self, _) -> None:  # type: ignore[no-untyped-def]
+    def do_hidden(self, _: None) -> None:
         """# TODO"""
         print()
         print("\n".join(map(str, self.__hidden_cmds)))
@@ -775,65 +767,65 @@ class SzCmdShell(cmd.Cmd):
         print(
             textwrap.dedent(
                 f"""
-        {color_str('This utility allows you to interact with the Senzing APIs.', 'dim')}
+        {colorize_str('This utility allows you to interact with the Senzing APIs.', 'dim')}
 
-        {color_str('Help', 'highlight2')}
-            {color_str('- View help for a command:', 'dim')} help COMMAND
-            {color_str('- View all commands:', 'dim')} help all
+        {colorize_str('Help', 'highlight2')}
+            {colorize_str('- View help for a command:', 'dim')} help COMMAND
+            {colorize_str('- View all commands:', 'dim')} help all
 
-        {color_str('Tab Completion', 'highlight2')}
-            {color_str('- Tab completion is available for commands, files and engine flags', 'dim')}
-            {color_str('- Hit tab on a blank line to see all commands', 'dim')}
+        {colorize_str('Tab Completion', 'highlight2')}
+            {colorize_str('- Tab completion is available for commands, files and engine flags', 'dim')}
+            {colorize_str('- Hit tab on a blank line to see all commands', 'dim')}
 
-        {color_str('JSON Formatting', 'highlight2')}
-            {color_str('- Change JSON formatting by adding "json" or "jsonl" to the end of a command', 'dim')}
+        {colorize_str('JSON Formatting', 'highlight2')}
+            {colorize_str('- Change JSON formatting by adding "json" or "jsonl" to the end of a command', 'dim')}
                 - getEntityByEntityID 1001 jsonl
 
-            {color_str('- Can be combined with color formatting options', 'dim')}
+            {colorize_str('- Can be combined with color formatting options', 'dim')}
                 - getEntityByEntityID 1001 jsonl nocolor
 
-            {color_str('- Set the JSON format for the session, saves the preference to a configuration file for use across sessions', 'dim')}
-            {color_str('- Specifying the JSON and color formatting options at the end of a command override this setting for that command', 'dim')}
+            {colorize_str('- Set the JSON format for the session, saves the preference to a configuration file for use across sessions', 'dim')}
+            {colorize_str('- Specifying the JSON and color formatting options at the end of a command override this setting for that command', 'dim')}
                 - setOutputFormat json|jsonl
 
-            {color_str('- Convert last response output between json and jsonl', 'dim')}
+            {colorize_str('- Convert last response output between json and jsonl', 'dim')}
                 - responseReformatJson
 
-        {color_str('Color Formatting', 'highlight2')}
-            {color_str('- Add or remove colors from JSON formatting by adding "color", "colour", "nocolor" or "nocolour" to the end of a command', 'dim')}
+        {colorize_str('Color Formatting', 'highlight2')}
+            {colorize_str('- Add or remove colors from JSON formatting by adding "color", "colour", "nocolor" or "nocolour" to the end of a command', 'dim')}
                 - getEntityByEntityID 1001 color
 
-            {color_str('- Can be combined with JSON formatting options', 'dim')}
+            {colorize_str('- Can be combined with JSON formatting options', 'dim')}
                 - getEntityByEntityID 1001 color jsonl
 
-            {color_str('- Set the color formatting for the session, saves the preference to a configuration file for use across sessions', 'dim')}
-            {color_str('- Specifying the JSON and color formatting options at the end of a command override this setting for that command', 'dim')}
+            {colorize_str('- Set the color formatting for the session, saves the preference to a configuration file for use across sessions', 'dim')}
+            {colorize_str('- Specifying the JSON and color formatting options at the end of a command override this setting for that command', 'dim')}
                 - setOutputColor color|colour|nocolor|nocolour
 
-        {color_str('Capturing Output', 'highlight2')}
-            {color_str('- Capture the last response output to a file or the clipboard', 'dim')}
+        {colorize_str('Capturing Output', 'highlight2')}
+            {colorize_str('- Capture the last response output to a file or the clipboard', 'dim')}
                 - responseToClipboard
                 - responseToFile /tmp/myoutput.json
-            {color_str('- responseToClipboard does not work in containers or SSH sessions', 'dim')}
+            {colorize_str('- responseToClipboard does not work in containers or SSH sessions', 'dim')}
 
-        {color_str('History', 'highlight2')}
-            {color_str('- Arrow keys to cycle through history of commands', 'dim')}
-            {color_str('- Ctrl-r can be used to search history', 'dim')}
-            {color_str('- Display history:', 'dim')} history
+        {colorize_str('History', 'highlight2')}
+            {colorize_str('- Arrow keys to cycle through history of commands', 'dim')}
+            {colorize_str('- Ctrl-r can be used to search history', 'dim')}
+            {colorize_str('- Display history:', 'dim')} history
 
-        {color_str('Timer', 'highlight2')}
-            {color_str('- Toggle on/off approximate time a command takes to complete', 'dim')}
-            {color_str('- Turn off JSON formatting and color output for higher accuracy', 'dim')}
+        {colorize_str('Timer', 'highlight2')}
+            {colorize_str('- Toggle on/off approximate time a command takes to complete', 'dim')}
+            {colorize_str('- Turn off JSON formatting and color output for higher accuracy', 'dim')}
                 - timer
 
-        {color_str('Shell', 'highlight2')}
-            {color_str('- Run basic OS shell commands', 'dim')}
+        {colorize_str('Shell', 'highlight2')}
+            {colorize_str('- Run basic OS shell commands', 'dim')}
                 - ! ls
 
-        {color_str('Support', 'highlight2')}
-            {color_str('- Senzing Support:', 'dim')} {color_str('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight1,underline')}
-            {color_str('- Senzing Knowledge Center:', 'dim')} {color_str('https://senzing.zendesk.com/hc/en-us', 'highlight1,underline')}
-            {color_str('- API Docs:', 'dim')} {color_str('https://docs.senzing.com', 'highlight1,underline')}
+        {colorize_str('Support', 'highlight2')}
+            {colorize_str('- Senzing Support:', 'dim')} {colorize_str('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight1,underline')}
+            {colorize_str('- Senzing Knowledge Center:', 'dim')} {colorize_str('https://senzing.zendesk.com/hc/en-us', 'highlight1,underline')}
+            {colorize_str('- API Docs:', 'dim')} {colorize_str('https://docs.senzing.com', 'highlight1,underline')}
 
         """
             )
@@ -1046,7 +1038,7 @@ class SzCmdShell(cmd.Cmd):
         Caution:
             - This deletes all data in the Senzing database!"""
 
-        purge_msg = color_output(
+        purge_msg = colorize_output(
             textwrap.dedent(
                 """
 
@@ -1060,7 +1052,6 @@ class SzCmdShell(cmd.Cmd):
                 Are you sure you want to purge the senzing database? (y/n) """
             ),
             "warning",
-            self.disable_color,
         )
 
         if not kwargs["parsed_args"].force_purge:
@@ -1971,7 +1962,8 @@ class SzCmdShell(cmd.Cmd):
             )
         else:
             response = self.sz_engine.search_by_attributes(
-                kwargs["parsed_args"].entity_id
+                kwargs["parsed_args"].attributes,
+                search_profile=kwargs["parsed_args"].search_profile,
             )
 
         self.output_response(response)
@@ -2114,7 +2106,8 @@ class SzCmdShell(cmd.Cmd):
         Syntax:
             getLicense"""
 
-        self.output_response(self.sz_product.get_license())
+        response = self.sz_product.get_license()
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_getVersion(self) -> None:  # type: ignore[no-untyped-def]
@@ -2158,61 +2151,6 @@ class SzCmdShell(cmd.Cmd):
         )
         self.output_response(f"Configuration added, ID = {response}", "success")
 
-    # TODO Add a note this isn't an API
-    # TODO Reorder
-    # TODO process() is no longer available would need to pull out details and action
-    @sz_cmds_decorator()
-    def do_processFile(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
-        """
-        Process a file of Senzing mapped records
-
-        Syntax:
-            processFile FILE
-
-        Example:
-            processFile demo/truth/customers.json
-
-        Arguments:
-            FILE = Input file containing Senzing mapped data records"""
-
-        input_file = file_name = kwargs["parsed_args"].input_file
-        data_source_parm = None
-        cnt = 0
-
-        if "/?" in input_file:
-            file_name, data_source_parm = input_file.split("/?")
-            if data_source_parm.upper().startswith("DATA_SOURCE="):
-                data_source_parm = data_source_parm[12:].upper()
-
-        _, file_extension = os.path.splitext(file_name)
-        file_extension = file_extension[1:].upper()
-
-        with open(file_name) as data_in:
-            if file_extension != "CSV":
-                file_reader = data_in
-            else:
-                file_reader = csv.reader(data_in)
-                csv_headers = [x.upper() for x in next(file_reader)]
-
-            for line in file_reader:
-                if file_extension != "CSV":
-                    json_str = line.strip()
-                else:
-                    json_obj = dict(list(zip(csv_headers, line)))
-                    if data_source_parm:
-                        json_obj["DATA_SOURCE"] = data_source_parm
-                    json_str = json.dumps(json_obj)
-
-                try:
-                    self.sz_engine.process(json_str)
-                except SzError as err:
-                    # TODO Move err into f-string
-                    print_error(err, f"At record {cnt + 1}")
-                cnt += 1
-                if cnt % 1000 == 0:
-                    self.output_response(f"{cnt} records processed")
-            self.output_response(f"{cnt} records processed", "success")
-
     def do_responseToClipboard(self, _) -> None:  # type: ignore[no-untyped-def]
         """# TODO"""
         do_responseToClipboard(self, None)
@@ -2226,7 +2164,7 @@ class SzCmdShell(cmd.Cmd):
     # TODO Some are arg, others args
     def do_responseReformatJson(self, _) -> None:  # type: ignore[no-untyped-def]
         """# TODO"""
-        do_responseReformatJson(self, None)
+        do_responseReformatJson(self.last_response, self.color_json, self.format_json)
 
     def do_restart(self, _) -> bool:  # type: ignore[no-untyped-def]
         """# TODO"""
@@ -2238,92 +2176,40 @@ class SzCmdShell(cmd.Cmd):
         self.restart_debug = True
         return True
 
-    # TODO Change to just color = on/off?
-    # TODO Help is wrong
-    # Useful in other tools? configtool
-    @sz_cmds_decorator()
-    def do_outputColor(self, **kwargs):
+    # TODO Main help is currently wrong
+    def do_json_color(self, _: None) -> None:
+        # TODO Add to help this saves to config file
         """
-        Turns on/off adding colors to JSON responses
+        Enables/disables adding colors to JSON responses
 
         Syntax:
-            setOutputColor {on|off}
+            json_color
         """
-
-        if not kwargs["parsed_args"].output_color:
-            self.output_response(
-                color_output(
-                    "Output colored responses is"
-                    f" {'on' if self.output_color else 'off'}",
-                    "info",
-                    self.disable_color,
-                )
-            )
-            return
-
-        if kwargs["parsed_args"].output_color.lower() not in ("on", "off"):
-            self.output_response(
-                color_output(
-                    "Color mode should be on or off", "warning", self.disable_color
-                )
-            )
-            return
-
-        if kwargs["parsed_args"].output_color.lower() == "on":
-            self.output_color = True
-            self.output_response(
-                color_output("Colored output is enabled", "info", self.disable_color)
-            )
-
-        if kwargs["parsed_args"].output_color.lower() == "off":
-            self.output_color = False
-            self.output_response(
-                color_output("Colored output is disabled", "info", self.disable_color)
-            )
+        self.color_json = not self.color_json
+        print_info(
+            f'Coloring of JSON responses {"enabled" if self.color_json else "disabled"}'
+        )
 
         self.write_config()
 
-    @sz_cmds_decorator()
-    def do_setOutputFormat(self, **kwargs):
+    # TODO Main help is currently wrong
+    def do_json_format(self, _: None) -> None:
+        # TODO Add to help this saves to config file
         """
-        Set output format for JSON responses
+        Switch output between json (tall json) and jsonl (json lines) for JSON responses
 
         Syntax:
-            setOutputFormat {jsonl|json}
+            json_format
         """
-
-        if not kwargs["parsed_args"].output_format:
-            self.output_response(
-                color_output(
-                    f"Current format is {self.format_json}",
-                    "info",
-                    self.disable_color,
-                )
-            )
-            return
-
-        if kwargs["parsed_args"].output_format.lower() not in ("json", "jsonl"):
-            self.output_response(
-                color_output(
-                    "Format should be json (tall json) or jsonl (json line)",
-                    "warning",
-                    self.disable_color,
-                )
-            )
-            return
-
-        self.output_response(
-            color_output(
-                f"JSON format set to {kwargs['parsed_args'].output_format.lower()}",
-                "info",
-                self.disable_color,
-            )
+        self.format_json = not self.format_json
+        print_info(
+            f'Formatting of JSON responses {"enabled" if self.format_json else "disabled"}'
         )
 
-        self.format_json = kwargs["parsed_args"].output_format.lower()
         self.write_config()
 
     # TODO Autocomplete themes?
+    # TODO Add themes to config?
     @sz_cmds_decorator()
     def do_setTheme(self, **kwargs):
         """
@@ -2333,15 +2219,12 @@ class SzCmdShell(cmd.Cmd):
             setTheme {default|light}
         """
         Colors.set_theme(kwargs["parsed_args"].theme[0])
-        print()
 
-    def do_timer(self, arg):
-        if self.timer_on:
-            self.timer_on = False
-            self.output_response("Timer is off", "success")
-        else:
-            self.timer_on = True
-            self.output_response("Timer is on", "success")
+    def do_timer(self, _: None) -> None:
+        """# TODO"""
+        self.timer = not self.timer
+        print_info(f'Timer {"enabled" if self.timer else "disabled"}')
+        self.write_config()
 
     # Support methods
 
@@ -2366,8 +2249,6 @@ class SzCmdShell(cmd.Cmd):
     def read_config(self) -> None:
         """# TODO"""
         # TODO Can be used in other tools, e.g. sz_configtool?
-        # TODO Move to helpers if so
-        # TODO Move this to init?
         path = pathlib.Path(sys.argv[0])
         file_str = f"~/.{path.stem.lower()}{'.ini'}"
         # TODO expanduser vs resolve, check _tool_helpers where resolve used
@@ -2380,17 +2261,16 @@ class SzCmdShell(cmd.Cmd):
                 with open(self.config_file, "r", encoding="utf-8") as _:
                     pass
                 read_config.read(self.config_file)
-                self.format_json = read_config["FORMATTING"].getboolean("FormatJson")
-                self.output_color = read_config["FORMATTING"].getboolean("OutputColor")
+                self.format_json = read_config["CONFIG"].getboolean("formatjson")
+                self.color_json = read_config["CONFIG"].getboolean("outputcolor")
+                self.timer = read_config["CONFIG"].getboolean("timer")
             except IOError as err:
                 print_warning(
                     f"Error reading configuration file: {err}",
-                    self.output_color,
                 )
             except (configparser.Error, KeyError) as err:
                 print_warning(
                     f"Error reading entries from configuration file: {err}",
-                    self.output_color,
                 )
         else:
             # If a configuration file doesn't exist attempt to create one
@@ -2402,31 +2282,32 @@ class SzCmdShell(cmd.Cmd):
             return
 
         write_config = configparser.ConfigParser()
-        write_config["FORMATTING"] = {
-            "FormatJson": f'{"True" if self.format_json else "False"}',
-            "OutputColor": f'{"True" if self.output_color else "False"}',
+        write_config["CONFIG"] = {
+            "formatjson": f'{"True" if self.format_json else "False"}',
+            "outputcolor": f'{"True" if self.color_json else "False"}',
+            "timer": f'{"True" if self.timer else "False"}',
         }
 
         try:
             with open(self.config_file, "w", encoding="utf-8") as config_file:
                 write_config.write(config_file)
         except IOError as err:
-            # Make a bool
+            # TODO Make a bool
             if self.config_error == 0:
                 print_warning(
                     f"Error saving configuration: {err}",
-                    self.output_color,
                 )
                 self.config_error += 1
         except configparser.Error as err:
             if self.config_error == 0:
                 print_warning(
                     f"Error writing configuration to the configuration file: {err}",
-                    self.output_color,
                 )
                 self.config_error += 1
 
-    # ===== Auto completers =====
+    # -------------------------------------------------------------------------
+    # Auto completers
+    # -------------------------------------------------------------------------
 
     # TODO Order
     def complete_addRecord(self, text, line, begidx, endidx):
@@ -2539,32 +2420,13 @@ class SzCmdShell(cmd.Cmd):
         if re.match("addConfigFile +", line):
             return self.path_completes(text, line, begidx, endidx, "addConfigFile")
 
-    def complete_processFile(self, text, line, begidx, endidx):
-        if re.match("processFile +", line):
-            return self.path_completes(text, line, begidx, endidx, "processFile")
-
     def complete_responseToFile(self, text, line, begidx, endidx):
         if re.match("responseToFile +", line):
             return self.path_completes(text, line, begidx, endidx, "responseToFile")
 
-    def complete_setOutputColor(self, text, line, begidx, endidx):
-        if re.match("setOutputColor +", line):
-            options = ["on", "off"]
-            return [
-                option for option in options if option.lower().startswith(text.lower())
-            ]
-        return None
 
-    def complete_setOutputFormat(self, text, line, begidx, endidx):
-        if re.match("setOutputFormat +", line):
-            options = ["json", "jsonl"]
-            return [
-                option for option in options if option.lower().startswith(text.lower())
-            ]
-        return None
-
-
-def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
+# TODO To helpers?
+def get_engine_flags(flags: Union[List[str], List[int]]) -> Union[int, None]:
     """Detect if int or named flags are used and convert to int ready to send to SDK call"""
 
     # For Senzing support team
@@ -2579,11 +2441,12 @@ def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
     # Named engine flag(s) were used, combine and return the int value
     if all(isinstance(f, type(flags[0])) for f in flags[1:]):
         try:
-            engine_flags = SzEngineFlags.combine_flags(flags)
+            engine_flags: int = SzEngineFlags.combine_flags(flags)
         except KeyError as err:
             raise KeyError(f"Invalid engine flag: {err}") from err
     else:
         # TODO Test
+        # TODO Color? Other places too
         raise TypeError(
             "Invalid type for one or more flag(s), value(s) should be a string"
         )
@@ -2591,24 +2454,23 @@ def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
     return engine_flags
 
 
-def main() -> None:
+def main(args: argparse.Namespace) -> None:
     """main"""
     first_loop = True
     restart = False
 
-    # TODO Move nearer to engine init
-    config = get_engine_config(cli_args.iniFile[0])
-    # config = "{}"
+    # Check we can locate an engine configuration
+    config = get_engine_config(args.iniFile[0])
 
     # Execute a file of commands
     # TODO Better way? https://pymotw.com/2/cmd/
-    if cli_args.fileToProcess:
-        cmd_obj = SzCmdShell(config, cli_args.debugTrace, cli_args.histDisable)
-        cmd_obj.fileloop(cli_args.fileToProcess)
+    if args.fileToProcess:
+        cmd_obj = SzCmdShell(config, args.debugTrace, args.histDisable)
+        cmd_obj.fileloop(args.fileToProcess)
     # Start command shell
     else:
         # Don't use args.debugTrace here, may need to restart
-        debug_trace = cli_args.debugTrace
+        debug_trace = args.debugTrace
 
         while first_loop or restart:
             # Have we been in the command shell already and are trying to quit? Used for restarting
@@ -2616,19 +2478,14 @@ def main() -> None:
                 break
 
             # TODO
-            cmd_obj = SzCmdShell(config, debug_trace, cli_args)
+            cmd_obj = SzCmdShell(config, debug_trace, args)
             cmd_obj.cmdloop()
-            # SzCmdShell(config, debug_trace, cli_args.histDisable).cmdloop()
 
             restart = (
                 True if cmd_obj.get_restart() or cmd_obj.get_restart_debug() else False
             )
             debug_trace = True if cmd_obj.get_restart_debug() else False
             first_loop = False
-
-
-# TODO Needed?
-__all__ = ["SzCmdShell"]
 
 
 if __name__ == "__main__":
@@ -2662,19 +2519,6 @@ if __name__ == "__main__":
         default=False,
         help="disable history file usage",
     )
-    # parser.add_argument(
-    #     "-C",
-    #     "--colorDisable",
-    #     action="store_true",
-    #     default=False,
-    #     help="start a session with coloring of output disabled",
-    # )
-    # parser.add_argument(
-    #     "-F",
-    #     "--formatDisable",
-    #     action="store_true",
-    #     default=False,
-    #     help="start a session with the formatting of JSON disabled",
-    # )
+
     cli_args = parser.parse_args()
-    main()
+    main(cli_args)

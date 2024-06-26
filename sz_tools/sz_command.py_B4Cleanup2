@@ -1,14 +1,18 @@
 #! /usr/bin/env python3
 
 """ # TODO """
+# TODO Check all outputs using appropriate print_ helper
+# TODO Test all completers work
+
 
 import argparse
 import cmd
 import configparser
 import functools
-import json
+import glob
 import os
 import pathlib
+import re
 import shlex
 import sys
 import textwrap
@@ -21,14 +25,18 @@ from _tool_helpers import (
     colorize_str,
     do_help,
     do_history,
+    do_responseReformatJson,
+    do_responseToClipboard,
+    do_responseToFile,
     do_shell,
     get_engine_config,
     history_setup,
     print_error,
-    print_sdk_response,
+    print_info,
+    print_response,
+    print_warning,
 )
-from senzing import (
-    SzConfig,
+from senzing import (  # SzConfig,
     SzConfigManager,
     SzDiagnostic,
     SzEngine,
@@ -37,31 +45,36 @@ from senzing import (
     SzProduct,
 )
 
-try:
-    import pyperclip
-
-    PYPERCLIP_AVAIL = True
-except ImportError:
-    PYPERCLIP_AVAIL = False
-
-# TODO Will go when print_with_new_lines goes
-try:
-    import orjson  # type: ignore
-
-    ORJSON_AVAIL = True
-except ImportError:
-    ORJSON_AVAIL = False
-
 T = TypeVar("T")
 P = ParamSpec("P")
 RT = TypeVar("RT")
 
+# Per command JSON formatting options used in decorator
+# TODO Add timer?
+formatters = [
+    "json",
+    "jsonl",
+    "color",
+    "colour",
+    "nocolor",
+    "nocolour",
+]
 
+
+# -------------------------------------------------------------------------
 # Metadata
+# -------------------------------------------------------------------------
 
+# TODO Needed for helpers?
+__all__ = ["SzCmdShell"]
 __version__ = "0.0.1"  # See https://www.python.org/dev/peps/pep-0396/
 __date__ = "2024-06-13"
 __updated__ = "2024-06-13"
+
+
+# -------------------------------------------------------------------------
+# Decorators
+# -------------------------------------------------------------------------
 
 
 # TODO Wrapped wrapper!
@@ -81,48 +94,44 @@ def sz_cmds_decorator(
         def wrapper(self, *args: Any, **kwargs: Any) -> Union[None, RT]:
             cmd_args = args[0]
 
-            # Check if command has formatters for JSON and color formatting
-            formatters = [
-                "json",
-                "jsonl",
-                "color",
-                "colour",
-                "nocolor",
-                "nocolour",
-            ]
+            # Check if command has formatters for JSON
+            if any(x in cmd_args for x in formatters):
 
-            # Capture end of args to detect if formatters and present
-            # Reverse the list to use rstrip() to remove formatters
-            cmd_formatters = cmd_args[-13:].split(" ")
-            cmd_formatters.reverse()
+                # Capture end of args to detect if formatters are present
+                # Reverse the list to use rstrip() to remove formatters
+                cmd_formatters = cmd_args[-13:].split(" ")
+                cmd_formatters.reverse()
 
-            for format_ in (f for f in cmd_formatters if f.lower() in formatters):
-                if format_.lower() in ["json", "jsonl"]:
-                    self.json_output_format = format_.lower()
-                if format_.lower() in ["color", "colour"]:
-                    self.json_output_color = True
-                if format_.lower() in ["nocolor", "nocolour"]:
-                    self.json_output_color = False
+                for format_ in (f for f in cmd_formatters if f.lower() in formatters):
+                    if format_.lower() in ["json", "jsonl"]:
+                        self.cmd_format = True
+                        if format_.lower() == "json":
+                            self.format_json_cmd = True
+                        if format_.lower() == "jsonl":
+                            self.format_json_cmd = False
 
-                # Don't remove formatters if we are setting formatting options
-                if func.__name__ not in ["do_setOutputFormat", "do_setOutputColor"]:
-                    cmd_args = cmd_args.rstrip(format_).rstrip()  # type: ignore
+                    if format_.lower() in ["color", "colour", "nocolor", "nocolour"]:
+                        self.cmd_color = True
+                        if format_.lower() in ["color", "colour"]:
+                            self.color_json_cmd = True
+                        if format_.lower() in ["nocolor", "nocolour"]:
+                            self.color_json_cmd = False
+
+                    # # Don't remove formatters if we are setting formatting options
+                    # if func.__name__ not in ["do_setOutputFormat", "do_setOutputColor"]:
+                    #     cmd_args = cmd_args.rstrip(format_).rstrip()  # type: ignore
 
             if cmd_has_args:
                 try:
-                    # Parse args for a command
+                    # Parse arguments for a command and add to kwargs
+                    # to use in calling method
                     kwargs["parsed_args"] = self.parser.parse_args(
                         [f"{func.__name__[3:]}"] + self.parse(cmd_args)
                     )
 
-                    # Create a dict with a key of "flags" to unpack in calling
-                    # methods for flag argument in szengine methods
-                    if hasattr(kwargs["parsed_args"], "flags"):
-                        kwargs["flags_dict"] = (
-                            {"flags": get_engine_flags(kwargs["parsed_args"].flags)}
-                            if kwargs["parsed_args"].flags
-                            else {}
-                        )
+                    if "flags" in kwargs["parsed_args"] and kwargs["parsed_args"].flags:
+                        kwargs["flags"] = get_engine_flags(kwargs["parsed_args"].flags)
+
                 # Catch argument errors from parser and display the commands help
                 except SystemExit:
                     self.do_help(func.__name__)
@@ -132,41 +141,44 @@ def sz_cmds_decorator(
                 except ValueError:
                     return None
                 except KeyError as err:
+                    # TODO Test this
                     print_error(err)
                     return None
 
-            # Run the decorated function passing back args
+            # Run the decorated method passing back kwargs for use in SDK call
             try:
-                if self.timer_on:
+                if self.timer:
                     timer_start = time.perf_counter()
                 func(self, **kwargs)  # type: ignore
-                if self.timer_on:
+                if self.timer:
                     exec_time = time.perf_counter() - timer_start
-                    print(
-                        colorize_output(
-                            f"\nApproximate execution time (s): {exec_time:.5f}\n",
-                            "info",
-                            self.disable_color,
-                        )
+                    print_info(
+                        f"Approximate execution time (s): {exec_time:.5f}",
                     )
             except (SzError, IOError) as err:
                 print_error(err)
+            finally:
+                # TODO
+                self.format_json_cmd = False
+                self.color_json_cmd = False
+                self.cmd_color = False
+                self.cmd_format = False
 
         return wrapper
 
     return decorator
 
 
-# Override argparse error to format message
+# -------------------------------------------------------------------------
+# Classes
+# -------------------------------------------------------------------------
 class SzCommandArgumentParser(argparse.ArgumentParser):
     """Subclass ArgumentParser, override error() with custom message"""
 
     def error(self, message: str) -> NoReturn:
         self.exit(
             2,
-            colorize_output(
-                f"\nERROR: {self.prog} - {message}\n", "error", cli_args.colorDisable
-            ),
+            colorize_output(f"\nERROR: {self.prog} - {message}\n", "error"),
         )
 
 
@@ -176,7 +188,39 @@ class SzCmdShell(cmd.Cmd):
     def __init__(self, engine_settings: str, debug: bool, args_cli: argparse.Namespace):
         super().__init__()
 
+        # TODO Check all self. are still used
         # TODO Order init vars or leave in groups?
+
+        # Acquire Senzing API engines
+        self.debug_trace = debug
+        self.engine_settings = engine_settings
+
+        try:
+            self.sz_engine = SzEngine(
+                "pySzEngine",
+                self.engine_settings,
+                verbose_logging=self.debug_trace,
+            )
+            self.sz_product = SzProduct(
+                "pySzProduct", self.engine_settings, self.debug_trace
+            )
+            self.sz_diagnostic = SzDiagnostic(
+                "pySzDiagnostic", self.engine_settings, verbose_logging=self.debug_trace
+            )
+            # self.sz_config = SzConfig(
+            #     "pySzConfig", self.engine_settings, verbose_logging=self.debug_trace
+            # )
+            self.sz_configmgr = SzConfigManager(
+                "pySzConfigmgr", self.engine_settings, verbose_logging=self.debug_trace
+            )
+        except SzError as err:
+            print(err)
+            sys.exit(1)
+
+        # TODO Move to helpers if repeated
+        # Get engine flags for use in auto completion
+        self.engine_flags_list = list(SzEngineFlags.__members__.keys())
+
         # Hide methods - could be deprecated, undocumented, not supported, experimental
         self.__hidden_cmds = (
             "do_EOF",
@@ -189,58 +233,46 @@ class SzCmdShell(cmd.Cmd):
             "do_shell",
         )
 
-        # TODO
-        # self.sz_engine = None
-        # self.sz_product = None
-        # self.sz_diagnostic = None
-        # self.sz_config = None
-        # self.sz_configmgr = None
-        self.engine_settings = engine_settings
-
-        # TODO Move to helpers if repeated
-        # Get engine flags for use in auto completion
-        self.engine_flags_list = list(SzEngineFlags.__members__.keys())
-
+        # Cmd module settings
         self.intro = ""
         self.prompt = "(szcmd) "
-
-        # TODO Break these out when ordering
-        self.initialized = self.restart = self.restart_debug = self.quit = (
-            self.timer_on
-        ) = False
-        self.debug_trace = debug
-        self.timer_start = self.timer_end = None
-        self.last_response = ""
 
         # Readline and history
         self.hist_avail = False
         self.history_disable = args_cli.histDisable
         self.hist_file_name = self.hist_file_error = None
 
-        # Setup for pretty printing
-        self.json_output_color: bool = True
-        self.json_output_format: str = "json"
-        self.disable_color = args_cli.colorDisable
-        self.disable_format = args_cli.formatDisable
-        self.response: str = ""
+        # For pretty printing JSON responses
+        self.cmd_color = False
+        self.cmd_format = False
+        self.color_json = True
+        self.color_json_cmd = False
+        self.format_json = False
+        self.format_json_cmd = False
 
-        # Only display can't read/write config message once, not at all in container
+        # General
+        self.initialized = False
+        self.last_response = ""
+        self.quit = False
+        self.restart = False
+        self.restart_debug = False
+        self.timer = False
+
+        # Display can't read/write config message once, not at all in container
         self.config_error = 0
         env_launched = os.getenv("SENZING_DOCKER_LAUNCHED", None)
         self.docker_launched = (
             True if env_launched in ("y", "yes", "t", "true", "on", "1") else False
         )
 
-        # TODO Partial functions
-        self.print_response = functools.partial(
-            print_sdk_response,
-            self,
-        )
-
+        # -------------------------------------------------------------------------
         # do_* command parsers
+        # -------------------------------------------------------------------------
 
         self.parser = SzCommandArgumentParser(
-            add_help=False, prog="sz_command", usage=argparse.SUPPRESS
+            add_help=False,
+            prog="sz_command",
+            usage=argparse.SUPPRESS,
         )
         self.subparsers = self.parser.add_subparsers()
 
@@ -563,6 +595,19 @@ class SzCmdShell(cmd.Cmd):
             "theme", choices=["dark", "default", "light"], nargs=1
         )
 
+    # TODO Explain why doing this
+    def output_response(self, response: Union[int, str], color: str = "") -> str:
+        """# TODO"""
+        return print_response(
+            response,
+            self.color_json,
+            self.color_json_cmd,
+            self.format_json,
+            self.format_json_cmd,
+            self.cmd_color,
+            self.cmd_format,
+        )
+
     def completenames(self, text: str, *ignored: Any) -> List[str]:
         """Override function from cmd module to make command completion case-insensitive"""
         do_text = "do_" + text
@@ -598,41 +643,11 @@ class SzCmdShell(cmd.Cmd):
         # Initially set theme to use the default colors set by the terminal
         Colors.set_theme("TERMINAL")
 
-        try:
-            self.sz_engine = SzEngine(
-                # TODO Change instance name in all tools
-                "pySzEngine",
-                self.engine_settings,
-                verbose_logging=debug_trace,
-            )
-            self.sz_product = SzProduct(
-                "pySzProduct", self.engine_settings, debug_trace
-            )
-            self.sz_diagnostic = SzDiagnostic(
-                "pySzDiagnostic", self.engine_settings, verbose_logging=debug_trace
-            )
-            self.sz_config = SzConfig(
-                "pySzConfig", self.engine_settings, verbose_logging=debug_trace
-            )
-            self.sz_configmgr = SzConfigManager(
-                "pySzConfigmgr", self.engine_settings, verbose_logging=debug_trace
-            )
-        except SzError as err:
-            print_error(err)
-            self.postloop()
-            sys.exit(1)
-
         self.initialized = True
 
-        print(
-            # TODO
-            # colorize_output("Welcome to sz_command. Type help or ? for help", "highlight2")
-            colorize_output(
-                "\nWelcome to sz_command. Type help or ? for help\n",
-                "highlight1",
-                self.disable_color,
-            )
-        )
+        # TODO
+        # colorize_output("Welcome to sz_command. Type help or ? for help", "highlight2")
+        print_info("Welcome to sz_command. Type help or ? for help")
 
     def postloop(self) -> None:
         self.initialized = False
@@ -641,6 +656,7 @@ class SzCmdShell(cmd.Cmd):
         return cmd.Cmd.precmd(self, line)
 
     def postcmd(self, stop: bool, line: str) -> bool:
+        # TODO
         # If restart has been requested, set stop value to True to restart engines in main loop
         if self.restart:
             return cmd.Cmd.postcmd(self, True, line)
@@ -687,7 +703,6 @@ class SzCmdShell(cmd.Cmd):
                     colorize_output(
                         "\n\nAre you sure you want to exit? (y/n) ",
                         "caution",
-                        self.disable_color,
                     )
                 ) in ["y", "Y", "yes", "YES"]:
                     break
@@ -697,6 +712,8 @@ class SzCmdShell(cmd.Cmd):
                 print_error(err)
 
     # TODO single input commands too
+    # TODO Move to helpers for G2ConfigTool? - No, they are different
+    # TODO Engines are currently in preloop, move to init?
     def fileloop(self, file_name: str) -> None:
         """# TODO"""
         self.preloop()
@@ -726,7 +743,7 @@ class SzCmdShell(cmd.Cmd):
                         print(colorize_output("Command could not be run!", "error"))
                         print_error(err)
 
-    def do_hidden(self, _) -> None:  # type: ignore[no-untyped-def]
+    def do_hidden(self, _: None) -> None:
         """# TODO"""
         print()
         print("\n".join(map(str, self.__hidden_cmds)))
@@ -744,8 +761,8 @@ class SzCmdShell(cmd.Cmd):
         self.do_help()
 
     # TODO Check help is still correct
-    @staticmethod
-    def help_overview() -> None:
+    # @staticmethod
+    def help_overview(self) -> None:
         """# TODO"""
         print(
             textwrap.dedent(
@@ -823,12 +840,40 @@ class SzCmdShell(cmd.Cmd):
         """# TODO"""
         do_history(self, None)
 
-    # ----- Senzing Commands -----
+    # -----------------------------------------------------------------------------
+    # SDK commands
+    # -----------------------------------------------------------------------------
 
+    # -----------------------------------------------------------------------------
     # szconfig commands
+    # -----------------------------------------------------------------------------
 
     # TODO Add a note this isn't an API?
     # TODO Reorder
+
+    @sz_cmds_decorator(cmd_has_args=False)
+    def do_getTemplateConfig(self) -> None:
+        """
+        Get a template configuration
+
+        Syntax:
+            getTemplateConfig
+
+        Notes:
+            - Use responseToClipboard to send output to clipboard
+
+            - Use responseToFile to send output to a file
+        """
+
+        config_handle = self.sz_config.create_config()
+        response = self.sz_config.export_config(config_handle)
+        self.sz_config.close_config(config_handle)
+        self.output_response(response)
+
+    # -----------------------------------------------------------------------------
+    # szconfigmanager commands
+    # -----------------------------------------------------------------------------
+
     @sz_cmds_decorator()
     def do_getConfig(
         self, **kwargs: Dict[str, Any]
@@ -850,26 +895,11 @@ class SzCmdShell(cmd.Cmd):
 
             - Retrieve a list of configurations and identifiers with getConfigList"""
 
-        response = self.sz_configmgr.get_config(kwargs["parsed_args"].config_id)
-        self.print_response(response)
+        response = self.sz_configmgr.get_config(kwargs["parsed_args"].config_id)  # type: ignore
+        self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getTemplateConfig(self, **kwargs):
-        """
-        Get a template configuration
-
-        Syntax:
-            getTemplateConfig"""
-
-        configHandle = self.sz_config.create_config()
-        response = self.sz_config.export_config(configHandle)
-        self.sz_config.close_config(configHandle)
-        self.print_response(response)
-
-    # szconfigmgr commands
-
-    @sz_cmds_decorator(cmd_has_args=False)
-    def do_getConfigs(self, **kwargs):
+    def do_getConfigs(self) -> None:
         """
         Get a list of current configurations
 
@@ -877,10 +907,10 @@ class SzCmdShell(cmd.Cmd):
             getConfigList"""
 
         response = self.sz_configmgr.get_configs()
-        self.print_response(response)
+        self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getDefaultConfigID(self, **kwargs):
+    def do_getDefaultConfigID(self) -> None:
         """
         Get the default configuration ID
 
@@ -888,10 +918,10 @@ class SzCmdShell(cmd.Cmd):
             getDefaultConfigID"""
 
         response = self.sz_configmgr.get_default_config_id()
-        self.print_response(response, "success")
+        self.output_response(response, "success")
 
     @sz_cmds_decorator()
-    def do_replaceDefaultConfigID(self, **kwargs):
+    def do_replaceDefaultConfigID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Replace the default configuration ID
 
@@ -912,11 +942,14 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].current_default_config_id,
             kwargs["parsed_args"].new_default_config_id,
         )
-        self.print_response("New default config set, restarting engines...", "success")
-        self.do_restart(None) if not self.debug_trace else self.do_restartDebug(None)
+        self.output_response("New default config set, restarting engines...", "success")
+        if self.debug_trace:
+            self.do_restartDebug(None)
+        else:
+            self.do_restart(None)
 
     @sz_cmds_decorator()
-    def do_setDefaultConfigID(self, **kwargs):
+    def do_setDefaultConfigID(self, **kwargs):  # type: ignore[no-untyped-def]
         """
         Set the default configuration ID
 
@@ -933,13 +966,18 @@ class SzCmdShell(cmd.Cmd):
             - Retrieve a list of configurations and identifiers with getConfigList"""
 
         self.sz_configmgr.set_default_config_id(kwargs["parsed_args"].config_id)
-        self.print_response("Default config set, restarting engines...", "success")
-        self.do_restart(None) if not self.debug_trace else self.do_restartDebug(None)
+        self.output_response("Default config set, restarting engines...", "success")
+        if self.debug_trace:
+            self.do_restartDebug(None)
+        else:
+            self.do_restart(None)
 
+    # -----------------------------------------------------------------------------
     # szdiagnostic commands
+    # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator()
-    def do_checkDatastorePerformance(self, **kwargs):
+    def do_checkDatastorePerformance(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Run a performance check on the database
 
@@ -953,10 +991,10 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_diagnostic.check_datastore_performance(
             kwargs["parsed_args"].secondsToRun
         )
-        self.print_response(response)
+        self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getDatastoreInfo(self, **kwargs):
+    def do_getDatastoreInfo(self) -> None:
         """
         Get data store information
 
@@ -964,10 +1002,10 @@ class SzCmdShell(cmd.Cmd):
             getDatastoreInfo"""
 
         response = self.sz_diagnostic.get_datastore_info()
-        self.print_response(response)
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_getFeature(self, **kwargs):
+    def do_getFeature(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Get feature information
 
@@ -981,10 +1019,10 @@ class SzCmdShell(cmd.Cmd):
             FEATURE_ID = Identifier of feature"""
 
         response = self.sz_diagnostic.get_feature(kwargs["parsed_args"].featureID)
-        self.print_response(response)
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_purgeRepository(self, **kwargs):
+    def do_purgeRepository(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Purge Senzing database of all data
 
@@ -1014,7 +1052,6 @@ class SzCmdShell(cmd.Cmd):
                 Are you sure you want to purge the senzing database? (y/n) """
             ),
             "warning",
-            self.disable_color,
         )
 
         if not kwargs["parsed_args"].force_purge:
@@ -1022,21 +1059,14 @@ class SzCmdShell(cmd.Cmd):
                 print()
                 return
 
-        # if kwargs["parsed_args"].noReset:
-        #     reset_resolver = False
-        #     resolver_txt = "(without resetting resolver)"
-        # else:
-        #     reset_resolver = True
-        #     resolver_txt = "(and resetting resolver)"
-
-        # self.printResponse(f"Purging the Senzing database {resolver_txt}...", "info")
-        # self.sz_engine.purgeRepository(reset_resolver)
         self.sz_diagnostic.purge_repository()
 
+    # -----------------------------------------------------------------------------
     # szengine commands
+    # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator()
-    def do_addRecord(self, **kwargs):
+    def do_addRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Add a record and optionally return information
 
@@ -1053,20 +1083,35 @@ class SzCmdShell(cmd.Cmd):
             RECORD_DEFINITION = Senzing mapped JSON representation of a record
             FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
-        response = self.sz_engine.add_record(
-            kwargs["parsed_args"].data_source_code,
-            kwargs["parsed_args"].record_id,
-            kwargs["parsed_args"].record_definition,
-            **kwargs["flags_dict"],
-        )
+        # response = self.sz_engine.add_record(
+        #     kwargs["parsed_args"].data_source_code,
+        #     kwargs["parsed_args"].record_id,
+        #     kwargs["parsed_args"].record_definition,
+        #     **kwargs["flags_dict"],
+        # )
+
+        # TODO Consider making all flag using methods partial functions
+        if "flags" in kwargs:
+            response = self.sz_engine.add_record(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+                kwargs["parsed_args"].record_definition,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.add_record(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+                kwargs["parsed_args"].record_definition,
+            )
 
         if response == "{}":
-            self.print_response("Record added.", "success")
+            self.output_response("Record added.", "success")
         else:
-            self.print_response(response)
+            self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_countRedoRecords(self, **kwargs):
+    def do_countRedoRecords(self) -> None:
         """
         Counts the number of records in the redo queue
 
@@ -1075,12 +1120,12 @@ class SzCmdShell(cmd.Cmd):
 
         response = self.sz_engine.count_redo_records()
         if not response:
-            self.print_response("No redo records.", "info")
+            self.output_response("No redo records.", "info")
         else:
-            self.print_response(response, "success")
+            self.output_response(response, "success")
 
     @sz_cmds_decorator()
-    def do_deleteRecord(self, **kwargs):
+    def do_deleteRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Delete a record and optionally return information
 
@@ -1097,21 +1142,33 @@ class SzCmdShell(cmd.Cmd):
             FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
 
-        response = self.sz_engine.delete_record(
-            kwargs["parsed_args"].data_source_code,
-            kwargs["parsed_args"].record_id,
-            **kwargs["flags_dict"],
-        )
+        # response = self.sz_engine.delete_record(
+        #     kwargs["parsed_args"].data_source_code,
+        #     kwargs["parsed_args"].record_id,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.delete_record(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.delete_record(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+            )
 
         if response == "{}":
-            self.print_response("Record deleted.", "success")
+            self.output_response("Record deleted.", "success")
         else:
-            self.print_response(response)
+            self.output_response(response)
 
     # TODO Fix flag names and check all still valid
     # TODO Check available columns for V4
     @sz_cmds_decorator()
-    def do_exportCSVEntityReport(self, **kwargs):
+    def do_exportCSVEntityReport(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Export repository contents as CSV
 
@@ -1145,10 +1202,21 @@ class SzCmdShell(cmd.Cmd):
         rec_cnt = 0
 
         try:
-            with open(kwargs["parsed_args"].output_file, "w") as data_out:
-                export_handle = self.sz_engine.export_csv_entity_report(
-                    kwargs["parsed_args"].csv_column_list, **kwargs["flags_dict"]
-                )
+            with open(
+                kwargs["parsed_args"].output_file, "w", encoding="utf-8"
+            ) as data_out:
+                # export_handle = self.sz_engine.export_csv_entity_report(
+                #     kwargs["parsed_args"].csv_column_list, **kwargs["flags_dict"]
+                # )
+
+                if "flags" in kwargs:
+                    export_handle = self.sz_engine.export_csv_entity_report(
+                        kwargs["parsed_args"].csv_column_list, kwargs["flags"]
+                    )
+                else:
+                    export_handle = self.sz_engine.export_csv_entity_report(
+                        kwargs["parsed_args"].csv_column_list,
+                    )
 
                 while True:
                     export_record = self.sz_engine.fetch_next(export_handle)
@@ -1163,10 +1231,10 @@ class SzCmdShell(cmd.Cmd):
         except (SzError, IOError) as err:
             print_error(err)
         else:
-            self.print_response(f"Total exported records: {rec_cnt}", "success")
+            self.output_response(f"Total exported records: {rec_cnt}", "success")
 
     @sz_cmds_decorator()
-    def do_exportJSONEntityReport(self, **kwargs):
+    def do_exportJSONEntityReport(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Export repository contents as JSON
 
@@ -1195,10 +1263,20 @@ class SzCmdShell(cmd.Cmd):
         rec_cnt = 0
 
         try:
-            with open(kwargs["parsed_args"].output_file, "w") as data_out:
-                export_handle = self.sz_engine.export_json_entity_report(
-                    **kwargs["flags_dict"]
-                )
+            with open(
+                kwargs["parsed_args"].output_file, "w", encoding="utf-8"
+            ) as data_out:
+                # export_handle = self.sz_engine.export_json_entity_report(
+                #     **kwargs["flags_dict"]
+                # )
+
+                if "flags" in kwargs:
+                    export_handle = self.sz_engine.export_json_entity_report(
+                        kwargs["flags"]
+                    )
+                else:
+                    export_handle = self.sz_engine.export_json_entity_report()
+
                 while True:
                     export_record = self.sz_engine.fetch_next(export_handle)
                     if not export_record:
@@ -1212,10 +1290,10 @@ class SzCmdShell(cmd.Cmd):
         except (SzError, IOError) as err:
             print_error(err)
         else:
-            self.print_response(f"Total exported records: {rec_cnt}", "success")
+            self.output_response(f"Total exported records: {rec_cnt}", "success")
 
     @sz_cmds_decorator()
-    def do_findInterestingEntitiesByEntityID(self, **kwargs):
+    def do_findInterestingEntitiesByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Find interesting entities close to an entity by resolved entity identifier
 
@@ -1235,13 +1313,23 @@ class SzCmdShell(cmd.Cmd):
             - Experimental feature requires additional configuration, contact support@senzing.com
         """
 
-        response = self.sz_engine.find_interesting_entities_by_entity_id(
-            kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
-        )
-        self.print_response(response)
+        # response = self.sz_engine.find_interesting_entities_by_entity_id(
+        #     kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.find_interesting_entities_by_entity_id(
+                kwargs["parsed_args"].entity_id, kwargs["flags"]
+            )
+        else:
+            response = self.sz_engine.find_interesting_entities_by_entity_id(
+                kwargs["parsed_args"].entity_id
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_findInterestingEntitiesByRecordID(self, **kwargs):
+    def do_findInterestingEntitiesByRecordID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Find interesting entities close to an entity by record identifier
 
@@ -1262,15 +1350,28 @@ class SzCmdShell(cmd.Cmd):
             - Experimental feature requires additional configuration, contact support@senzing.com
         """
 
-        response = self.sz_engine.find_interesting_entities_by_record_id(
-            kwargs["parsed_args"].data_source_code,
-            kwargs["parsed_args"].record_id,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.find_interesting_entities_by_record_id(
+        #     kwargs["parsed_args"].data_source_code,
+        #     kwargs["parsed_args"].record_id,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.find_interesting_entities_by_record_id(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.find_interesting_entities_by_record_id(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_findNetworkByEntityID(self, **kwargs):
+    def do_findNetworkByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Find network between entities
 
@@ -1290,17 +1391,34 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.find_network_by_entity_id(
-            kwargs["parsed_args"].entity_list,
-            kwargs["parsed_args"].max_degrees,
-            kwargs["parsed_args"].build_out_degree,
-            kwargs["parsed_args"].max_entities,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.find_network_by_entity_id(
+        #     kwargs["parsed_args"].entity_list,
+        #     kwargs["parsed_args"].max_degrees,
+        #     kwargs["parsed_args"].build_out_degree,
+        #     kwargs["parsed_args"].max_entities,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.find_network_by_entity_id(
+                kwargs["parsed_args"].entity_list,
+                kwargs["parsed_args"].max_degrees,
+                kwargs["parsed_args"].build_out_degree,
+                kwargs["parsed_args"].max_entities,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.find_network_by_entity_id(
+                kwargs["parsed_args"].entity_list,
+                kwargs["parsed_args"].max_degrees,
+                kwargs["parsed_args"].build_out_degree,
+                kwargs["parsed_args"].max_entities,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_findNetworkByRecordID(self, **kwargs):
+    def do_findNetworkByRecordID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Find network between records
 
@@ -1320,17 +1438,34 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.find_network_by_record_id(
-            kwargs["parsed_args"].record_list,
-            kwargs["parsed_args"].max_degrees,
-            kwargs["parsed_args"].build_out_degree,
-            kwargs["parsed_args"].max_entities,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.find_network_by_record_id(
+        #     kwargs["parsed_args"].record_list,
+        #     kwargs["parsed_args"].max_degrees,
+        #     kwargs["parsed_args"].build_out_degree,
+        #     kwargs["parsed_args"].max_entities,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.find_network_by_record_id(
+                kwargs["parsed_args"].record_list,
+                kwargs["parsed_args"].max_degrees,
+                kwargs["parsed_args"].build_out_degree,
+                kwargs["parsed_args"].max_entities,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.find_network_by_record_id(
+                kwargs["parsed_args"].record_list,
+                kwargs["parsed_args"].max_degrees,
+                kwargs["parsed_args"].build_out_degree,
+                kwargs["parsed_args"].max_entities,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_findPathByEntityID(self, **kwargs):
+    def do_findPathByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Find a path between two entities
 
@@ -1351,22 +1486,41 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.find_path_by_entity_id(
-            kwargs["parsed_args"].start_entity_id,
-            kwargs["parsed_args"].end_entity_id,
-            kwargs["parsed_args"].max_degrees,
-            kwargs["parsed_args"].exclusions,
-            kwargs["parsed_args"].required_data_sources,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.find_path_by_entity_id(
+        #     kwargs["parsed_args"].start_entity_id,
+        #     kwargs["parsed_args"].end_entity_id,
+        #     kwargs["parsed_args"].max_degrees,
+        #     kwargs["parsed_args"].exclusions,
+        #     kwargs["parsed_args"].required_data_sources,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.find_path_by_entity_id(
+                kwargs["parsed_args"].start_entity_id,
+                kwargs["parsed_args"].end_entity_id,
+                kwargs["parsed_args"].max_degrees,
+                kwargs["parsed_args"].exclusions,
+                kwargs["parsed_args"].required_data_sources,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.find_path_by_entity_id(
+                kwargs["parsed_args"].start_entity_id,
+                kwargs["parsed_args"].end_entity_id,
+                kwargs["parsed_args"].max_degrees,
+                kwargs["parsed_args"].exclusions,
+                kwargs["parsed_args"].required_data_sources,
+            )
+
+        self.output_response(response)
 
     # TODO Wording on exclusions
     # TODO Examples with list of entity ids when szengine supports it
     # TODO EXCLUSIONS ... ?
     # TODO Autocomplete data sources? And on other methods?
     @sz_cmds_decorator()
-    def do_findPathByRecordID(self, **kwargs):
+    def do_findPathByRecordID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Find a path between two records
 
@@ -1389,72 +1543,54 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.find_path_by_record_id(
-            kwargs["parsed_args"].start_data_source_code,
-            kwargs["parsed_args"].start_record_id,
-            kwargs["parsed_args"].end_data_source_code,
-            kwargs["parsed_args"].end_record_id,
-            kwargs["parsed_args"].max_degrees,
-            kwargs["parsed_args"].exclusions,
-            kwargs["parsed_args"].required_data_sources,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.find_path_by_record_id(
+        #     kwargs["parsed_args"].start_data_source_code,
+        #     kwargs["parsed_args"].start_record_id,
+        #     kwargs["parsed_args"].end_data_source_code,
+        #     kwargs["parsed_args"].end_record_id,
+        #     kwargs["parsed_args"].max_degrees,
+        #     kwargs["parsed_args"].exclusions,
+        #     kwargs["parsed_args"].required_data_sources,
+        #     **kwargs["flags_dict"],
+        # )
 
-    # TODO Wording on exclusions
-    # TODO Examples with list of entity ids when szengine supports it
-    # TODO EXCLUSIONS ... ?
-    # TODO Autocomplete data sources? And on other methods?
-    @sz_cmds_decorator()
-    def do_findPathByRecordID(self, **kwargs):
-        """
-        Find a path between two records
+        if "flags" in kwargs:
+            response = self.sz_engine.find_path_by_record_id(
+                kwargs["parsed_args"].start_data_source_code,
+                kwargs["parsed_args"].start_record_id,
+                kwargs["parsed_args"].end_data_source_code,
+                kwargs["parsed_args"].end_record_id,
+                kwargs["parsed_args"].max_degrees,
+                kwargs["parsed_args"].exclusions,
+                kwargs["parsed_args"].required_data_sources,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.find_path_by_record_id(
+                kwargs["parsed_args"].start_data_source_code,
+                kwargs["parsed_args"].start_record_id,
+                kwargs["parsed_args"].end_data_source_code,
+                kwargs["parsed_args"].end_record_id,
+                kwargs["parsed_args"].max_degrees,
+                kwargs["parsed_args"].exclusions,
+                kwargs["parsed_args"].required_data_sources,
+            )
 
-        Syntax:
-            findPathByRecordID START_DSRC_CODE START_RECORD_ID END_DSRC_CODE END_RECORD_ID MAX_DEGREES [-e EXCLUSIONS] [-r REQUIRED_DATA_SOURCES] [-f FLAG ...]
-
-        Example:
-            findPathByRecordID reference 2141 reference 2121 6
-
-        Arguments:
-            START_DSRC_CODE = Data source code
-            START_RECORD_ID = Record identifier
-            END_DSRC_CODE = Data source code
-            END_RECORD_ID = Record identifier
-            MAX_DEGREES = Maximum number of relationships to search for a path
-            EXCLUSIONS = Exclude specified entity IDs or record IDs from the path, default is no exclusions
-            REQUIRED_DATA_SOURCES = An entity on the path has specified data source(s), default is no required data sources
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
-
-        Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
-
-        response = self.sz_engine.find_path_by_record_id(
-            kwargs["parsed_args"].start_data_source_code,
-            kwargs["parsed_args"].start_record_id,
-            kwargs["parsed_args"].end_data_source_code,
-            kwargs["parsed_args"].end_record_id,
-            kwargs["parsed_args"].max_degrees,
-            kwargs["parsed_args"].exclusions,
-            kwargs["parsed_args"].required_data_sources,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getActiveConfigID(self, **kwargs):
+    def do_getActiveConfigID(self) -> None:
         """
         Get the active configuration identifier
 
         Syntax:
             getActiveConfigID"""
 
-        self.response = self.sz_engine.get_active_config_id()
-        self.print_response(self.response, "success")
-        # self.print_sdk_response2("success")
+        response = self.sz_engine.get_active_config_id()
+        self.output_response(response, "success")
 
     @sz_cmds_decorator()
-    def do_getEntityByEntityID(self, **kwargs):
+    def do_getEntityByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Get entity by resolved entity identifier
 
@@ -1472,13 +1608,25 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.get_entity_by_entity_id(
-            kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
-        )
-        self.print_response(response)
+        # response = self.sz_engine.get_entity_by_entity_id(
+        #     kwargs["parsed_args"].entity_id,
+        #     **kwargs["flags_dict"],
+        #     # kwargs["parsed_args"].entity_id,
+        #     # kwargs["flags"],
+        # )
+        if "flags" in kwargs:
+            response = self.sz_engine.get_entity_by_entity_id(
+                kwargs["parsed_args"].entity_id, kwargs["flags"]
+            )
+        else:
+            response = self.sz_engine.get_entity_by_entity_id(
+                kwargs["parsed_args"].entity_id
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_getEntityByRecordID(self, **kwargs):
+    def do_getEntityByRecordID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Get entity by data source code and record identifier
 
@@ -1497,15 +1645,28 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.get_entity_by_record_id(
-            kwargs["parsed_args"].data_source_code,
-            kwargs["parsed_args"].record_id,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.get_entity_by_record_id(
+        #     kwargs["parsed_args"].data_source_code,
+        #     kwargs["parsed_args"].record_id,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.get_entity_by_record_id(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.get_entity_by_record_id(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_getRecord(self, **kwargs):
+    def do_getRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Get a record
 
@@ -1524,15 +1685,28 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.get_record(
-            kwargs["parsed_args"].data_source_code,
-            kwargs["parsed_args"].record_id,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.get_record(
+        #     kwargs["parsed_args"].data_source_code,
+        #     kwargs["parsed_args"].record_id,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.get_record(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.get_record(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getRedoRecord(self, **kwargs):
+    def do_getRedoRecord(self) -> None:
         """
         Get a redo record from the redo queue
 
@@ -1541,12 +1715,12 @@ class SzCmdShell(cmd.Cmd):
 
         response = self.sz_engine.get_redo_record()
         if not response:
-            self.print_response("No redo records.", "info")
+            self.output_response("No redo records.", "info")
         else:
-            self.print_response(response)
+            self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getStats(self, **kwargs):
+    def do_getStats(self) -> None:
         """
         Get engine workload statistics for last process
 
@@ -1554,10 +1728,10 @@ class SzCmdShell(cmd.Cmd):
             getStats"""
 
         response = self.sz_engine.get_stats()
-        self.print_response(response)
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_getVirtualEntityByRecordID(self, **kwargs):
+    def do_getVirtualEntityByRecordID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Determine how an entity composed of a given set of records would look
 
@@ -1574,13 +1748,23 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.get_virtual_entity_by_record_id(
-            kwargs["parsed_args"].record_list, **kwargs["flags_dict"]
-        )
-        self.print_response(response)
+        # response = self.sz_engine.get_virtual_entity_by_record_id(
+        #     kwargs["parsed_args"].record_list, **kwargs["flags_dict"]
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.get_virtual_entity_by_record_id(
+                kwargs["parsed_args"].record_list, kwargs["flags"]
+            )
+        else:
+            response = self.sz_engine.get_virtual_entity_by_record_id(
+                kwargs["parsed_args"].record_list,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_howEntityByEntityID(self, **kwargs):
+    def do_howEntityByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Retrieve information on how entities are constructed from their records
 
@@ -1597,13 +1781,23 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.how_entity_by_entity_id(
-            kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
-        )
-        self.print_response(response)
+        # response = self.sz_engine.how_entity_by_entity_id(
+        #     kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.how_entity_by_entity_id(
+                kwargs["parsed_args"].entity_id, kwargs["flags"]
+            )
+        else:
+            response = self.sz_engine.how_entity_by_entity_id(
+                kwargs["parsed_args"].entity_id
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_primeEngine(self, **kwargs):
+    def do_primeEngine(self) -> None:  # type: ignore[no-untyped-def]
         """
         Prime the Senzing engine
 
@@ -1611,10 +1805,10 @@ class SzCmdShell(cmd.Cmd):
             primeEngine"""
 
         self.sz_engine.prime_engine()
-        self.print_response("Engine primed.", "success")
+        self.output_response("Engine primed.", "success")
 
     @sz_cmds_decorator(cmd_has_args=True)
-    def do_processRedoRecord(self, **kwargs):
+    def do_processRedoRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Process a redo record fetched from the redo queue
 
@@ -1630,14 +1824,24 @@ class SzCmdShell(cmd.Cmd):
             FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
 
-        response = self.sz_engine.process_redo_record(
-            kwargs["parsed_args"].redo_record,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.process_redo_record(
+        #     kwargs["parsed_args"].redo_record,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.process_redo_record(
+                kwargs["parsed_args"].redo_record, kwargs["flags"]
+            )
+        else:
+            response = self.sz_engine.process_redo_record(
+                kwargs["parsed_args"].redo_record,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_reevaluateEntity(self, **kwargs):
+    def do_reevaluateEntity(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Reevaluate an entity and optionally return information
 
@@ -1656,16 +1860,25 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.reevaluate_entity(
-            kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
-        )
-        if response == "{}":
-            self.print_response("Entity reevaluated.", "success")
+        # response = self.sz_engine.reevaluate_entity(
+        #     kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.reevaluate_entity(
+                kwargs["parsed_args"].entity_id, kwargs["flags"]
+            )
         else:
-            self.print_response(response)
+            response = self.sz_engine.reevaluate_entity(kwargs["parsed_args"].entity_id)
+
+        # TODO Think about displaying message in all with info methods
+        if response == "{}":
+            self.output_response("Entity reevaluated.", "success")
+        else:
+            self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_reevaluateRecord(self, **kwargs):
+    def do_reevaluateRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Reevaluate a record and optionally return information
 
@@ -1684,50 +1897,79 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.reevaluate_record(
-            kwargs["parsed_args"].data_source_code,
-            kwargs["parsed_args"].record_id,
-            **kwargs["flags_dict"],
-        )
-        if response == "{}":
-            self.print_response("Record reevaluated.", "success")
+        # response = self.sz_engine.reevaluate_record(
+        #     kwargs["parsed_args"].data_source_code,
+        #     kwargs["parsed_args"].record_id,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.reevaluate_record(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+                kwargs["flags"],
+            )
         else:
-            self.print_response(response)
+            response = self.sz_engine.reevaluate_record(
+                kwargs["parsed_args"].data_source_code, kwargs["parsed_args"].record_id
+            )
+
+        if response == "{}":
+            self.output_response("Record reevaluated.", "success")
+        else:
+            self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_searchByAttributes(self, **kwargs):
+    def do_searchByAttributes(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        # TODO Should search_profile be documented?
+        # searchByAttributes ATTRIBUTES [SEARCH_PROFILE] [-f FLAG ...]
+        # searchByAttributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' SEARCH -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
+        # SEARCH_PROFILE = Search profile to use (defaults to SEARCH)
+
         """
         Search for entities
 
         Syntax:
-            searchByAttributes ATTRIBUTES [SEARCH_PROFILE] [-f FLAG ...]
+            searchByAttributes ATTRIBUTES [-f FLAG ...]
 
         Examples:
             searchByAttributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}'
-            searchByAttributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' SEARCH -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
+            searchByAttributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
 
         Arguments:
             ATTRIBUTES = Senzing mapped JSON containing the attributes to search on
-            SEARCH_PROFILE = Search profile to use (defaults to SEARCH)
             FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        print(type(kwargs["flags_dict"]))
-        print(kwargs["flags_dict"])
-        print(kwargs["flags_dict"]["flags"].value)
-        response = self.sz_engine.search_by_attributes(
-            kwargs["parsed_args"].attributes,
-            # TODO Using like this here due to order of args in szengine
-            kwargs["flags_dict"]["flags"].value,
-            kwargs["parsed_args"].search_profile,
-            # **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # print(type(kwargs["flags_dict"]))
+        # print(kwargs["flags_dict"])
+        # print(kwargs["flags_dict"]["flags"].value)
+        # response = self.sz_engine.search_by_attributes(
+        #     kwargs["parsed_args"].attributes,
+        #     # TODO Using like this here due to order of args in szengine
+        #     kwargs["flags_dict"]["flags"].value,
+        #     kwargs["parsed_args"].search_profile,
+        #     # **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.search_by_attributes(
+                kwargs["parsed_args"].attributes,
+                kwargs["flags"],
+                kwargs["parsed_args"].search_profile,
+            )
+        else:
+            response = self.sz_engine.search_by_attributes(
+                kwargs["parsed_args"].attributes,
+                search_profile=kwargs["parsed_args"].search_profile,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_whyEntities(self, **kwargs):
+    def do_whyEntities(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Determine how entities relate to each other
 
@@ -1746,15 +1988,28 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.why_entities(
-            kwargs["parsed_args"].entity_id1,
-            kwargs["parsed_args"].entity_id2,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.why_entities(
+        #     kwargs["parsed_args"].entity_id1,
+        #     kwargs["parsed_args"].entity_id2,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.why_entities(
+                kwargs["parsed_args"].entity_id1,
+                kwargs["parsed_args"].entity_id2,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.why_entities(
+                kwargs["parsed_args"].entity_id1,
+                kwargs["parsed_args"].entity_id2,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_whyRecordInEntity(self, **kwargs):
+    def do_whyRecordInEntity(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Determine why a particular record resolved to an entity
 
@@ -1773,15 +2028,28 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.why_record_in_entity(
-            kwargs["parsed_args"].data_source_code,
-            kwargs["parsed_args"].record_id,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.why_record_in_entity(
+        #     kwargs["parsed_args"].data_source_code,
+        #     kwargs["parsed_args"].record_id,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.why_record_in_entity(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.why_record_in_entity(
+                kwargs["parsed_args"].data_source_code,
+                kwargs["parsed_args"].record_id,
+            )
+
+        self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_whyRecords(self, **kwargs):
+    def do_whyRecords(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Determine how two records relate to each other
 
@@ -1802,29 +2070,47 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        response = self.sz_engine.why_records(
-            kwargs["parsed_args"].data_source_code1,
-            kwargs["parsed_args"].record_id1,
-            kwargs["parsed_args"].data_source_code2,
-            kwargs["parsed_args"].record_id2,
-            **kwargs["flags_dict"],
-        )
-        self.print_response(response)
+        # response = self.sz_engine.why_records(
+        #     kwargs["parsed_args"].data_source_code1,
+        #     kwargs["parsed_args"].record_id1,
+        #     kwargs["parsed_args"].data_source_code2,
+        #     kwargs["parsed_args"].record_id2,
+        #     **kwargs["flags_dict"],
+        # )
+
+        if "flags" in kwargs:
+            response = self.sz_engine.why_records(
+                kwargs["parsed_args"].data_source_code1,
+                kwargs["parsed_args"].record_id1,
+                kwargs["parsed_args"].data_source_code2,
+                kwargs["parsed_args"].record_id2,
+                kwargs["flags"],
+            )
+        else:
+            response = self.sz_engine.why_records(
+                kwargs["parsed_args"].data_source_code1,
+                kwargs["parsed_args"].record_id1,
+                kwargs["parsed_args"].data_source_code2,
+                kwargs["parsed_args"].record_id2,
+            )
+
+        self.output_response(response)
 
     # szproduct commands
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getLicense(self, **kwargs):
+    def do_getLicense(self) -> None:  # type: ignore[no-untyped-def]
         """
         Get the license information
 
         Syntax:
             getLicense"""
 
-        self.print_response(self.sz_product.get_license())
+        response = self.sz_product.get_license()
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getVersion(self, **kwargs):
+    def do_getVersion(self) -> None:  # type: ignore[no-untyped-def]
         """
         Get the version information
 
@@ -1833,14 +2119,16 @@ class SzCmdShell(cmd.Cmd):
 
         # TODO other places using dumps/loads where doesn't need to?
         # self.printResponse(json.dumps(json.loads(self.sz_product.get_version())))
-        self.print_response(self.sz_product.get_version())
+        self.output_response(self.sz_product.get_version())
 
+    # -----------------------------------------------------------------------------
     # Helper commands
+    # -----------------------------------------------------------------------------
 
     # NOTE This isn't an API call
     # TODO Test
     @sz_cmds_decorator()
-    def do_addConfigFile(self, **kwargs):
+    def do_addConfigFile(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
         Add a configuration from a file
 
@@ -1854,251 +2142,74 @@ class SzCmdShell(cmd.Cmd):
             CONFIG_FILE = File containing configuration to add
             COMMENTS = Comments for the configuration"""
 
-        config = pathlib.Path(kwargs["parsed_args"].config_json_file).read_text()
-        config = config.replace("\n", "")
+        # fmt: off
+        config_add = pathlib.Path(kwargs["parsed_args"].config_json_file).read_text()  # pylint: disable=unspecified-encoding
+        # fmt: on
+        config_add = config_add.replace("\n", "")
         response = self.sz_configmgr.add_config(
-            config, kwargs["parsed_args"].config_comments
+            config_add, kwargs["parsed_args"].config_comments
         )
-        self.print_response(f"Configuration added, ID = {response}", "success")
+        self.output_response(f"Configuration added, ID = {response}", "success")
 
-    # TODO Add a note this isn't an API
-    # TODO Reorder
-    # TODO process() is no longer available would need to pull out details and action
-    @sz_cmds_decorator()
-    def do_processFile(self, **kwargs):
-        """
-        Process a file of Senzing mapped records
-
-        Syntax:
-            processFile FILE
-
-        Example:
-            processFile demo/truth/customers.json
-
-        Arguments:
-            FILE = Input file containing Senzing mapped data records"""
-
-        input_file = file_name = kwargs["parsed_args"].input_file
-        data_source_parm = None
-        cnt = 0
-
-        if "/?" in input_file:
-            file_name, data_source_parm = input_file.split("/?")
-            if data_source_parm.upper().startswith("DATA_SOURCE="):
-                data_source_parm = data_source_parm[12:].upper()
-
-        _, file_extension = os.path.splitext(file_name)
-        file_extension = file_extension[1:].upper()
-
-        with open(file_name) as data_in:
-            if file_extension != "CSV":
-                file_reader = data_in
-            else:
-                file_reader = csv.reader(data_in)
-                csvHeaders = [x.upper() for x in next(file_reader)]
-
-            for line in file_reader:
-                if file_extension != "CSV":
-                    json_str = line.strip()
-                else:
-                    json_obj = dict(list(zip(csvHeaders, line)))
-                    if data_source_parm:
-                        json_obj["DATA_SOURCE"] = data_source_parm
-                    json_str = json.dumps(json_obj)
-
-                try:
-                    self.sz_engine.process(json_str)
-                except SzError as err:
-                    print_error(err, f"At record {cnt + 1}")
-                cnt += 1
-                if cnt % 1000 == 0:
-                    self.print_response(f"{cnt} records processed")
-            self.print_response(f"{cnt} records processed", "success")
-
-    def do_responseToClipboard(self, arg):
-        def pyperclip_clip_msg():
-            self.print_with_new_lines(
-                colorize_output(
-                    textwrap.dedent(
-                        """\
-                        - The clipboard module is installed but no clipboard command could be found
-
-                        - This usually means xclip is missing on Linux and needs to be installed:
-                            - sudo apt install xclip OR sudo yum install xclip
-
-                        - If you are running in a container or SSH lastResponseToClipboard cannot be used"""
-                    ),
-                    "info",
-                    self.disable_color,
-                ),
-                "B",
-            )
-
-        if not PYPERCLIP_AVAIL:
-            self.print_with_new_lines(
-                colorize_output(
-                    textwrap.dedent(
-                        """\
-                        - To send the last response to the clipboard the Python module pyperclip needs to be installed
-                            - pip install pyperclip
-
-                        - If you are running in a container or SSH lastResponseToClipboard cannot be used"""
-                    ),
-                    "info",
-                    self.disable_color,
-                ),
-                "B",
-            )
-            return
-
-        try:
-            clip = pyperclip.determine_clipboard()
-        except ModuleNotFoundError:
-            pyperclip_clip_msg()
-            return
-
-        try:
-            # If __name__ doesn't exist no clipboard tool was available
-            _ = clip[0].__name__
-        except AttributeError:
-            pyperclip_clip_msg()
-            return
-
-        # This clipboard gets detected on Linux when xclip isn't installed, but it doesn't work
-        if clip[0].__name__ == "copy_gi":
-            pyperclip_clip_msg()
-            return
-
-        try:
-            pyperclip.copy(self.last_response)
-        except pyperclip.PyperclipException as err:
-            print_error(err)
+    def do_responseToClipboard(self, _) -> None:  # type: ignore[no-untyped-def]
+        """# TODO"""
+        do_responseToClipboard(self, None)
 
     @sz_cmds_decorator()
-    def do_responseToFile(self, **kwargs):
-        with open(kwargs["parsed_args"].file_path, "w") as data_out:
-            data_out.write(self.last_response)
-            data_out.write("\n")
+    def do_responseToFile(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        """# TODO"""
+        # TODO Change to response_to_file in helpers? And other similar functions
+        do_responseToFile(self, **kwargs)
 
-    # TODO args? kwargs??
-    def do_responseReformatJson(self, args):
-        try:
-            # TODO Orjson?
-            _ = json.loads(self.last_response)
-        # TODO Correct JSONDecodeError?
-        except (json.decoder.JSONDecodeError, TypeError):
-            print(
-                # self.colorize_output(
-                colorize_output(
-                    "The last response isn't JSON!", "warning", cli_args.colorDisable
-                )
-            )
-            return
+    # TODO Some are arg, others args
+    def do_responseReformatJson(self, _) -> None:  # type: ignore[no-untyped-def]
+        """# TODO"""
+        do_responseReformatJson(self.last_response, self.color_json, self.format_json)
 
-        self.json_output_format = (
-            "json" if self.json_output_format == "jsonl" else "jsonl"
-        )
-        # self.print_with_new_lines(self.last_response, "B")
-        self.print_response(self.last_response)
-        # self.print_sdk_response2()
-
-    def do_restart(self, arg):
+    def do_restart(self, _) -> bool:  # type: ignore[no-untyped-def]
+        """# TODO"""
         self.restart = True
         return True
 
-    def do_restartDebug(self, arg):
+    def do_restartDebug(self, _) -> bool:  # type: ignore[no-untyped-def]
+        """# TODO"""
         self.restart_debug = True
         return True
 
-    # TODO Change to just color = on/off?
-    # TODO Help is wrong
-    @sz_cmds_decorator()
-    def do_setOutputColor(self, **kwargs):
+    # TODO Main help is currently wrong
+    def do_json_color(self, _: None) -> None:
+        # TODO Add to help this saves to config file
         """
-        Turns on/off adding colors to JSON responses
+        Enables/disables adding colors to JSON responses
 
         Syntax:
-            setOutputColor {on|off}
+            json_color
         """
-
-        if not kwargs["parsed_args"].output_color:
-            self.print_response(
-                colorize_output(
-                    "Output colored responses is"
-                    f" {'on' if self.json_output_color else 'off'}",
-                    "info",
-                    self.disable_color,
-                )
-            )
-            return
-
-        if kwargs["parsed_args"].output_color.lower() not in ("on", "off"):
-            self.print_response(
-                colorize_output(
-                    "Color mode should be on or off", "warning", cli_args.colorDisable
-                )
-            )
-            return
-
-        if kwargs["parsed_args"].output_color.lower() == "on":
-            self.json_output_color = True
-            self.print_response(
-                colorize_output(
-                    "Colored output is enabled", "info", cli_args.colorDisable
-                )
-            )
-
-        if kwargs["parsed_args"].output_color.lower() == "off":
-            self.json_output_color = False
-            self.print_response(
-                colorize_output(
-                    "Colored output is disabled", "info", cli_args.colorDisable
-                )
-            )
+        self.color_json = not self.color_json
+        print_info(
+            f'Coloring of JSON responses {"enabled" if self.color_json else "disabled"}'
+        )
 
         self.write_config()
 
-    @sz_cmds_decorator()
-    def do_setOutputFormat(self, **kwargs):
+    # TODO Main help is currently wrong
+    def do_json_format(self, _: None) -> None:
+        # TODO Add to help this saves to config file
         """
-        Set output format for JSON responses
+        Switch output between json (tall json) and jsonl (json lines) for JSON responses
 
         Syntax:
-            setOutputFormat {jsonl|json}
+            json_format
         """
-
-        if not kwargs["parsed_args"].output_format:
-            self.print_response(
-                colorize_output(
-                    f"Current format is {self.json_output_format}",
-                    "info",
-                    self.disable_color,
-                )
-            )
-            return
-
-        if kwargs["parsed_args"].output_format.lower() not in ("json", "jsonl"):
-            self.print_response(
-                colorize_output(
-                    "Format should be json (tall json) or jsonl (json line)",
-                    "warning",
-                    self.disable_color,
-                )
-            )
-            return
-
-        self.print_response(
-            colorize_output(
-                f"JSON format set to {kwargs['parsed_args'].output_format.lower()}",
-                "info",
-                self.disable_color,
-            )
+        self.format_json = not self.format_json
+        print_info(
+            f'Formatting of JSON responses {"enabled" if self.format_json else "disabled"}'
         )
 
-        self.json_output_format = kwargs["parsed_args"].output_format.lower()
         self.write_config()
 
     # TODO Autocomplete themes?
+    # TODO Add themes to config?
     @sz_cmds_decorator()
     def do_setTheme(self, **kwargs):
         """
@@ -2108,18 +2219,16 @@ class SzCmdShell(cmd.Cmd):
             setTheme {default|light}
         """
         Colors.set_theme(kwargs["parsed_args"].theme[0])
-        print()
 
-    def do_timer(self, arg):
-        if self.timer_on:
-            self.timer_on = False
-            self.print_response("Timer is off", "success")
-        else:
-            self.timer_on = True
-            self.print_response("Timer is on", "success")
+    def do_timer(self, _: None) -> None:
+        """# TODO"""
+        self.timer = not self.timer
+        print_info(f'Timer {"enabled" if self.timer else "disabled"}')
+        self.write_config()
 
     # Support methods
 
+    # TODO
     def get_restart(self):
         return self.restart
 
@@ -2133,79 +2242,13 @@ class SzCmdShell(cmd.Cmd):
             shlex_list = shlex.split(argument_string)
             return shlex_list
         except ValueError as err:
+            # TODO Move err into f-string
             print_error(err, "Unable to parse arguments")
             raise
-
-    # def print_with_new_lines(self, ln, pos=""):
-    #     def add_color(str_to_color):
-    #         if self.json_output_color and not cli_args.colorDisable:
-    #             return colorize_json(str_to_color)
-    #         return str_to_color
-
-    #     pos = pos.upper()
-    #     if ORJSON_AVAIL:
-    #         try:
-    #             # Test if data is json and format appropriately
-    #             _ = orjson.loads(ln)
-    #         except (orjson.JSONDecodeError, TypeError):
-    #             output = ln
-    #         else:
-    #             if type(ln) not in [dict, list]:
-    #                 ln = orjson.loads(ln)
-    #             if self.json_output_format == "json" and not cli_args.formatDisable:
-    #                 json_str = orjson.dumps(ln, option=orjson.OPT_INDENT_2)
-    #             else:
-    #                 json_str = orjson.dumps(ln)
-
-    #             output = add_color(json_str.decode())
-    #     else:
-    #         try:
-    #             _ = json.loads(ln)
-    #         except (json.decoder.JSONDecodeError, TypeError):
-    #             output = ln
-    #         else:
-    #             if type(ln) not in [dict, list]:
-    #                 ln = json.loads(ln)
-    #             if self.json_output_format == "json" and not cli_args.formatDisable:
-    #                 json_str = json.dumps(ln, indent=2)
-    #             else:
-    #                 json_str = json.dumps(ln)
-
-    #             output = add_color(json_str)
-
-    #     if pos == "S" or pos == "START":
-    #         print(f"\n{output}", flush=True)
-    #     elif pos == "E" or pos == "END":
-    #         print(f"{output}\n", flush=True)
-    #     elif pos == "B" or pos == "BOTH":
-    #         print(f"\n{output}\n", flush=True)
-    #     else:
-    #         print(f"{output}", flush=True)
-
-    #     # Capture the latest output to send to clipboard or file, removing color codes
-    #     self.last_response = re.sub(r"(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]", "", output)
-
-    # TODO
-    # def print_error(self, err, msg=""):
-    #     self.print_with_new_lines(
-    #         colorize_output(f'ERROR: {msg}{" : " if msg else ""}{err}', "error"), "B"
-    #     )
-
-    # def print_response(self, response, color=""):
-    #     if response:
-    #         self.print_with_new_lines(
-    #             colorize_output(response, color, cli_args.colorDisable), "B"
-    #         )
-    #     else:
-    #         self.print_with_new_lines(
-    #             colorize_output("No response!", "info", cli_args.colorDisable), "B"
-    #         )
 
     def read_config(self) -> None:
         """# TODO"""
         # TODO Can be used in other tools, e.g. sz_configtool?
-        # TODO Move to helpers if so
-        # TODO Move this to init?
         path = pathlib.Path(sys.argv[0])
         file_str = f"~/.{path.stem.lower()}{'.ini'}"
         # TODO expanduser vs resolve, check _tool_helpers where resolve used
@@ -2218,27 +2261,16 @@ class SzCmdShell(cmd.Cmd):
                 with open(self.config_file, "r", encoding="utf-8") as _:
                     pass
                 read_config.read(self.config_file)
-                self.json_output_format = read_config["FORMATTING"]["JsonFormat"]
-                self.json_output_color = read_config["FORMATTING"].getboolean(
-                    "ColorOutput"
-                )
+                self.format_json = read_config["CONFIG"].getboolean("formatjson")
+                self.color_json = read_config["CONFIG"].getboolean("outputcolor")
+                self.timer = read_config["CONFIG"].getboolean("timer")
             except IOError as err:
-                print(
-                    colorize_output(
-                        "Error reading the config file, saved"
-                        f" config has not been applied: {err}"
-                        "warning",
-                        self.disable_color,
-                    )
+                print_warning(
+                    f"Error reading configuration file: {err}",
                 )
             except (configparser.Error, KeyError) as err:
-                print(
-                    colorize_output(
-                        "Error reading entries from the config file, saved config"
-                        f" has not been applied: {err}"
-                        "warning",
-                        self.disable_color,
-                    )
+                print_warning(
+                    f"Error reading entries from configuration file: {err}",
                 )
         else:
             # If a configuration file doesn't exist attempt to create one
@@ -2250,38 +2282,32 @@ class SzCmdShell(cmd.Cmd):
             return
 
         write_config = configparser.ConfigParser()
-        write_config["FORMATTING"] = {
-            "JsonFormat": self.json_output_format,
-            "ColorOutput": f'{"True" if self.json_output_color else "False"}',
+        write_config["CONFIG"] = {
+            "formatjson": f'{"True" if self.format_json else "False"}',
+            "outputcolor": f'{"True" if self.color_json else "False"}',
+            "timer": f'{"True" if self.timer else "False"}',
         }
 
         try:
             with open(self.config_file, "w", encoding="utf-8") as config_file:
                 write_config.write(config_file)
         except IOError as err:
+            # TODO Make a bool
             if self.config_error == 0:
-                print(
-                    colorize_output(
-                        "Error writing the config file, configuration cannot be"
-                        f" saved (this warning will not repeat): {err}"
-                        "warning",
-                        self.disable_color,
-                    ),
+                print_warning(
+                    f"Error saving configuration: {err}",
                 )
                 self.config_error += 1
         except configparser.Error as err:
             if self.config_error == 0:
-                print(
-                    colorize_output(
-                        "Error writing entries to the config file, configuration"
-                        f" cannot be saved (this warning with not repeat): {err}"
-                        "warning",
-                        self.disable_color,
-                    ),
+                print_warning(
+                    f"Error writing configuration to the configuration file: {err}",
                 )
                 self.config_error += 1
 
-    # ===== Auto completers =====
+    # -------------------------------------------------------------------------
+    # Auto completers
+    # -------------------------------------------------------------------------
 
     # TODO Order
     def complete_addRecord(self, text, line, begidx, endidx):
@@ -2394,71 +2420,13 @@ class SzCmdShell(cmd.Cmd):
         if re.match("addConfigFile +", line):
             return self.path_completes(text, line, begidx, endidx, "addConfigFile")
 
-    def complete_processFile(self, text, line, begidx, endidx):
-        if re.match("processFile +", line):
-            return self.path_completes(text, line, begidx, endidx, "processFile")
-
     def complete_responseToFile(self, text, line, begidx, endidx):
         if re.match("responseToFile +", line):
             return self.path_completes(text, line, begidx, endidx, "responseToFile")
 
-    def complete_setOutputColor(self, text, line, begidx, endidx):
-        if re.match("setOutputColor +", line):
-            options = ["on", "off"]
-            return [
-                option for option in options if option.lower().startswith(text.lower())
-            ]
-        return None
 
-    def complete_setOutputFormat(self, text, line, begidx, endidx):
-        if re.match("setOutputFormat +", line):
-            options = ["json", "jsonl"]
-            return [
-                option for option in options if option.lower().startswith(text.lower())
-            ]
-        return None
-
-
-# ---- Utility functions ----
-
-
-# def colorize_str(in_string, color_list="None"):
-#     return Colors.apply(in_string, color_list)
-
-
-# def colorize_json(json_str):
-#     # TODO Colors from the Colors class instead so they match to terminal default colors
-#     key_replacer = rf"\1{Colors.FG_LIGHTBLUE}\2{Colors.RESET}\3\4"
-#     value_replacer = rf"\1\2{Colors.FG_YELLOW}\3{Colors.RESET}\4\5"
-#     # Look for values first to make regex a little easier to construct
-#     # Regex is matching: ': "Robert Smith", ' and using the groups in the replacer to add color
-#     json_color = re.sub(
-#         r"(: ?)(\")([\w\/+][^\{\"]+?)(\")(\}?|,{1}|\n)", value_replacer, json_str
-#     )
-#     # Regex is matching: ': "ENTITY_ID": ' and using the groups in the replacer to add color
-#     json_color = re.sub(r"(\")([\w ]*?)(\")(:{1})", key_replacer, json_color)
-#     return json_color
-
-
-# def colorize_output(msg_text, msg_type_or_color=""):
-
-#     if cli_args.colorDisable:
-#         return msg_text
-
-#     if msg_type_or_color.upper() == "ERROR":
-#         msg_color = "bad"
-#     elif msg_type_or_color.upper() == "WARNING":
-#         msg_color = "caution,italics"
-#     elif msg_type_or_color.upper() == "INFO":
-#         msg_color = "highlight2"
-#     elif msg_type_or_color.upper() == "SUCCESS":
-#         msg_color = "good"
-#     else:
-#         msg_color = msg_type_or_color
-#     return f"{Colors.apply(msg_text, msg_color)}"
-
-
-def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
+# TODO To helpers?
+def get_engine_flags(flags: Union[List[str], List[int]]) -> Union[int, None]:
     """Detect if int or named flags are used and convert to int ready to send to SDK call"""
 
     # For Senzing support team
@@ -2473,11 +2441,12 @@ def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
     # Named engine flag(s) were used, combine and return the int value
     if all(isinstance(f, type(flags[0])) for f in flags[1:]):
         try:
-            engine_flags = SzEngineFlags.combine_flags(flags)
+            engine_flags: int = SzEngineFlags.combine_flags(flags)
         except KeyError as err:
             raise KeyError(f"Invalid engine flag: {err}") from err
     else:
         # TODO Test
+        # TODO Color? Other places too
         raise TypeError(
             "Invalid type for one or more flag(s), value(s) should be a string"
         )
@@ -2485,15 +2454,41 @@ def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
     return engine_flags
 
 
-# TODO Needed?
-__all__ = ["SzCmdShell"]
+def main(args: argparse.Namespace) -> None:
+    """main"""
+    first_loop = True
+    restart = False
+
+    # Check we can locate an engine configuration
+    config = get_engine_config(args.iniFile[0])
+
+    # Execute a file of commands
+    # TODO Better way? https://pymotw.com/2/cmd/
+    if args.fileToProcess:
+        cmd_obj = SzCmdShell(config, args.debugTrace, args.histDisable)
+        cmd_obj.fileloop(args.fileToProcess)
+    # Start command shell
+    else:
+        # Don't use args.debugTrace here, may need to restart
+        debug_trace = args.debugTrace
+
+        while first_loop or restart:
+            # Have we been in the command shell already and are trying to quit? Used for restarting
+            if "cmd_obj" in locals() and cmd_obj.ret_quit():
+                break
+
+            # TODO
+            cmd_obj = SzCmdShell(config, debug_trace, args)
+            cmd_obj.cmdloop()
+
+            restart = (
+                True if cmd_obj.get_restart() or cmd_obj.get_restart_debug() else False
+            )
+            debug_trace = True if cmd_obj.get_restart_debug() else False
+            first_loop = False
 
 
 if __name__ == "__main__":
-
-    FIRST_LOOP = True
-    RESTART = False
-
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument(
         "fileToProcess",
@@ -2524,48 +2519,6 @@ if __name__ == "__main__":
         default=False,
         help="disable history file usage",
     )
-    parser.add_argument(
-        "-C",
-        "--colorDisable",
-        action="store_true",
-        default=False,
-        help="disable coloring of output for the session",
-    )
-    parser.add_argument(
-        "-F",
-        "--formatDisable",
-        action="store_true",
-        default=False,
-        help="disable formatting of JSON output for the session",
-    )
+
     cli_args = parser.parse_args()
-
-    # TODO
-    config = get_engine_config(cli_args.iniFile[0])
-    # config = "{}"
-
-    # Execute a file of commands
-    # TODO Better way? https://pymotw.com/2/cmd/
-    if cli_args.fileToProcess:
-        cmd_obj = SzCmdShell(config, cli_args.debugTrace, cli_args.histDisable)
-        cmd_obj.fileloop(cli_args.fileToProcess)
-    # Start command shell
-    else:
-        # Don't use args.debugTrace here, may need to restart
-        debug_trace = cli_args.debugTrace
-
-        while FIRST_LOOP or RESTART:
-            # Have we been in the command shell already and are trying to quit? Used for restarting
-            if "cmd_obj" in locals() and cmd_obj.ret_quit():
-                break
-
-            # TODO
-            cmd_obj = SzCmdShell(config, debug_trace, cli_args)
-            cmd_obj.cmdloop()
-            # SzCmdShell(config, debug_trace, cli_args.histDisable).cmdloop()
-
-            RESTART = (
-                True if cmd_obj.get_restart() or cmd_obj.get_restart_debug() else False
-            )
-            debug_trace = True if cmd_obj.get_restart_debug() else False
-            FIRST_LOOP = False
+    main(cli_args)
