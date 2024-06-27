@@ -4,11 +4,13 @@
 # TODO Check all outputs using appropriate print_ helper
 # TODO Test all completers work
 
+# type: ignore[return]
 
 import argparse
 import cmd
 import configparser
 import functools
+import gc
 import glob
 import os
 import pathlib
@@ -25,9 +27,6 @@ from _tool_helpers import (
     colorize_str,
     do_help,
     do_history,
-    do_responseReformatJson,
-    do_responseToClipboard,
-    do_responseToFile,
     do_shell,
     get_engine_config,
     history_setup,
@@ -35,8 +34,12 @@ from _tool_helpers import (
     print_info,
     print_response,
     print_warning,
+    response_reformat_json,
+    response_to_clipboard,
+    response_to_file,
 )
-from senzing import (  # SzConfig,
+from senzing import (
+    SzConfig,
     SzConfigManager,
     SzDiagnostic,
     SzEngine,
@@ -71,6 +74,8 @@ __version__ = "0.0.1"  # See https://www.python.org/dev/peps/pep-0396/
 __date__ = "2024-06-13"
 __updated__ = "2024-06-13"
 
+# Due to the way the Cmd module works, don't want doc strings on everything
+# pylint: disable=missing-function-docstring
 
 # -------------------------------------------------------------------------
 # Decorators
@@ -84,7 +89,6 @@ __updated__ = "2024-06-13"
 def sz_cmds_decorator(
     cmd_has_args: bool = True,
 ) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
-    # TODO
     """Decorator for do_* commands to parse args, display help, set response variables etc."""
 
     # def decorator(func: Callable[P, T]):  # type: ignore[no-untyped-def]
@@ -117,9 +121,7 @@ def sz_cmds_decorator(
                         if format_.lower() in ["nocolor", "nocolour"]:
                             self.color_json_cmd = False
 
-                    # # Don't remove formatters if we are setting formatting options
-                    # if func.__name__ not in ["do_setOutputFormat", "do_setOutputColor"]:
-                    #     cmd_args = cmd_args.rstrip(format_).rstrip()  # type: ignore
+                    cmd_args = cmd_args.rstrip(format_).rstrip()  # type: ignore
 
             if cmd_has_args:
                 try:
@@ -158,7 +160,6 @@ def sz_cmds_decorator(
             except (SzError, IOError) as err:
                 print_error(err)
             finally:
-                # TODO
                 self.format_json_cmd = False
                 self.color_json_cmd = False
                 self.cmd_color = False
@@ -183,19 +184,30 @@ class SzCommandArgumentParser(argparse.ArgumentParser):
 
 
 class SzCmdShell(cmd.Cmd):
-    """# TODO"""
+    """Main Cmd class"""
 
-    def __init__(self, engine_settings: str, debug: bool, args_cli: argparse.Namespace):
+    def __init__(
+        self,
+        engine_settings: str,
+        debug: bool,
+        args_cli: argparse.Namespace,
+    ):
         super().__init__()
-
-        # TODO Check all self. are still used
-        # TODO Order init vars or leave in groups?
 
         # Acquire Senzing API engines
         self.debug_trace = debug
         self.engine_settings = engine_settings
 
         try:
+            self.sz_config = SzConfig(
+                "pySzConfig", self.engine_settings, verbose_logging=self.debug_trace
+            )
+            self.sz_configmgr = SzConfigManager(
+                "pySzConfigmgr", self.engine_settings, verbose_logging=self.debug_trace
+            )
+            self.sz_diagnostic = SzDiagnostic(
+                "pySzDiagnostic", self.engine_settings, verbose_logging=self.debug_trace
+            )
             self.sz_engine = SzEngine(
                 "pySzEngine",
                 self.engine_settings,
@@ -203,15 +215,6 @@ class SzCmdShell(cmd.Cmd):
             )
             self.sz_product = SzProduct(
                 "pySzProduct", self.engine_settings, self.debug_trace
-            )
-            self.sz_diagnostic = SzDiagnostic(
-                "pySzDiagnostic", self.engine_settings, verbose_logging=self.debug_trace
-            )
-            # self.sz_config = SzConfig(
-            #     "pySzConfig", self.engine_settings, verbose_logging=self.debug_trace
-            # )
-            self.sz_configmgr = SzConfigManager(
-                "pySzConfigmgr", self.engine_settings, verbose_logging=self.debug_trace
             )
         except SzError as err:
             print(err)
@@ -238,9 +241,9 @@ class SzCmdShell(cmd.Cmd):
         self.prompt = "(szcmd) "
 
         # Readline and history
-        self.hist_avail = False
+        self.history_avail = False
         self.history_disable = args_cli.histDisable
-        self.hist_file_name = self.hist_file_error = None
+        self.history_msg = ""
 
         # For pretty printing JSON responses
         self.cmd_color = False
@@ -250,16 +253,23 @@ class SzCmdShell(cmd.Cmd):
         self.format_json = False
         self.format_json_cmd = False
 
+        # Themes
+        self.theme = "TERMINAL"
+        self.themes = ["default", "dark", "light", "terminal"]
+
         # General
-        self.initialized = False
         self.last_response = ""
-        self.quit = False
         self.restart = False
         self.restart_debug = False
         self.timer = False
 
+        # Configuration ini file
+        path = pathlib.Path(sys.argv[0])
+        file_str = f"~/.{path.stem.lower()}{'.ini'}"
+        self.config_file = pathlib.Path(file_str).expanduser()
+
         # Display can't read/write config message once, not at all in container
-        self.config_error = 0
+        self.config_error = False
         env_launched = os.getenv("SENZING_DOCKER_LAUNCHED", None)
         self.docker_launched = (
             True if env_launched in ("y", "yes", "t", "true", "on", "1") else False
@@ -275,6 +285,8 @@ class SzCmdShell(cmd.Cmd):
             usage=argparse.SUPPRESS,
         )
         self.subparsers = self.parser.add_subparsers()
+
+        # szconfig parsers
 
         getConfig_parser = self.subparsers.add_parser(
             "getConfig", usage=argparse.SUPPRESS
@@ -489,7 +501,10 @@ class SzCmdShell(cmd.Cmd):
         getVirtualEntityByRecordID_parser = self.subparsers.add_parser(
             "getVirtualEntityByRecordID", usage=argparse.SUPPRESS
         )
-        getVirtualEntityByRecordID_parser.add_argument("record_list")
+        # getVirtualEntityByRecordID_parser.add_argument("record_list")
+        getVirtualEntityByRecordID_parser.add_argument(
+            "record_list", type=list_of_tuples
+        )
         getVirtualEntityByRecordID_parser.add_argument(
             "-f", "--flags", nargs="+", required=False
         )
@@ -514,20 +529,19 @@ class SzCmdShell(cmd.Cmd):
             "reevaluateEntity", usage=argparse.SUPPRESS
         )
         reevaluateEntity_parser.add_argument("entity_id", type=int)
-        reevaluateEntity_parser.add_argument("-f", "--flags", required=False, type=int)
+        reevaluateEntity_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         reevaluateRecord_parser = self.subparsers.add_parser(
             "reevaluateRecord", usage=argparse.SUPPRESS
         )
         reevaluateRecord_parser.add_argument("data_source_code")
         reevaluateRecord_parser.add_argument("record_id")
-        reevaluateRecord_parser.add_argument("-f", "--flags", required=False, type=int)
+        reevaluateRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         searchByAttributes_parser = self.subparsers.add_parser(
             "searchByAttributes", usage=argparse.SUPPRESS
         )
         searchByAttributes_parser.add_argument("attributes")
-        # TODO Remove default
         searchByAttributes_parser.add_argument(
             "search_profile", default="SEARCH", nargs="?"
         )
@@ -562,42 +576,23 @@ class SzCmdShell(cmd.Cmd):
 
         # Utility parsers
 
-        addConfigFile_parser = self.subparsers.add_parser(
-            "addConfigFile", usage=argparse.SUPPRESS
-        )
-        addConfigFile_parser.add_argument("config_json_file")
-        addConfigFile_parser.add_argument("config_comments")
-
-        processFile_parser = self.subparsers.add_parser(
-            "processFile", usage=argparse.SUPPRESS
-        )
-        processFile_parser.add_argument("input_file")
-
         responseToFile_parser = self.subparsers.add_parser(
             "responseToFile", usage=argparse.SUPPRESS
         )
         responseToFile_parser.add_argument("file_path")
 
-        setOutputColor_parser = self.subparsers.add_parser(
-            "setOutputColor", usage=argparse.SUPPRESS
-        )
-        setOutputColor_parser.add_argument("output_color", nargs="?")
-
-        setOutputFormat_parser = self.subparsers.add_parser(
-            "setOutputFormat", usage=argparse.SUPPRESS
-        )
-        setOutputFormat_parser.add_argument("output_format", nargs="?")
-
         setTheme_parser = self.subparsers.add_parser(
             "setTheme", usage=argparse.SUPPRESS
         )
         setTheme_parser.add_argument(
-            "theme", choices=["dark", "default", "light"], nargs=1
+            "theme",
+            choices=self.themes,
+            nargs=1,
         )
 
-    # TODO Explain why doing this
+    # Call helper function to format and print command responses with
+    # constant values
     def output_response(self, response: Union[int, str], color: str = "") -> str:
-        """# TODO"""
         return print_response(
             response,
             self.color_json,
@@ -606,96 +601,17 @@ class SzCmdShell(cmd.Cmd):
             self.format_json_cmd,
             self.cmd_color,
             self.cmd_format,
+            color,
         )
 
-    def completenames(self, text: str, *ignored: Any) -> List[str]:
-        """Override function from cmd module to make command completion case-insensitive"""
-        do_text = "do_" + text
-        return [
-            a[3:] for a in self.get_names() if a.lower().startswith(do_text.lower())
-        ]
-
-    def get_names(self, include_hidden: bool = False) -> List[str]:
-        """
-        Override base method in cmd module to return methods for autocomplete and help
-        ignoring any hidden commands
-        """
-        if not include_hidden:
-            return [n for n in dir(self.__class__) if n not in self.__hidden_cmds]
-
-        return list(dir(self.__class__))
-
-    def preloop(self) -> None:
-        """# TODO"""
-        if self.initialized:
-            return None
-
-        # TODO
-        # if not self.history_disable and READLINE_AVAIL:
-        if not self.history_disable:
-            history_setup(self)
-
-        # Check if there is a config file and use config
-        if not self.docker_launched:
-            self.read_config()
-
-        # TODO
-        # Initially set theme to use the default colors set by the terminal
-        Colors.set_theme("TERMINAL")
-
-        self.initialized = True
-
-        # TODO
-        # colorize_output("Welcome to sz_command. Type help or ? for help", "highlight2")
-        print_info("Welcome to sz_command. Type help or ? for help")
-
-    def postloop(self) -> None:
-        self.initialized = False
-
-    def precmd(self, line: str) -> str:
-        return cmd.Cmd.precmd(self, line)
-
-    def postcmd(self, stop: bool, line: str) -> bool:
-        # TODO
-        # If restart has been requested, set stop value to True to restart engines in main loop
-        if self.restart:
-            return cmd.Cmd.postcmd(self, True, line)
-
-        return cmd.Cmd.postcmd(self, stop, line)
-
-    @staticmethod
-    def do_quit(_) -> bool:  # type: ignore[no-untyped-def]
-        """quit command"""
-        return True
-
-    def do_exit(self, _) -> bool:  # type: ignore[no-untyped-def]
-        """exit command"""
-        self.do_quit(self)
-        return True
-
-    def ret_quit(self) -> bool:
-        """# TODO"""
-        return self.quit
-
-    @staticmethod
-    def do_EOF(_):  # type: ignore[no-untyped-def] # pylint: disable=invalid-name
-        """# TODO"""
-        return True
-
-    def emptyline(self) -> bool:
-        """Don't do anything if input line was empty"""
-        return False
-
-    def default(self, line: str) -> None:
-        """Unknown command"""
-        print(colorize_output("\nUnknown command, type help or ?\n", "error"))
-        return None
+    # -------------------------------------------------------------------------
+    # Cmd module methods
+    # -------------------------------------------------------------------------
 
     def cmdloop(self, intro: None = None) -> None:
-        """# TODO"""
         while True:
             try:
-                super(SzCmdShell, self).cmdloop(intro=None)
+                super(SzCmdShell, self).cmdloop(intro=self.intro)
                 # super().cmdloop(intro=None)
                 break
             except KeyboardInterrupt:
@@ -711,59 +627,123 @@ class SzCmdShell(cmd.Cmd):
             except TypeError as err:
                 print_error(err)
 
-    # TODO single input commands too
-    # TODO Move to helpers for G2ConfigTool? - No, they are different
-    # TODO Engines are currently in preloop, move to init?
-    def fileloop(self, file_name: str) -> None:
-        """# TODO"""
-        self.preloop()
+    # Override function from cmd module to make command completion case-insensitive
+    def completenames(self, text: str, *ignored: Any) -> List[str]:
+        do_text = "do_" + text
+        return [
+            a[3:] for a in self.get_names() if a.lower().startswith(do_text.lower())
+        ]
 
-        with open(file_name, encoding="utf-8") as data_in:
-            for line in data_in:
-                line = line.strip()
-                # Ignore comments and blank lines
-                # if len(line) > 0 and line[0:1] not in ("#", "-", "/"):
+    @staticmethod
+    def do_EOF(_):  # type: ignore[no-untyped-def] # pylint: disable=invalid-name
+        return True
+
+    def do_exit(self, _) -> bool:  # type: ignore[no-untyped-def]
+        self.do_quit(_)
+        return True
+
+    @staticmethod
+    def do_quit(_) -> bool:  # type: ignore[no-untyped-def]
+        return True
+
+    def do_shell(self, line: str) -> None:
+        do_shell(self, line)
+
+    # Handle unknown commands
+    def default(self, line: str) -> None:
+        print_warning("Unknown command, type help or ?")
+
+    # Override in cmd module to return methods for autocomplete and help
+    # ignoring any hidden commands
+    def get_names(self, include_hidden: bool = False) -> List[str]:
+        if not include_hidden:
+            return [n for n in dir(self.__class__) if n not in self.__hidden_cmds]
+
+        return list(dir(self.__class__))
+
+    def postcmd(self, stop: bool, line: str) -> bool:
+        # If restart has been requested, set stop value to True to restart engines in main loop
+        if self.restart:
+            return cmd.Cmd.postcmd(self, True, line)
+
+        return cmd.Cmd.postcmd(self, stop, line)
+
+    def postloop(self) -> None:
+        pass
+
+    def precmd(self, line: str) -> str:
+        return cmd.Cmd.precmd(self, line)
+
+    def preloop(self) -> None:
+        if not self.history_disable:
+            history_check = history_setup()
+            # Non-empty string means error and msg was returned
+            if history_check:
+                print_warning(history_check)
+
+        # Check if there is a config file and use config
+        if not self.docker_launched:
+            self.read_config()
+
+        # Initially set theme to use the default colors set by the terminal
+        Colors.set_theme(self.theme)
+
+        print_info("Welcome to sz_command. Type help or ? for help")
+
+    # -------------------------------------------------------------------------
+    # Read commands from file
+    # -------------------------------------------------------------------------
+
+    # Was here
+    # TODO single input commands too
+    # TODO Allow purge?
+    # TODO Color or not? If people want to copy they would get color codes? Redirect?
+    # TODO Allow formatters in the file to control global formatting in addition to per command
+    # Read commands from a file and call
+    def file_loop(self, file_name: str) -> None:
+        with open(file_name, encoding="utf-8") as cmds_file:
+            for line in cmds_file:
                 if line and line[0:1] not in ("#", "-", "/"):
-                    # *args allows for empty list if there are no args
-                    (read_cmd, *args) = line.split()
-                    cmd_ = f"do_{read_cmd}"
-                    print(f"\n----- {read_cmd} -----")
+                    (cmd_, *args) = line.strip().split()
+                    do_cmd = f"do_{cmd_}"
+                    print(f"\n----- {cmd_} -----")
                     print(f"\n{line}")
 
-                    if cmd_ not in dir(self):
-                        print(colorize_output(f"Command {read_cmd} not found", "error"))
-                        return None
-                    # else:
+                    if do_cmd not in dir(self):
+                        print(colorize_output(f"Command {cmd_} not found", "error"))
+                        return
 
-                    # Join the args into a printable string, format into the command + args to call
                     try:
-                        exec_cmd = f'self.{cmd_}({repr(" ".join(args))})'
-                        exec(exec_cmd)  # pylint: disable=exec-used
+                        func = getattr(self, do_cmd)
+                        func(" ".join(args))
                     except (ValueError, TypeError) as err:
                         print(colorize_output("Command could not be run!", "error"))
                         print_error(err)
 
-    def do_hidden(self, _: None) -> None:
-        """# TODO"""
-        print()
-        print("\n".join(map(str, self.__hidden_cmds)))
-        print()
+    # TODO
+    # TODO Allow purge? If env var is set?
+    # TODO Move to helpers
+    def one_cmd(self, cmd_args: List[str]) -> None:
+        """ """
+        cmd_ = cmd_args[0]
+        cmd_args.remove(cmd_)
+        do_cmd = f"do_{cmd_}"
+        func = getattr(self, do_cmd)
+        func(" ".join(cmd_args))
 
-    # ----- Help -----
-    # ===== custom help section =====
+    # -------------------------------------------------------------------------
+    # Custom help
+    # -------------------------------------------------------------------------
 
     def do_help(self, arg: str = "") -> None:
-        """# TODO"""
         do_help(self, arg)
 
     def help_all(self) -> None:
-        """# TODO"""
         self.do_help()
 
     # TODO Check help is still correct
-    # @staticmethod
-    def help_overview(self) -> None:
-        """# TODO"""
+    @staticmethod
+    def help_overview() -> None:
         print(
             textwrap.dedent(
                 f"""
@@ -831,15 +811,6 @@ class SzCmdShell(cmd.Cmd):
             )
         )
 
-    def do_shell(self, line: str) -> None:
-        """# TODO"""
-        do_shell(self, line)
-
-    def do_history(self, _: None) -> None:
-        # TODO Check all help <cmd>, not all should have doc strings
-        """# TODO"""
-        do_history(self, None)
-
     # -----------------------------------------------------------------------------
     # SDK commands
     # -----------------------------------------------------------------------------
@@ -847,9 +818,6 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
     # szconfig commands
     # -----------------------------------------------------------------------------
-
-    # TODO Add a note this isn't an API?
-    # TODO Reorder
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_getTemplateConfig(self) -> None:
@@ -868,7 +836,7 @@ class SzCmdShell(cmd.Cmd):
         config_handle = self.sz_config.create_config()
         response = self.sz_config.export_config(config_handle)
         self.sz_config.close_config(config_handle)
-        self.output_response(response)
+        self.last_response = self.output_response(response)
 
     # -----------------------------------------------------------------------------
     # szconfigmanager commands
@@ -896,7 +864,7 @@ class SzCmdShell(cmd.Cmd):
             - Retrieve a list of configurations and identifiers with getConfigList"""
 
         response = self.sz_configmgr.get_config(kwargs["parsed_args"].config_id)  # type: ignore
-        self.output_response(response)
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_getConfigs(self) -> None:
@@ -907,7 +875,7 @@ class SzCmdShell(cmd.Cmd):
             getConfigList"""
 
         response = self.sz_configmgr.get_configs()
-        self.output_response(response)
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_getDefaultConfigID(self) -> None:
@@ -918,7 +886,7 @@ class SzCmdShell(cmd.Cmd):
             getDefaultConfigID"""
 
         response = self.sz_configmgr.get_default_config_id()
-        self.output_response(response, "success")
+        self.last_response = self.output_response(response, "success")
 
     @sz_cmds_decorator()
     def do_replaceDefaultConfigID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -943,6 +911,8 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].new_default_config_id,
         )
         self.output_response("New default config set, restarting engines...", "success")
+        self.last_response = ""
+
         if self.debug_trace:
             self.do_restartDebug(None)
         else:
@@ -967,6 +937,8 @@ class SzCmdShell(cmd.Cmd):
 
         self.sz_configmgr.set_default_config_id(kwargs["parsed_args"].config_id)
         self.output_response("Default config set, restarting engines...", "success")
+        self.last_response = ""
+
         if self.debug_trace:
             self.do_restartDebug(None)
         else:
@@ -991,7 +963,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_diagnostic.check_datastore_performance(
             kwargs["parsed_args"].secondsToRun
         )
-        self.output_response(response)
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_getDatastoreInfo(self) -> None:
@@ -1002,7 +974,7 @@ class SzCmdShell(cmd.Cmd):
             getDatastoreInfo"""
 
         response = self.sz_diagnostic.get_datastore_info()
-        self.output_response(response)
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_getFeature(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1019,7 +991,7 @@ class SzCmdShell(cmd.Cmd):
             FEATURE_ID = Identifier of feature"""
 
         response = self.sz_diagnostic.get_feature(kwargs["parsed_args"].featureID)
-        self.output_response(response)
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_purgeRepository(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1060,6 +1032,7 @@ class SzCmdShell(cmd.Cmd):
                 return
 
         self.sz_diagnostic.purge_repository()
+        self.last_response = ""
 
     # -----------------------------------------------------------------------------
     # szengine commands
@@ -1083,32 +1056,19 @@ class SzCmdShell(cmd.Cmd):
             RECORD_DEFINITION = Senzing mapped JSON representation of a record
             FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
-        # response = self.sz_engine.add_record(
-        #     kwargs["parsed_args"].data_source_code,
-        #     kwargs["parsed_args"].record_id,
-        #     kwargs["parsed_args"].record_definition,
-        #     **kwargs["flags_dict"],
-        # )
+        add_record = functools.partial(
+            self.sz_engine.add_record,
+            kwargs["parsed_args"].data_source_code,
+            kwargs["parsed_args"].record_id,
+            kwargs["parsed_args"].record_definition,
+        )
 
-        # TODO Consider making all flag using methods partial functions
-        if "flags" in kwargs:
-            response = self.sz_engine.add_record(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-                kwargs["parsed_args"].record_definition,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.add_record(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-                kwargs["parsed_args"].record_definition,
-            )
+        response = add_record(kwargs["flags"]) if "flags" in kwargs else add_record()
 
         if response == "{}":
-            self.output_response("Record added.", "success")
+            self.last_response = self.output_response("Record added", "success")
         else:
-            self.output_response(response)
+            self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_countRedoRecords(self) -> None:
@@ -1120,9 +1080,9 @@ class SzCmdShell(cmd.Cmd):
 
         response = self.sz_engine.count_redo_records()
         if not response:
-            self.output_response("No redo records.", "info")
+            self.last_response = self.output_response("No redo records", "info")
         else:
-            self.output_response(response, "success")
+            self.last_response = self.output_response(response, "success")
 
     @sz_cmds_decorator()
     def do_deleteRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1142,28 +1102,20 @@ class SzCmdShell(cmd.Cmd):
             FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
 
-        # response = self.sz_engine.delete_record(
-        #     kwargs["parsed_args"].data_source_code,
-        #     kwargs["parsed_args"].record_id,
-        #     **kwargs["flags_dict"],
-        # )
+        delete_record = functools.partial(
+            self.sz_engine.delete_record,
+            kwargs["parsed_args"].data_source_code,
+            kwargs["parsed_args"].record_id,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.delete_record(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.delete_record(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-            )
+        response = (
+            delete_record(kwargs["flags"]) if "flags" in kwargs else delete_record()
+        )
 
         if response == "{}":
-            self.output_response("Record deleted.", "success")
+            self.last_response = self.output_response("Record deleted.", "success")
         else:
-            self.output_response(response)
+            self.last_response = self.output_response(response)
 
     # TODO Fix flag names and check all still valid
     # TODO Check available columns for V4
@@ -1198,31 +1150,27 @@ class SzCmdShell(cmd.Cmd):
 
               https://senzing.zendesk.com/hc/en-us/articles/360010716274--Advanced-Replicating-the-Senzing-results-to-a-Data-Warehouse
         """
-
         rec_cnt = 0
 
+        export_csv = functools.partial(
+            self.sz_engine.export_csv_entity_report,
+            kwargs["parsed_args"].csv_column_list,
+        )
+
         try:
+            export_handle = (
+                export_csv(kwargs["flags"]) if "flags" in kwargs else export_csv()
+            )
+
             with open(
                 kwargs["parsed_args"].output_file, "w", encoding="utf-8"
-            ) as data_out:
-                # export_handle = self.sz_engine.export_csv_entity_report(
-                #     kwargs["parsed_args"].csv_column_list, **kwargs["flags_dict"]
-                # )
-
-                if "flags" in kwargs:
-                    export_handle = self.sz_engine.export_csv_entity_report(
-                        kwargs["parsed_args"].csv_column_list, kwargs["flags"]
-                    )
-                else:
-                    export_handle = self.sz_engine.export_csv_entity_report(
-                        kwargs["parsed_args"].csv_column_list,
-                    )
+            ) as csv_out:
 
                 while True:
                     export_record = self.sz_engine.fetch_next(export_handle)
                     if not export_record:
                         break
-                    data_out.write(export_record)
+                    csv_out.write(export_record)
                     rec_cnt += 1
                     if rec_cnt % 1000 == 0:
                         print(f"Exported {rec_cnt} records...", flush=True)
@@ -1232,6 +1180,7 @@ class SzCmdShell(cmd.Cmd):
             print_error(err)
         else:
             self.output_response(f"Total exported records: {rec_cnt}", "success")
+            self.last_response = ""
 
     @sz_cmds_decorator()
     def do_exportJSONEntityReport(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1262,21 +1211,18 @@ class SzCmdShell(cmd.Cmd):
 
         rec_cnt = 0
 
+        export_json = functools.partial(
+            self.sz_engine.export_json_entity_report,
+        )
+
         try:
+            export_handle = (
+                export_json(kwargs["flags"]) if "flags" in kwargs else export_json()
+            )
+
             with open(
                 kwargs["parsed_args"].output_file, "w", encoding="utf-8"
             ) as data_out:
-                # export_handle = self.sz_engine.export_json_entity_report(
-                #     **kwargs["flags_dict"]
-                # )
-
-                if "flags" in kwargs:
-                    export_handle = self.sz_engine.export_json_entity_report(
-                        kwargs["flags"]
-                    )
-                else:
-                    export_handle = self.sz_engine.export_json_entity_report()
-
                 while True:
                     export_record = self.sz_engine.fetch_next(export_handle)
                     if not export_record:
@@ -1291,7 +1237,9 @@ class SzCmdShell(cmd.Cmd):
             print_error(err)
         else:
             self.output_response(f"Total exported records: {rec_cnt}", "success")
+            self.last_response = ""
 
+    # TODO Not done this method yet
     @sz_cmds_decorator()
     def do_findInterestingEntitiesByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
@@ -1313,10 +1261,6 @@ class SzCmdShell(cmd.Cmd):
             - Experimental feature requires additional configuration, contact support@senzing.com
         """
 
-        # response = self.sz_engine.find_interesting_entities_by_entity_id(
-        #     kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
-        # )
-
         if "flags" in kwargs:
             response = self.sz_engine.find_interesting_entities_by_entity_id(
                 kwargs["parsed_args"].entity_id, kwargs["flags"]
@@ -1328,6 +1272,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.output_response(response)
 
+    # TODO Not done this method yet
     @sz_cmds_decorator()
     def do_findInterestingEntitiesByRecordID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
@@ -1350,12 +1295,6 @@ class SzCmdShell(cmd.Cmd):
             - Experimental feature requires additional configuration, contact support@senzing.com
         """
 
-        # response = self.sz_engine.find_interesting_entities_by_record_id(
-        #     kwargs["parsed_args"].data_source_code,
-        #     kwargs["parsed_args"].record_id,
-        #     **kwargs["flags_dict"],
-        # )
-
         if "flags" in kwargs:
             response = self.sz_engine.find_interesting_entities_by_record_id(
                 kwargs["parsed_args"].data_source_code,
@@ -1370,6 +1309,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.output_response(response)
 
+    # TODO Not done this method yet
     @sz_cmds_decorator()
     def do_findNetworkByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
@@ -1391,14 +1331,6 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.find_network_by_entity_id(
-        #     kwargs["parsed_args"].entity_list,
-        #     kwargs["parsed_args"].max_degrees,
-        #     kwargs["parsed_args"].build_out_degree,
-        #     kwargs["parsed_args"].max_entities,
-        #     **kwargs["flags_dict"],
-        # )
-
         if "flags" in kwargs:
             response = self.sz_engine.find_network_by_entity_id(
                 kwargs["parsed_args"].entity_list,
@@ -1417,6 +1349,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.output_response(response)
 
+    # TODO Not done this method yet
     @sz_cmds_decorator()
     def do_findNetworkByRecordID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
@@ -1438,14 +1371,6 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.find_network_by_record_id(
-        #     kwargs["parsed_args"].record_list,
-        #     kwargs["parsed_args"].max_degrees,
-        #     kwargs["parsed_args"].build_out_degree,
-        #     kwargs["parsed_args"].max_entities,
-        #     **kwargs["flags_dict"],
-        # )
-
         if "flags" in kwargs:
             response = self.sz_engine.find_network_by_record_id(
                 kwargs["parsed_args"].record_list,
@@ -1464,6 +1389,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.output_response(response)
 
+    # TODO Not done this method yet
     @sz_cmds_decorator()
     def do_findPathByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
@@ -1485,15 +1411,6 @@ class SzCmdShell(cmd.Cmd):
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
-
-        # response = self.sz_engine.find_path_by_entity_id(
-        #     kwargs["parsed_args"].start_entity_id,
-        #     kwargs["parsed_args"].end_entity_id,
-        #     kwargs["parsed_args"].max_degrees,
-        #     kwargs["parsed_args"].exclusions,
-        #     kwargs["parsed_args"].required_data_sources,
-        #     **kwargs["flags_dict"],
-        # )
 
         if "flags" in kwargs:
             response = self.sz_engine.find_path_by_entity_id(
@@ -1519,6 +1436,7 @@ class SzCmdShell(cmd.Cmd):
     # TODO Examples with list of entity ids when szengine supports it
     # TODO EXCLUSIONS ... ?
     # TODO Autocomplete data sources? And on other methods?
+    # TODO Not done this method yet
     @sz_cmds_decorator()
     def do_findPathByRecordID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
@@ -1542,17 +1460,6 @@ class SzCmdShell(cmd.Cmd):
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
-
-        # response = self.sz_engine.find_path_by_record_id(
-        #     kwargs["parsed_args"].start_data_source_code,
-        #     kwargs["parsed_args"].start_record_id,
-        #     kwargs["parsed_args"].end_data_source_code,
-        #     kwargs["parsed_args"].end_record_id,
-        #     kwargs["parsed_args"].max_degrees,
-        #     kwargs["parsed_args"].exclusions,
-        #     kwargs["parsed_args"].required_data_sources,
-        #     **kwargs["flags_dict"],
-        # )
 
         if "flags" in kwargs:
             response = self.sz_engine.find_path_by_record_id(
@@ -1587,7 +1494,7 @@ class SzCmdShell(cmd.Cmd):
             getActiveConfigID"""
 
         response = self.sz_engine.get_active_config_id()
-        self.output_response(response, "success")
+        self.last_response = self.output_response(response, color="success")
 
     @sz_cmds_decorator()
     def do_getEntityByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1608,22 +1515,13 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.get_entity_by_entity_id(
-        #     kwargs["parsed_args"].entity_id,
-        #     **kwargs["flags_dict"],
-        #     # kwargs["parsed_args"].entity_id,
-        #     # kwargs["flags"],
-        # )
-        if "flags" in kwargs:
-            response = self.sz_engine.get_entity_by_entity_id(
-                kwargs["parsed_args"].entity_id, kwargs["flags"]
-            )
-        else:
-            response = self.sz_engine.get_entity_by_entity_id(
-                kwargs["parsed_args"].entity_id
-            )
+        get_entity = functools.partial(
+            self.sz_engine.get_entity_by_entity_id,
+            kwargs["parsed_args"].entity_id,
+        )
 
-        self.output_response(response)
+        response = get_entity(kwargs["flags"]) if "flags" in kwargs else get_entity()
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_getEntityByRecordID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1645,25 +1543,14 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.get_entity_by_record_id(
-        #     kwargs["parsed_args"].data_source_code,
-        #     kwargs["parsed_args"].record_id,
-        #     **kwargs["flags_dict"],
-        # )
+        get_entity = functools.partial(
+            self.sz_engine.get_entity_by_record_id,
+            kwargs["parsed_args"].data_source_code,
+            kwargs["parsed_args"].record_id,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.get_entity_by_record_id(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.get_entity_by_record_id(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-            )
-
-        self.output_response(response)
+        response = get_entity(kwargs["flags"]) if "flags" in kwargs else get_entity()
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_getRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1685,25 +1572,14 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.get_record(
-        #     kwargs["parsed_args"].data_source_code,
-        #     kwargs["parsed_args"].record_id,
-        #     **kwargs["flags_dict"],
-        # )
+        get_record = functools.partial(
+            self.sz_engine.get_record,
+            kwargs["parsed_args"].data_source_code,
+            kwargs["parsed_args"].record_id,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.get_record(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.get_record(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-            )
-
-        self.output_response(response)
+        response = get_record(kwargs["flags"]) if "flags" in kwargs else get_record()
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_getRedoRecord(self) -> None:
@@ -1715,9 +1591,9 @@ class SzCmdShell(cmd.Cmd):
 
         response = self.sz_engine.get_redo_record()
         if not response:
-            self.output_response("No redo records.", "info")
+            self.last_response = self.output_response("No redo records.", "info")
         else:
-            self.output_response(response)
+            self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_getStats(self) -> None:
@@ -1748,20 +1624,13 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.get_virtual_entity_by_record_id(
-        #     kwargs["parsed_args"].record_list, **kwargs["flags_dict"]
-        # )
+        get_virtual = functools.partial(
+            self.sz_engine.get_virtual_entity_by_record_id,
+            kwargs["parsed_args"].record_list,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.get_virtual_entity_by_record_id(
-                kwargs["parsed_args"].record_list, kwargs["flags"]
-            )
-        else:
-            response = self.sz_engine.get_virtual_entity_by_record_id(
-                kwargs["parsed_args"].record_list,
-            )
-
-        self.output_response(response)
+        response = get_virtual(kwargs["flags"]) if "flags" in kwargs else get_virtual()
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_howEntityByEntityID(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1781,20 +1650,13 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.how_entity_by_entity_id(
-        #     kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
-        # )
+        how_entity = functools.partial(
+            self.sz_engine.how_entity_by_entity_id,
+            kwargs["parsed_args"].entity_id,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.how_entity_by_entity_id(
-                kwargs["parsed_args"].entity_id, kwargs["flags"]
-            )
-        else:
-            response = self.sz_engine.how_entity_by_entity_id(
-                kwargs["parsed_args"].entity_id
-            )
-
-        self.output_response(response)
+        response = how_entity(kwargs["flags"]) if "flags" in kwargs else how_entity()
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_primeEngine(self) -> None:  # type: ignore[no-untyped-def]
@@ -1806,7 +1668,9 @@ class SzCmdShell(cmd.Cmd):
 
         self.sz_engine.prime_engine()
         self.output_response("Engine primed.", "success")
+        self.last_response = ""
 
+    # TODO Need to test
     @sz_cmds_decorator(cmd_has_args=True)
     def do_processRedoRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
         """
@@ -1824,21 +1688,15 @@ class SzCmdShell(cmd.Cmd):
             FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
 
-        # response = self.sz_engine.process_redo_record(
-        #     kwargs["parsed_args"].redo_record,
-        #     **kwargs["flags_dict"],
-        # )
+        process_redo = functools.partial(
+            self.sz_engine.process_redo_record,
+            kwargs["parsed_args"].redo_record,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.process_redo_record(
-                kwargs["parsed_args"].redo_record, kwargs["flags"]
-            )
-        else:
-            response = self.sz_engine.process_redo_record(
-                kwargs["parsed_args"].redo_record,
-            )
-
-        self.output_response(response)
+        response = (
+            process_redo(kwargs["flags"]) if "flags" in kwargs else process_redo()
+        )
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_reevaluateEntity(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1860,22 +1718,17 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.reevaluate_entity(
-        #     kwargs["parsed_args"].entity_id, **kwargs["flags_dict"]
-        # )
+        reevaluate = functools.partial(
+            self.sz_engine.reevaluate_entity,
+            kwargs["parsed_args"].entity_id,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.reevaluate_entity(
-                kwargs["parsed_args"].entity_id, kwargs["flags"]
-            )
-        else:
-            response = self.sz_engine.reevaluate_entity(kwargs["parsed_args"].entity_id)
-
-        # TODO Think about displaying message in all with info methods
+        response = reevaluate(kwargs["flags"]) if "flags" in kwargs else reevaluate()
+        # TODO Think about displaying message in all with info methods like "Record added"
         if response == "{}":
-            self.output_response("Entity reevaluated.", "success")
+            self.last_response = self.output_response("Entity reevaluated", "success")
         else:
-            self.output_response(response)
+            self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_reevaluateRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1897,27 +1750,17 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.reevaluate_record(
-        #     kwargs["parsed_args"].data_source_code,
-        #     kwargs["parsed_args"].record_id,
-        #     **kwargs["flags_dict"],
-        # )
+        reevaluate = functools.partial(
+            self.sz_engine.reevaluate_record,
+            kwargs["parsed_args"].data_source_code,
+            kwargs["parsed_args"].record_id,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.reevaluate_record(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.reevaluate_record(
-                kwargs["parsed_args"].data_source_code, kwargs["parsed_args"].record_id
-            )
-
+        response = reevaluate(kwargs["flags"]) if "flags" in kwargs else reevaluate()
         if response == "{}":
-            self.output_response("Record reevaluated.", "success")
+            self.last_response = self.output_response("Record reevaluated", "success")
         else:
-            self.output_response(response)
+            self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_searchByAttributes(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1943,17 +1786,6 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # print(type(kwargs["flags_dict"]))
-        # print(kwargs["flags_dict"])
-        # print(kwargs["flags_dict"]["flags"].value)
-        # response = self.sz_engine.search_by_attributes(
-        #     kwargs["parsed_args"].attributes,
-        #     # TODO Using like this here due to order of args in szengine
-        #     kwargs["flags_dict"]["flags"].value,
-        #     kwargs["parsed_args"].search_profile,
-        #     # **kwargs["flags_dict"],
-        # )
-
         if "flags" in kwargs:
             response = self.sz_engine.search_by_attributes(
                 kwargs["parsed_args"].attributes,
@@ -1966,7 +1798,7 @@ class SzCmdShell(cmd.Cmd):
                 search_profile=kwargs["parsed_args"].search_profile,
             )
 
-        self.output_response(response)
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_whyEntities(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -1988,25 +1820,16 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.why_entities(
-        #     kwargs["parsed_args"].entity_id1,
-        #     kwargs["parsed_args"].entity_id2,
-        #     **kwargs["flags_dict"],
-        # )
+        why_entities = functools.partial(
+            self.sz_engine.why_entities,
+            kwargs["parsed_args"].entity_id1,
+            kwargs["parsed_args"].entity_id2,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.why_entities(
-                kwargs["parsed_args"].entity_id1,
-                kwargs["parsed_args"].entity_id2,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.why_entities(
-                kwargs["parsed_args"].entity_id1,
-                kwargs["parsed_args"].entity_id2,
-            )
-
-        self.output_response(response)
+        response = (
+            why_entities(kwargs["flags"]) if "flags" in kwargs else why_entities()
+        )
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_whyRecordInEntity(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -2028,25 +1851,14 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.why_record_in_entity(
-        #     kwargs["parsed_args"].data_source_code,
-        #     kwargs["parsed_args"].record_id,
-        #     **kwargs["flags_dict"],
-        # )
+        why_record = functools.partial(
+            self.sz_engine.why_record_in_entity,
+            kwargs["parsed_args"].data_source_code,
+            kwargs["parsed_args"].record_id,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.why_record_in_entity(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.why_record_in_entity(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-            )
-
-        self.output_response(response)
+        response = why_record(kwargs["flags"]) if "flags" in kwargs else why_record()
+        self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
     def do_whyRecords(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
@@ -2070,33 +1882,20 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # response = self.sz_engine.why_records(
-        #     kwargs["parsed_args"].data_source_code1,
-        #     kwargs["parsed_args"].record_id1,
-        #     kwargs["parsed_args"].data_source_code2,
-        #     kwargs["parsed_args"].record_id2,
-        #     **kwargs["flags_dict"],
-        # )
+        why_records = functools.partial(
+            self.sz_engine.why_records,
+            kwargs["parsed_args"].data_source_code1,
+            kwargs["parsed_args"].record_id1,
+            kwargs["parsed_args"].data_source_code2,
+            kwargs["parsed_args"].record_id2,
+        )
 
-        if "flags" in kwargs:
-            response = self.sz_engine.why_records(
-                kwargs["parsed_args"].data_source_code1,
-                kwargs["parsed_args"].record_id1,
-                kwargs["parsed_args"].data_source_code2,
-                kwargs["parsed_args"].record_id2,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.why_records(
-                kwargs["parsed_args"].data_source_code1,
-                kwargs["parsed_args"].record_id1,
-                kwargs["parsed_args"].data_source_code2,
-                kwargs["parsed_args"].record_id2,
-            )
+        response = why_records(kwargs["flags"]) if "flags" in kwargs else why_records()
+        self.last_response = self.output_response(response)
 
-        self.output_response(response)
-
+    # -----------------------------------------------------------------------------
     # szproduct commands
+    # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator(cmd_has_args=False)
     def do_getLicense(self) -> None:  # type: ignore[no-untyped-def]
@@ -2117,68 +1916,31 @@ class SzCmdShell(cmd.Cmd):
         Syntax:
             getVersion"""
 
-        # TODO other places using dumps/loads where doesn't need to?
-        # self.printResponse(json.dumps(json.loads(self.sz_product.get_version())))
-        self.output_response(self.sz_product.get_version())
+        self.last_response = self.output_response(self.sz_product.get_version())
 
     # -----------------------------------------------------------------------------
     # Helper commands
     # -----------------------------------------------------------------------------
 
-    # NOTE This isn't an API call
-    # TODO Test
-    @sz_cmds_decorator()
-    def do_addConfigFile(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    def do_hidden(self, _: None) -> None:
+        print()
+        print("\n".join(map(str, self.__hidden_cmds)))
+        print()
+
+    def do_history(self, _: None) -> None:
+        # TODO Check all help <cmd>, not all should have doc strings
         """
-        Add a configuration from a file
+        Displays the command history
 
         Syntax:
-            addConfigFile CONFIG_FILE 'COMMENTS'
-
-        Example:
-            addConfigFile config.json 'Added new features'
-
-        Arguments:
-            CONFIG_FILE = File containing configuration to add
-            COMMENTS = Comments for the configuration"""
-
-        # fmt: off
-        config_add = pathlib.Path(kwargs["parsed_args"].config_json_file).read_text()  # pylint: disable=unspecified-encoding
-        # fmt: on
-        config_add = config_add.replace("\n", "")
-        response = self.sz_configmgr.add_config(
-            config_add, kwargs["parsed_args"].config_comments
-        )
-        self.output_response(f"Configuration added, ID = {response}", "success")
-
-    def do_responseToClipboard(self, _) -> None:  # type: ignore[no-untyped-def]
-        """# TODO"""
-        do_responseToClipboard(self, None)
-
-    @sz_cmds_decorator()
-    def do_responseToFile(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
-        """# TODO"""
-        # TODO Change to response_to_file in helpers? And other similar functions
-        do_responseToFile(self, **kwargs)
-
-    # TODO Some are arg, others args
-    def do_responseReformatJson(self, _) -> None:  # type: ignore[no-untyped-def]
-        """# TODO"""
-        do_responseReformatJson(self.last_response, self.color_json, self.format_json)
-
-    def do_restart(self, _) -> bool:  # type: ignore[no-untyped-def]
-        """# TODO"""
-        self.restart = True
-        return True
-
-    def do_restartDebug(self, _) -> bool:  # type: ignore[no-untyped-def]
-        """# TODO"""
-        self.restart_debug = True
-        return True
+            history
+        """
+        # TODO Change the function names in helpers
+        do_history()
 
     # TODO Main help is currently wrong
     def do_json_color(self, _: None) -> None:
-        # TODO Add to help this saves to config file
+        # TODO Add to help this saves to config file and about per cmd changes
         """
         Enables/disables adding colors to JSON responses
 
@@ -2208,17 +1970,60 @@ class SzCmdShell(cmd.Cmd):
 
         self.write_config()
 
-    # TODO Autocomplete themes?
-    # TODO Add themes to config?
+    def do_responseToClipboard(self, _) -> None:  # type: ignore[no-untyped-def]
+        """# TODO"""
+        response_to_clipboard(self.last_response)
+
     @sz_cmds_decorator()
-    def do_setTheme(self, **kwargs):
+    def do_responseToFile(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        """# TODO"""
+        # TODO Change to response_to_file in helpers? And other similar functions
+        response_to_file(kwargs["parsed_args"].file_path, self.last_response)
+
+    # TODO Some are arg, others args
+    def do_responseReformatJson(self, _) -> None:  # type: ignore[no-untyped-def]
+        """# TODO"""
+        response_reformat_json(self.last_response, self.color_json, self.format_json)
+
+    # TODO Add msg
+    # TODO Doesn't write history
+    def do_restart(self, _) -> bool:  # type: ignore[no-untyped-def]
         """
-        Switch terminal ANSI colors between default and light
+        Restart this instance and Senzing engines
 
         Syntax:
-            setTheme {default|light}
+            restart
+        """
+        self.restart = True
+        self.restart_debug = False
+        return True
+
+    def do_restartDebug(self, _) -> bool:  # type: ignore[no-untyped-def]
+        """
+        Restart this instance and Senzing engines, with verbose logging enabled
+
+        Syntax:
+            restartDebug
+        """
+        self.restart_debug = True
+        self.restart = False
+        return True
+
+    # TODO Autocomplete themes?
+    @sz_cmds_decorator()
+    def do_setTheme(self, **kwargs):  # type: ignore[no-untyped-def]
+        """
+        Switch terminal ANSI colors
+
+        Syntax:
+            setTheme default|dark|light|{terminal}
+
+        Note:
+            - The default is terminal and recommended
         """
         Colors.set_theme(kwargs["parsed_args"].theme[0])
+        self.theme = kwargs["parsed_args"].theme[0]
+        self.write_config()
 
     def do_timer(self, _: None) -> None:
         """# TODO"""
@@ -2226,33 +2031,21 @@ class SzCmdShell(cmd.Cmd):
         print_info(f'Timer {"enabled" if self.timer else "disabled"}')
         self.write_config()
 
-    # Support methods
+    # -----------------------------------------------------------------------------
+    # Helper methods
+    # -----------------------------------------------------------------------------
 
-    # TODO
-    def get_restart(self):
-        return self.restart
-
-    def get_restart_debug(self):
-        return self.restart_debug
-
-    def parse(self, argument_string):
-        """Parses command arguments into a list of argument strings"""
-
+    # Parses command arguments into a list of argument strings
+    def parse(self, argument_string: str) -> List[str]:
         try:
             shlex_list = shlex.split(argument_string)
             return shlex_list
         except ValueError as err:
-            # TODO Move err into f-string
-            print_error(err, "Unable to parse arguments")
+            print_error(f"Unable to parse arguments: {err}")
             raise
 
+    # Try and read configuration ini file, if one doesn't exist create one
     def read_config(self) -> None:
-        """# TODO"""
-        # TODO Can be used in other tools, e.g. sz_configtool?
-        path = pathlib.Path(sys.argv[0])
-        file_str = f"~/.{path.stem.lower()}{'.ini'}"
-        # TODO expanduser vs resolve, check _tool_helpers where resolve used
-        self.config_file = pathlib.Path(file_str).expanduser()
         config_exists = pathlib.Path(self.config_file).exists()
         read_config = configparser.ConfigParser()
 
@@ -2264,6 +2057,7 @@ class SzCmdShell(cmd.Cmd):
                 self.format_json = read_config["CONFIG"].getboolean("formatjson")
                 self.color_json = read_config["CONFIG"].getboolean("outputcolor")
                 self.timer = read_config["CONFIG"].getboolean("timer")
+                self.theme = read_config["CONFIG"]["theme"]
             except IOError as err:
                 print_warning(
                     f"Error reading configuration file: {err}",
@@ -2276,8 +2070,8 @@ class SzCmdShell(cmd.Cmd):
             # If a configuration file doesn't exist attempt to create one
             self.write_config()
 
+    # Try and write configuration ini file
     def write_config(self) -> None:
-        """# TODO"""
         if self.docker_launched:
             return
 
@@ -2286,126 +2080,54 @@ class SzCmdShell(cmd.Cmd):
             "formatjson": f'{"True" if self.format_json else "False"}',
             "outputcolor": f'{"True" if self.color_json else "False"}',
             "timer": f'{"True" if self.timer else "False"}',
+            "theme": self.theme,
         }
 
         try:
             with open(self.config_file, "w", encoding="utf-8") as config_file:
                 write_config.write(config_file)
         except IOError as err:
-            # TODO Make a bool
-            if self.config_error == 0:
+            if not self.config_error:
                 print_warning(
                     f"Error saving configuration: {err}",
                 )
-                self.config_error += 1
+                self.config_error = not self.config_error
         except configparser.Error as err:
-            if self.config_error == 0:
+            if not self.config_error:
                 print_warning(
                     f"Error writing configuration to the configuration file: {err}",
                 )
-                self.config_error += 1
+                self.config_error = not self.config_error
 
     # -------------------------------------------------------------------------
     # Auto completers
     # -------------------------------------------------------------------------
 
-    # TODO Order
-    def complete_addRecord(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
+    # pylint: disable=unused-argument
 
-    def complete_deleteRecord(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_exportCSVEntityReport(self, text, line, begidx, endidx):
-        if re.match("exportCSVEntityReport +", line) and not re.match(
-            "exportCSVEntityReport +.* +", line
-        ):
-            return self.path_completes(
-                text, line, begidx, endidx, "exportCSVEntityReport"
-            )
-
+    # Auto complete engine flags from self.szengineflags
+    def flags_completes(self, text: str, line: str) -> List[str]:
         if re.match(".* -f +", line):
-            return self.flags_completes(text, line)
-
-    def complete_exportJSONEntityReport(self, text, line, begidx, endidx):
-        if re.match("exportJSONEntityReport +", line) and not re.match(
-            "exportJSONEntityReport +.* +", line
-        ):
-            return self.path_completes(
-                text, line, begidx, endidx, "exportJSONEntityReport"
-            )
-
-        if re.match(".* -f +", line):
-            return self.flags_completes(text, line)
-
-    def complete_findInterestingEntitiesByEntityID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_findInterestingEntitiesByRecordID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_findNetworkByEntityID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_findNetworkByRecordID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_findPathByEntityID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_findPathByRecordID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_getEntityByEntityID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_getEntityByRecordID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_getRecord(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_getVirtualEntityByRecordID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_howEntityByEntityID(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_processRedoRecord(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_reevaluateEntity(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_reevaluateRecord(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_replaceRecord(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_searchByAttributes(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def complete_whyRecordInEntity(self, text, line, begidx, endidx):
-        return self.flags_completes(text, line)
-
-    def flags_completes(self, text, line):
-        """Auto complete engine flags from szengineflags"""
-        if re.match(".* -f +", line):
-            return [
+            flags = [
                 flag
                 for flag in self.engine_flags_list
                 if flag.lower().startswith(text.lower())
             ]
-        return None
+        return flags
 
     @staticmethod
-    def path_completes(text, line, begidx, endidx, callingcmd):
+    def path_completes(
+        text: str,
+        line: str,
+        begidx: int,
+        endidx: int,
+        calling_cmd: str,
+    ) -> List[str]:
         """Auto complete paths for commands"""
 
         completes = []
-        path_comp = line[len(callingcmd) + 1 : endidx]
-        fixed = line[len(callingcmd) + 1 : begidx]
+        path_comp = line[len(calling_cmd) + 1 : endidx]
+        fixed = line[len(calling_cmd) + 1 : begidx]
         for path in glob.glob(f"{path_comp}*"):
             path = (
                 path + os.sep
@@ -2416,19 +2138,149 @@ class SzCmdShell(cmd.Cmd):
 
         return completes
 
-    def complete_addConfigFile(self, text, line, begidx, endidx):
-        if re.match("addConfigFile +", line):
-            return self.path_completes(text, line, begidx, endidx, "addConfigFile")
+    def complete_addRecord(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
 
-    def complete_responseToFile(self, text, line, begidx, endidx):
+    def complete_deleteRecord(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_exportCSVEntityReport(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        if re.match("exportCSVEntityReport +", line) and not re.match(
+            "exportCSVEntityReport +.* +", line
+        ):
+            return self.path_completes(
+                text, line, begidx, endidx, "exportCSVEntityReport"
+            )
+
+        if re.match(".* -f +", line):
+            return self.flags_completes(text, line)
+        return []
+
+    def complete_exportJSONEntityReport(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        if re.match("exportJSONEntityReport +", line) and not re.match(
+            "exportJSONEntityReport +.* +", line
+        ):
+            return self.path_completes(
+                text, line, begidx, endidx, "exportJSONEntityReport"
+            )
+
+        if re.match(".* -f +", line):
+            return self.flags_completes(text, line)
+        return []
+
+    def complete_findInterestingEntitiesByEntityID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_findInterestingEntitiesByRecordID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_findNetworkByEntityID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_findNetworkByRecordID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_findPathByEntityID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_findPathByRecordID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_getEntityByEntityID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_getEntityByRecordID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_getRecord(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_getVirtualEntityByRecordID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_howEntityByEntityID(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_processRedoRecord(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_reevaluateEntity(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_reevaluateRecord(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_searchByAttributes(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_whyRecordInEntity(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_whyEntities(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_responseToFile(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
         if re.match("responseToFile +", line):
             return self.path_completes(text, line, begidx, endidx, "responseToFile")
+        return []
+
+    def complete_setTheme(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
+        if re.match("setTheme +", line):
+            return [
+                theme for theme in self.themes if theme.lower().startswith(text.lower())
+            ]
+        return []
 
 
 # TODO To helpers?
 def get_engine_flags(flags: Union[List[str], List[int]]) -> Union[int, None]:
     """Detect if int or named flags are used and convert to int ready to send to SDK call"""
-
     # For Senzing support team
     if flags[0] == "-1":
         return -1
@@ -2460,32 +2312,33 @@ def main(args: argparse.Namespace) -> None:
     restart = False
 
     # Check we can locate an engine configuration
-    config = get_engine_config(args.iniFile[0])
+    config = get_engine_config(args.iniFile)
+
+    # Execute a single command
+    if args.command:
+        cmd_obj = SzCmdShell(config, args.debugTrace, args)
+        cmd_obj.one_cmd(args.command)
+        return
 
     # Execute a file of commands
-    # TODO Better way? https://pymotw.com/2/cmd/
     if args.fileToProcess:
-        cmd_obj = SzCmdShell(config, args.debugTrace, args.histDisable)
-        cmd_obj.fileloop(args.fileToProcess)
+        cmd_obj = SzCmdShell(config, args.debugTrace, args)
+        cmd_obj.file_loop(args.fileToProcess)
+        return
+
     # Start command shell
-    else:
-        # Don't use args.debugTrace here, may need to restart
-        debug_trace = args.debugTrace
+    # Don't use args.debugTrace here, may need to restart
+    debug_trace = args.debugTrace
 
-        while first_loop or restart:
-            # Have we been in the command shell already and are trying to quit? Used for restarting
-            if "cmd_obj" in locals() and cmd_obj.ret_quit():
-                break
-
-            # TODO
-            cmd_obj = SzCmdShell(config, debug_trace, args)
-            cmd_obj.cmdloop()
-
-            restart = (
-                True if cmd_obj.get_restart() or cmd_obj.get_restart_debug() else False
-            )
-            debug_trace = True if cmd_obj.get_restart_debug() else False
-            first_loop = False
+    while first_loop or restart:
+        cmd_obj = SzCmdShell(config, debug_trace, args)
+        cmd_obj.cmdloop()
+        restart = True if cmd_obj.restart or cmd_obj.restart_debug else False
+        debug_trace = True if cmd_obj.restart_debug else False
+        first_loop = False
+        # Remove reference to cmd_obj and garbage collect immediately
+        del cmd_obj
+        gc.collect()
 
 
 if __name__ == "__main__":
@@ -2500,10 +2353,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-c",
         "--iniFile",
-        default=[""],
         help="optional path and file name of G2Module.ini to use",
-        # TODO Change in all tools, only want 1 item
-        nargs=1,
     )
     parser.add_argument(
         "-t",
@@ -2517,7 +2367,14 @@ if __name__ == "__main__":
         "--histDisable",
         action="store_true",
         default=False,
-        help="disable history file usage",
+        help="disable use of history file",
+    )
+    # Need to make mutually exclusive with file
+    parser.add_argument(
+        "-C",
+        "--command",
+        nargs="*",
+        help="run a single command non-interactively",
     )
 
     cli_args = parser.parse_args()

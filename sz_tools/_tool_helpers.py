@@ -93,6 +93,9 @@ class Colors:
             cls.POSSIBLE = cls.SZ_ORANGE
             cls.RELATED = cls.SZ_GREEN
             cls.DISCLOSED = cls.SZ_PURPLE
+            # TODO
+            cls.JSONKEYCOLOR = cls.FG_BLUE
+            cls.JSONVALUECOLOR = cls.FG_YELLOW
         elif theme.upper() == "LIGHT":
             cls.TABLE_TITLE = cls.FG_LIGHTBLACK
             cls.ROW_TITLE = cls.FG_LIGHTBLACK
@@ -109,6 +112,9 @@ class Colors:
             cls.AMBIGUOUS = cls.FG_LIGHTYELLOW
             cls.RELATED = cls.FG_LIGHTGREEN
             cls.DISCLOSED = cls.FG_LIGHTMAGENTA
+            # TODO
+            cls.JSONKEYCOLOR = cls.FG_LIGHTBLUE
+            cls.JSONVALUECOLOR = cls.FG_LIGHTYELLOW
         elif theme.upper() == "DARK":
             cls.TABLE_TITLE = cls.FG_BLACK
             cls.ROW_TITLE = cls.FG_BLACK
@@ -126,6 +132,9 @@ class Colors:
             cls.POSSIBLE = cls.FG_RED
             cls.RELATED = cls.FG_GREEN
             cls.DISCLOSED = cls.FG_MAGENTA
+            # TODO
+            cls.JSONKEYCOLOR = cls.SZ_BLUE
+            cls.JSONVALUECOLOR = cls.SZ_YELLOW
         # TODO
         # This class is mostly for sz_explorer as it has many color requirements
         # Other tools need to do basic coloring of text, setting this theme uses
@@ -137,7 +146,6 @@ class Colors:
             cls.CAUTION = cls.FG_YELLOW  # Yellow
             cls.HIGHLIGHT1 = cls.FG_BLUE  # Blue
             cls.HIGHLIGHT2 = cls.FG_CYAN  # Cyan
-            # TODO Add colors for the regex replace for colorizing json output
             cls.JSONKEYCOLOR = cls.FG_BLUE
             cls.JSONVALUECOLOR = cls.FG_YELLOW
 
@@ -524,7 +532,7 @@ def print_response(
         response = "No response!"
         color = "info"
 
-    if isinstance(response, int):
+    if isinstance(response, int) or not response.startswith("{"):
         output = colorize_output(response, color)
     else:
         try:
@@ -560,7 +568,7 @@ def print_response(
             else:
                 output = json_str
 
-    print(f"\n{output}\n", flush=True)
+    print(f"\n{output}\n")
     # Removing color codes, return output to set last_response for sending
     # to clipboard or file or reformatting JSON
     if strip_colors:
@@ -648,108 +656,88 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
 
 
 # def do_history(self: Union[SzCmdShell, SzCfgShell], arg) -> None:
-def do_history(self: SzCmdShell, _: None) -> None:
+# def do_history(self: SzCmdShell, _: None) -> None:
+def do_history() -> None:
     """# TODO"""
 
-    if self.hist_avail:
-        print()
-        for i in range(readline.get_current_history_length()):
-            print(readline.get_history_item(i + 1))
-        print()
-    else:
-        self._print_response("History isn't available in this session.", "caution")
-        # TODO Add report for hist_file_error
+    # if self.hist_avail:
+    print()
+    for i in range(readline.get_current_history_length()):
+        print(readline.get_history_item(i + 1))
+    print()
+    # else:
+    #     print_warning("History isn't available in this session")
+    #     # TODO Add report for hist_file_error
 
 
-def history_setup(self: Union[SzCmdShell, SzCfgShell]) -> None:
+# def history_setup(self: Union[SzCmdShell, SzCfgShell]) -> str:
+def history_setup() -> str:
     """Attempt to setup history file"""
-
-    # TODO pathlib
-    # tmp_hist = "." + os.path.basename(sys.argv[0].lower().replace(".py", "_history"))
-
     # # TODO
+    hist_error = ""
+    hist_size = 2000
+
+    if not READLINE_AVAIL:
+        hist_error = "History file won't be used, python readline or atexit module isn't available"
+        return hist_error
+
     base_name = "." + Path(sys.argv[0]).stem + "_history"
-    self.hist_file_name = Path.home().joinpath(base_name)
+    hist_file = Path.home().joinpath(base_name)
 
-    # self.hist_file_name = os.path.join(os.path.expanduser("~"), tmp_hist)
-
-    # Try and open history in users home first for longevity
+    # Try and open history in users home
     try:
-        with open(self.hist_file_name, "a", encoding="utf-8"):
+        with open(hist_file, "a", encoding="utf-8"):
             pass
     except IOError as err:
-        # TODO Only use /tmp in a container for security
-        self.hist_file_error = f"{err} - Couldn't use home, trying /tmp/..."
-        self.hist_file_name = f"/tmp/{tmp_hist}"
-        self.hist_file_name = Path("/tmp").joinpath(base_name)
-        # Can't use users home, try using /tmp/ for history useful at least in the session
-        try:
-            with open(self.hist_file_name, "a", encoding="utf-8"):
-                pass
-        except IOError as err2:
-            self.hist_file_error = f"{err2} - User home dir and /tmp/ failed!"
-            return
+        hist_error = f"History file won't be used for this session: {err}"
+        return hist_error
 
-    hist_size = 2000
-    readline.read_history_file(self.hist_file_name)
+    readline.read_history_file(hist_file)
     readline.set_history_length(hist_size)
-    # TODO Is using atexit a good idea here? Do after each command instead?
     atexit.register(readline.set_history_length, hist_size)
-    atexit.register(readline.write_history_file, self.hist_file_name)
+    atexit.register(readline.write_history_file, hist_file)
 
-    self.hist_file_error = None
-    self.hist_avail = True
+    return hist_error
 
 
-def do_responseToClipboard(self, _) -> None:  # type: ignore[no-untyped-def]
+def response_to_clipboard(last_response: str) -> None:
     """# TODO"""
-    # TODO Test new lines around output
     if not PYCLIP_AVAIL:
         print_info(
-            textwrap.dedent(
-                """
-                    - To send the last response to the clipboard the Python module pyclip needs to be installed
-                        - pip install pyclip
-                """
-            )
+            "- To send the last response to the clipboard the Python module pyclip needs to be installed\n"
+            "    - pip install pyclip"
         )
         return
 
     try:
         _ = pyclip.detect_clipboard()
+        pyclip.copy(last_response)
     except ClipboardSetupException as err:
         print_warning(f"Problem detecting clipboard: {err}")
         return
-
-    # TODO Try and break this to see if needs try/except
-    try:
-        pyclip.copy(self.last_response)
     except pyclip.base.ClipboardException as err:
         print_warning(f"Couldn't copy to clipboard: {err}")
 
 
-def do_responseToFile(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+def response_to_file(file_path: str, last_response: str) -> None:  # type: ignore[no-untyped-def]
     """# TODO"""
     try:
-        with open(kwargs["parsed_args"].file_path, "w", encoding="utf-8") as out:
-            out.write(self.last_response)
+        with open(file_path, "w", encoding="utf-8") as out:
+            out.write(last_response)
             out.write("\n")
     except IOError as err:
         print_error(err)
 
 
-# TODO args? kwargs??
-# TODO Doesn't put the reformat in last_response, should it
-def do_responseReformatJson(
+def response_reformat_json(
     last_response: str, color_json: bool, format_json: bool
 ) -> None:
     """# TODO"""
-    try:
-        # TODO Orjson?
-        _ = json.loads(last_response)
-    # TODO Correct JSONDecodeError?
-    except (json.decoder.JSONDecodeError, TypeError):
+
+    if not last_response.startswith("{"):
         print_warning("The last response isn't JSON")
         return
 
-    print_response(last_response, color_json, False, not format_json, False, False)
+    print_response(
+        last_response, color_json, False, not format_json, False, False, False
+    )
