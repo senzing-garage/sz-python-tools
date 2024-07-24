@@ -17,13 +17,10 @@ import itertools
 import logging
 import os
 import pathlib
-import select
 import signal
-import subprocess
 import sys
 import textwrap
 import time
-from contextlib import suppress
 from datetime import datetime
 from threading import Event
 from typing import Tuple
@@ -54,15 +51,10 @@ __updated__ = "2023-12-19"
 # LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s:  %(message)s"
 LOG_FORMAT = "%(asctime)s - %(levelname)s:  %(message)s"
 LONG_RECORD = 300
-MODULE_NAME = pathlib.Path(__file__).stem
+MODULE_NAME = pathlib.Path(sys.argv[0]).stem
 PAYLOAD_RECORD = 0
 PAYLOAD_START_TIME = 1
 START_TS = str(datetime.now().strftime("%Y%m%d_%H%M%S"))
-SHUF_NO_DEL_TAG = "_-_SzShufNoDel_-_"
-SHUF_TAG = "_-_SzShuf_-_"
-SHUF_GLOB_TAG = "_-_SzShuf*"
-# SHUF_GLOB_TAG = "*_-_SzShuf*"
-SHUF_TIMEOUT = 30
 WORK_STATS_INTERVAL = 60
 
 # TODO - Ant -
@@ -114,9 +106,7 @@ class CustomArgAction(argparse.Action):
         setattr(namespace, self.dest + "_specified", True)
 
 
-# TODO - Ant - Organize these
-# TODO - Ant - Env vars for all
-# TODO - Ant - Check help visually looks good and help is accurate
+# TODO - Ant - Organise these
 def parse_cli_args() -> argparse.Namespace:
     """# TODO"""
     # TODO - Ant -Change github link
@@ -226,7 +216,6 @@ def parse_cli_args() -> argparse.Namespace:
             """
         ),
     )
-    # TODO - Ant - Make available
     arg_parser.add_argument(
         "-n",
         "--noRedo",
@@ -234,60 +223,6 @@ def parse_cli_args() -> argparse.Namespace:
         default=False,
         nargs=0,
         help=argparse.SUPPRESS,
-    )
-    arg_parser.add_argument(
-        "-sfi",
-        "--shuffFilesIgnore",
-        action="store_true",
-        default=False,
-        help=textwrap.dedent(
-            """\
-            Skip checking for previously shuffled files to use, and prompting to use them.
-
-            """
-        ),
-    )
-    arg_parser.add_argument(
-        "-sfr",
-        "--shuffFileRedirect",
-        default=None,
-        metavar="path",
-        nargs="+",
-        help=textwrap.dedent(
-            """\
-            Alternative path to output shuffled file to, useful for performance and device space.
-
-            Default: Same path as original file.
-            """
-        ),
-    )
-    # Both -ns and -snd shouldn't be used together
-    no_shuf_no_del = arg_parser.add_mutually_exclusive_group()
-    no_shuf_no_del.add_argument(
-        "-ns",
-        "--noShuffle",
-        action="store_true",
-        default=False,
-        help=textwrap.dedent(
-            """\
-            Don\'t shuffle input file(s).
-            Shuffling improves performance and shouldn\'t be disabled unless pre-shuffled.
-
-            """
-        ),
-    )
-    no_shuf_no_del.add_argument(
-        "-snd",
-        "--shuffleNoDelete",
-        action="store_true",
-        default=False,
-        help=textwrap.dedent(
-            f"""\
-            Don\'t delete shuffled file(s) after {MODULE_NAME} shuffles them.
-            Adds {SHUF_NO_DEL_TAG} and timestamp to the shuffled file. {MODULE_NAME} can detect and reuse shuffled files.
-
-            """
-        ),
     )
     # TODO - Ant - Env vars? Display in startup
     # Args for Senzing team testing
@@ -303,7 +238,29 @@ def parse_cli_args() -> argparse.Namespace:
     return arg_parser.parse_args()
 
 
-def check_ingest_file(in_file: pathlib.Path) -> bool:
+# def get_logger(errors_file: str) -> logging.Logger:
+#     """# TODO"""
+#     try:
+#         logger = logging.getLogger(pathlib.Path(sys.argv[0]).stem)
+#         console_handle = logging.StreamHandler(stream=sys.stdout)
+#         console_handle.setLevel(logging.INFO)
+#         file_handle = logging.FileHandler(errors_file, "w")
+#         file_handle.setLevel(logging.ERROR)
+#         logger.setLevel(logging.INFO)
+#         logger.propagate = False
+#         log_format = "%(asctime)s - %(name)s - %(levelname)s:  %(message)s"
+#         console_handle.setFormatter(logging.Formatter(log_format))
+#         file_handle.setFormatter(logging.Formatter(log_format))
+#         logger.addHandler(console_handle)
+#         logger.addHandler(file_handle)
+#     except IOError as err:
+#         print(err)
+#         sys.exit(1)
+
+#     return logger
+
+
+def check_ingest_file(in_file: str) -> bool:
     """# TODO"""
     json_errors = 0
     json_good = 0
@@ -357,161 +314,6 @@ def check_ingest_file(in_file: pathlib.Path) -> bool:
     return True
 
 
-# TODO - Ant - Test with paths with spaces in
-# TODO - Ant - shuff or shuf?
-def shuffle_ingest_file(
-    cli_args: argparse.Namespace, ingest_file: pathlib.Path
-) -> pathlib.Path:
-    """# TODO"""
-    # Shuffle the source file for performance, unless directed not to or in test mode or single threaded
-    # TODO - Ant -
-    ingest_file = ingest_file.resolve()
-    ingest_file_str = str(ingest_file)
-
-    # If source file was previously shuffled don't do it again
-    if SHUF_NO_DEL_TAG in ingest_file_str or SHUF_TAG in ingest_file_str:
-        logger.info("")
-        logger.info(
-            f"Not shuffling, source file previously shuffled, {SHUF_TAG} or {SHUF_NO_DEL_TAG} in file name"
-        )
-        # TODO - Ant - Check this logic is still good, changing so no_del are never deleted
-        # TODO - Ant - Need new message for shuffleNoDelete specified?
-        if SHUF_NO_DEL_TAG in ingest_file_str:
-            logger.info(
-                f"Source files with {SHUF_NO_DEL_TAG} in the name are not deleted by {MODULE_NAME}"
-            )
-        time.sleep(3)
-
-        return ingest_file
-
-    # Add timestamp to no delete shuffled files
-    shuf_file_suffix = (
-        SHUF_NO_DEL_TAG + datetime.now().strftime("%Y%m%d_%H-%M-%S")
-        if cli_args.shuffleNoDelete
-        else SHUF_TAG
-    )
-    # TODO - Ant - Check this looks fishy
-    shuf_file = pathlib.Path(f"{ingest_file}{shuf_file_suffix}")
-    shuf_file_path = shuf_file.parent
-    shuf_file_name = shuf_file.name
-    shuf_file_glob = f"{ingest_file.name}{SHUF_GLOB_TAG}"
-
-    # # TODO - Ant - Note what this does
-    if cli_args.shuffFileRedirect:
-        # TODO - Ant - Why a list on the argparse?
-        redirect_path = pathlib.Path(cli_args.shuffFileRedirect[0]).resolve()
-        if redirect_path.is_file() or not redirect_path.is_dir():
-            logger.error(
-                "The path to redirect the shuffled source file to does not exist or is a file"
-            )
-            sys.exit(1)
-
-        # Test the path to redirect to
-        try:
-            test_file = "SzTestTouch"
-            test_touch = redirect_path.joinpath(test_file)
-            test_touch.touch()
-            test_touch.unlink()
-        except IOError as err:
-            logger.error(
-                "Error writing to the path for the shuffled source file redirection"
-            )
-            logger.error(str(err).replace(test_file, ""))
-            sys.exit(1)
-
-        # redirect_glob = redirect_path / ingest_file.name
-        # prior_shuf_files.extend(
-        #     [p.resolve() for p in redirect_glob.glob(SHUF_GLOB_TAG)]
-        # )
-        shuf_file = redirect_path / shuf_file.name
-        print(f"\nRedirect: {shuf_file = }")
-
-        if not cli_args.shuffFilesIgnore:
-            redirect_glob = redirect_path / ingest_file.name
-
-    # Look for previously shuffled files in original path
-    if not cli_args.shuffFilesIgnore:
-        prior_shuf_files = [p.resolve() for p in shuf_file_path.glob(shuf_file_glob)]
-        print(f"\n{ingest_file = }")
-        print(f"\n{shuf_file = }")
-        print(f"\n{shuf_file_path = }")
-        print(f"\n{shuf_file_name = }")
-        print(f"\n{shuf_file_glob = }")
-        print(f"\n{prior_shuf_files = }")
-
-        # If redirecting the shuffle file look for previously shuffled files here too
-        if cli_args.shuffFileRedirect:
-            prior_shuf_files.extend(
-                [p.resolve() for p in redirect_glob.glob(SHUF_GLOB_TAG)]
-            )
-
-        if prior_shuf_files:
-            logger.info("")
-            logger.info(
-                f"Found previously shuffled files matching {ingest_file.name}: "
-            )
-            prior_shuf_files.sort()
-            for psf in prior_shuf_files:
-                logger.info(f"  - {psf}")
-
-            logger.info("")
-            logger.info(
-                f"Pausing for {SHUF_TIMEOUT} seconds... (This check can be skipped with the command line argument --shuffFilesIgnore (-sfi)"
-            )
-            logger.info("")
-            logger.info(
-                "The above listed files may not contain the same data as the input file"
-            )
-            logger.info(
-                "If you wish to use one of the above, please check and compare the files to ensure the previously shuffled file is what you expect"
-            )
-            logger.info("")
-            logger.info(
-                f"To quit and use a previously shuffled file hit <Enter>. To continue, wait {SHUF_TIMEOUT} seconds or type c and <Enter>"
-            )
-
-            # Wait 30 seconds to allow user to use a prior shuffle, timeout and continue if automated
-            while True:
-                r, _, _ = select.select([sys.stdin], [], [], SHUF_TIMEOUT)
-                if r:
-                    # TODO - Ant - Read without hitting enter?
-                    read_input = sys.stdin.readline()
-                    if read_input == "\n":
-                        sys.exit(0)
-                    elif read_input.lower() == "c\n":
-                        break
-                    else:
-                        logger.info(
-                            "<Enter> to quit or type c and <Enter> to continue: "
-                        )
-                else:
-                    break
-    # TODO - Ant - Needed?
-    else:
-        logger.info("")
-        logger.info(
-            f"Skipping check for previously shuffled files for {ingest_file.name}"
-        )
-
-    logger.info(f"Shuffling file to: {shuf_file}")
-
-    # TODO - Ant - Detect macos and modify command for gshuf
-    cmd = f"shuf {ingest_file} > {shuf_file}"
-    # TODO - Ant - Add back when supporting CSV
-    # if sourceDict["FILE_FORMAT"] not in ("JSON", "UMF"):
-    #     cmd = f"head -n1 {file_path} > {shuf_file_path} && tail -n+2 {file_path} | shuf >> {shuf_file_path}"
-
-    try:
-        subprocess.run([cmd], shell=True, check=True)
-    except subprocess.CalledProcessError as err:
-        logger.error("")
-        # TODO - Ant - Instead of failing try and load anyway?
-        logger.error(f"Shuffling source file failed: {err}")
-        sys.exit(1)
-
-    return shuf_file
-
-
 def get_sz_engines(
     # logger: logging.Logger,
     engine_settings: str,
@@ -539,7 +341,6 @@ def get_sz_engines(
 # TODO - Ant -
 def prime_sz_engine(sz_engine: SzEngine) -> None:
     """#TODO"""
-    logger.info("")
     logger.info("Priming Senzing engine...")
     try:
         sz_engine.prime_engine()
@@ -775,7 +576,6 @@ def load_and_redo(
     cli_args,
     sz_engine,
     ingest_file,
-    ingest_file_shuff,
     num_workers,
     no_redo,
     with_info,
@@ -1002,17 +802,11 @@ def load_and_redo(
         logger.info(
             # TODO Make files Path objects earlier
             "Source file:                "
-            # f"{pathlib.Path(ingest_file).resolve() if ingest_file else 'No input file specified'}"
-            f"{ingest_file if ingest_file else 'No input file specified'}"
+            f"{pathlib.Path(ingest_file).resolve() if ingest_file else 'No input file specified'}"
         )
-        if cli_args.shuffleNoDelete:
-            logger.info(f"Persisted shuffled file:    {ingest_file_shuff}")
-        else:
-            did_shuf = "Yes" if not cli_args.noShuffle else "No"
-            logger.info(f"Source file shuffled:       {did_shuf}")
         logger.info(
             "With info file:             "
-            f"{pathlib.Path(file_output).resolve() if with_info else 'Not requested'}"
+            f"{pathlib.Path(file_output).resolve() if with_info else 'With info responses not requested'}"
         )
         logger.info(
             "Errors file:                "
@@ -1048,7 +842,6 @@ def load_and_redo(
 def main() -> None:
     """# TODO"""
 
-    # TODO - Ant - Move to later so can pass cli args and file names to perform cleanup
     signal.signal(signal.SIGINT, signal_int)
 
     # MODULE_NAME = pathlib.Path(sys.argv[0]).stem
@@ -1119,7 +912,6 @@ def main() -> None:
     # logger = get_logger(errors_file)
 
     # TODO - Ant - Correct article link for V4?
-    # TODO - Ant - Change wording as will look for G2Module too
     if not engine_settings:
         logger.warning(
             "SENZING_ENGINE_CONFIGURATION_JSON environment variable or --configJson CLI"
@@ -1134,45 +926,22 @@ def main() -> None:
         logger.error("No input file and redo processing disabled, nothing to do!")
         sys.exit(1)
 
-    if ingest_file:
-        ingest_file = pathlib.Path(ingest_file)
-        check_ingest_file(ingest_file)
+    check_ingest_file(ingest_file)
 
     sz_engine, sz_diag, sz_product, sz_configmgr = get_sz_engines(
         engine_settings, debug_trace
     )
 
     startup_info(sz_engine, sz_diag, sz_configmgr, sz_product, skip_ds_perf)
-
-    # TODO - Ant - Needs check for env var too when added
-    # TODO - Ant - Put this in load_and_redo?
-    # TODO - Ant - Don't shuffle small files?
-    ingest_file_shuff = ingest_file
-    if ingest_file and not cli_args.noShuffle:
-        ingest_file_shuff = shuffle_ingest_file(cli_args, ingest_file)
-
     prime_sz_engine(sz_engine)
-
     load_and_redo(
         cli_args,
         sz_engine,
         ingest_file,
-        ingest_file_shuff,
         num_threads,
         no_redo,
         with_info,
     )
-
-    # TODO - Ant - Put this in load_and_redo?
-    # Remove shuffled file if ingest file was shuffled, don't want to keep it
-    # and shuffle wasn't disabled
-    if (
-        ingest_file != ingest_file_shuff
-        and not cli_args.shuffleNoDelete
-        and not cli_args.noShuffle
-    ):
-        with suppress(IOError):
-            pathlib.Path.unlink(ingest_file_shuff)
 
 
 if __name__ == "__main__":

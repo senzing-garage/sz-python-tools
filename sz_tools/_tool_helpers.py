@@ -2,17 +2,21 @@
 # TODO
 """
 
+# TODO Split into separate modules
+
 from __future__ import annotations
 
 import cmd
+import concurrent.futures
 import configparser
 import os
 import re
+import subprocess
 import sys
 import textwrap
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Union
+from typing import TYPE_CHECKING, Any, Dict, List, TextIO, Union
 
 READLINE_AVAIL = False
 with suppress(ImportError):
@@ -346,6 +350,7 @@ def print_config_locations(locations: List[Path]) -> None:
     print()
 
 
+# TODO - Ant - try/except ?
 def get_ini_as_json_str(ini_file: Path) -> str:
     """Return a JSON string representation of an INI file."""
     # configparser doesn't throw an exception if file doesn't exist, test first
@@ -373,7 +378,7 @@ def get_ini_as_json_str(ini_file: Path) -> str:
     # Check ini file isn't empty
     if not config_dict:
         print(
-            f"ERROR: Successfully read {ini_file} but it appears to be empty or malformed!"
+            f"ERROR: Successfully read {ini_file} but it appears to be empty or malformed"
         )
         sys.exit(0)
 
@@ -523,6 +528,7 @@ def print_response(
     format_json_cmd: bool,
     cmd_color: bool,
     cmd_format: bool,
+    scroll_output: bool,
     color: str = "",
 ) -> str:
     """# TODO"""
@@ -568,7 +574,18 @@ def print_response(
             else:
                 output = json_str
 
-    print(f"\n{output}\n")
+    if scroll_output:
+        try:
+            scroll_cmd = f"echo '{output}' | less -FRSX"
+            subprocess.run([scroll_cmd], shell=True, check=True)
+        except subprocess.CalledProcessError as err:
+            print(f"\n{output}\n")
+            print_error(
+                f"Couldn't use paging on JSON response, calling less returned: {err.args[0]}"
+            )
+    else:
+        print(f"\n{output}\n")
+
     # Removing color codes, return output to set last_response for sending
     # to clipboard or file or reformatting JSON
     if strip_colors:
@@ -700,6 +717,20 @@ def history_setup() -> str:
     return hist_error
 
 
+# TODO
+def capture_file(file_path: str) -> TextIO:
+    """ """
+    try:
+        out_file = open(file_path, "w", encoding="utf-8")
+    except IOError as err:
+        print_warning(
+            f"Can't write to capture file, continuing without capturing: {err}"
+        )
+        raise IOError from err
+
+    return out_file
+
+
 def response_to_clipboard(last_response: str) -> None:
     """# TODO"""
     if not PYCLIP_AVAIL:
@@ -741,3 +772,15 @@ def response_reformat_json(
     print_response(
         last_response, color_json, False, not format_json, False, False, False
     )
+
+
+# -------------------------------------------------------------------------
+# Futures helpers
+# -------------------------------------------------------------------------
+
+
+def get_max_futures_workers() -> int:
+    """# TODO"""
+    # Test the max number of workers ThreadPoolExecutor allocates to use in sizing actual workers to request
+    with concurrent.futures.ThreadPoolExecutor() as test:
+        return test._max_workers  # pylint: disable=protected-access

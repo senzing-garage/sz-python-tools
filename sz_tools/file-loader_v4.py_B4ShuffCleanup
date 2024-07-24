@@ -358,7 +358,6 @@ def check_ingest_file(in_file: pathlib.Path) -> bool:
 
 
 # TODO - Ant - Test with paths with spaces in
-# TODO - Ant - shuff or shuf?
 def shuffle_ingest_file(
     cli_args: argparse.Namespace, ingest_file: pathlib.Path
 ) -> pathlib.Path:
@@ -376,6 +375,7 @@ def shuffle_ingest_file(
         )
         # TODO - Ant - Check this logic is still good, changing so no_del are never deleted
         # TODO - Ant - Need new message for shuffleNoDelete specified?
+        # if SHUF_NO_DEL_TAG in ingest_file and cli_args.shuffleNoDelete:
         if SHUF_NO_DEL_TAG in ingest_file_str:
             logger.info(
                 f"Source files with {SHUF_NO_DEL_TAG} in the name are not deleted by {MODULE_NAME}"
@@ -391,46 +391,19 @@ def shuffle_ingest_file(
         else SHUF_TAG
     )
     # TODO - Ant - Check this looks fishy
+    # plib_file_path = pathlib.Path(ingest_file).resolve()
     shuf_file = pathlib.Path(f"{ingest_file}{shuf_file_suffix}")
     shuf_file_path = shuf_file.parent
     shuf_file_name = shuf_file.name
     shuf_file_glob = f"{ingest_file.name}{SHUF_GLOB_TAG}"
 
-    # # TODO - Ant - Note what this does
-    if cli_args.shuffFileRedirect:
-        # TODO - Ant - Why a list on the argparse?
-        redirect_path = pathlib.Path(cli_args.shuffFileRedirect[0]).resolve()
-        if redirect_path.is_file() or not redirect_path.is_dir():
-            logger.error(
-                "The path to redirect the shuffled source file to does not exist or is a file"
-            )
-            sys.exit(1)
-
-        # Test the path to redirect to
-        try:
-            test_file = "SzTestTouch"
-            test_touch = redirect_path.joinpath(test_file)
-            test_touch.touch()
-            test_touch.unlink()
-        except IOError as err:
-            logger.error(
-                "Error writing to the path for the shuffled source file redirection"
-            )
-            logger.error(str(err).replace(test_file, ""))
-            sys.exit(1)
-
-        # redirect_glob = redirect_path / ingest_file.name
-        # prior_shuf_files.extend(
-        #     [p.resolve() for p in redirect_glob.glob(SHUF_GLOB_TAG)]
-        # )
-        shuf_file = redirect_path / shuf_file.name
-        print(f"\nRedirect: {shuf_file = }")
-
-        if not cli_args.shuffFilesIgnore:
-            redirect_glob = redirect_path / ingest_file.name
-
-    # Look for previously shuffled files in original path
+    # Look for previously shuffled files in original path...
     if not cli_args.shuffFilesIgnore:
+        # prior_shuf_files = [
+        #     str(pathlib.Path(p).resolve()) for p in glob(file_path + SHUF_TAG_GLOB)
+        # ]
+        # prior_shuf_files = [p.resolve() for p in ingest_file.glob(SHUF_GLOB_TAG)]
+        # prior_shuf_files = [p.resolve() for p in ingest_file.glob(SHUF_GLOB_TAG)]
         prior_shuf_files = [p.resolve() for p in shuf_file_path.glob(shuf_file_glob)]
         print(f"\n{ingest_file = }")
         print(f"\n{shuf_file = }")
@@ -438,12 +411,45 @@ def shuffle_ingest_file(
         print(f"\n{shuf_file_name = }")
         print(f"\n{shuf_file_glob = }")
         print(f"\n{prior_shuf_files = }")
+        # sys.exit()
 
-        # If redirecting the shuffle file look for previously shuffled files here too
+        # ...and shuffle redirect path if specified
         if cli_args.shuffFileRedirect:
+            # TODO - Ant - Why a list on the argparse?
+            redirect_path = pathlib.Path(cli_args.shuffFileRedirect[0]).resolve()
+            if redirect_path.is_file() or not redirect_path.is_dir():
+                logger.error(
+                    "The path to redirect the shuffled source file to does not exist or is a file"
+                )
+                sys.exit(1)
+
+            # Writeable?
+            try:
+                test_file = "SzTestTouch"
+                test_touch = redirect_path.joinpath(test_file)
+                test_touch.touch()
+                test_touch.unlink()
+            except IOError as err:
+                logger.error(
+                    "Unable to write to the path for the shuffled source file redirection"
+                )
+                logger.error(str(err).replace(test_file, ""))
+                sys.exit(1)
+
+            # redirect_glob = (
+            #     str(redirect_path.joinpath(file_path.name)) + SHUF_GLOB_TAG
+            # )
+            # redirect_glob = redirect_path / file_path.name / SHUF_GLOB_TAG
+            redirect_glob = redirect_path / ingest_file.name
+            # prior_shuf_files.extend(
+            #     [str(pathlib.Path(p).resolve()) for p in glob.glob(redirect_glob)]
+            # )
             prior_shuf_files.extend(
                 [p.resolve() for p in redirect_glob.glob(SHUF_GLOB_TAG)]
             )
+
+            shuf_file = redirect_path / shuf_file.name
+            print(f"\nRedirect: {shuf_file = }")
 
         if prior_shuf_files:
             logger.info("")
@@ -493,13 +499,25 @@ def shuffle_ingest_file(
             f"Skipping check for previously shuffled files for {ingest_file.name}"
         )
 
+    # TODO - Ant - Check
+    # If redirecting the shuffled file modify to redirect path
+    # if cli_args.shuffFileRedirect:
+    #     # shuf_file_path = redirect_path.joinpath(shuf_file_path.name)
+    #     shuf_file_path = redirect_path / shuf_file_path.name
+
     logger.info(f"Shuffling file to: {shuf_file}")
 
-    # TODO - Ant - Detect macos and modify command for gshuf
+    # TODO - Ant - Detect macos and modify command
     cmd = f"shuf {ingest_file} > {shuf_file}"
     # TODO - Ant - Add back when supporting CSV
     # if sourceDict["FILE_FORMAT"] not in ("JSON", "UMF"):
     #     cmd = f"head -n1 {file_path} > {shuf_file_path} && tail -n+2 {file_path} | shuf >> {shuf_file_path}"
+
+    # try:
+    #     process = subprocess.run(cmd, shell=True, check=True)
+    # except subprocess.CalledProcessError as ex:
+    #     print(f"\nERROR: Shuffle command failed: {ex}")
+    #     return 1, 0
 
     try:
         subprocess.run([cmd], shell=True, check=True)
@@ -509,6 +527,8 @@ def shuffle_ingest_file(
         logger.error(f"Shuffling source file failed: {err}")
         sys.exit(1)
 
+    # TODO - Ant - Why str? Pathlib?
+    # return str(shuf_file_path)
     return shuf_file
 
 
@@ -1006,10 +1026,7 @@ def load_and_redo(
             f"{ingest_file if ingest_file else 'No input file specified'}"
         )
         if cli_args.shuffleNoDelete:
-            logger.info(f"Persisted shuffled file:    {ingest_file_shuff}")
-        else:
-            did_shuf = "Yes" if not cli_args.noShuffle else "No"
-            logger.info(f"Source file shuffled:       {did_shuf}")
+            logger.info(f"Shuffled file:              {ingest_file_shuff}")
         logger.info(
             "With info file:             "
             f"{pathlib.Path(file_output).resolve() if with_info else 'Not requested'}"
@@ -1147,7 +1164,6 @@ def main() -> None:
     # TODO - Ant - Needs check for env var too when added
     # TODO - Ant - Put this in load_and_redo?
     # TODO - Ant - Don't shuffle small files?
-    ingest_file_shuff = ingest_file
     if ingest_file and not cli_args.noShuffle:
         ingest_file_shuff = shuffle_ingest_file(cli_args, ingest_file)
 

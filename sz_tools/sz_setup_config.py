@@ -1,0 +1,89 @@
+#! /usr/bin/env python3
+
+import argparse
+import sys
+
+from _tool_helpers import get_engine_config
+from senzing import SzConfig, SzConfigManager, SzError
+
+
+def parse_cli_args() -> argparse.Namespace:
+    """# TODO"""
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument(
+        "-c",
+        "--iniFile",
+        dest="ini_file_name",
+        default=None,
+        # TODO - Ant - SZModule.ini?
+        help="Path and file name of optional G2Module.ini to use",
+    )
+    # Run in non-interactive mode for Senzing team testing
+    arg_parser.add_argument("-a", "--auto", action="store_true", help=argparse.SUPPRESS)
+
+    return arg_parser.parse_args()
+
+
+def main() -> None:
+    """# TODO"""
+    cli_args = parse_cli_args()
+    engine_settings = get_engine_config(cli_args.ini_file_name)
+
+    # Determine if a default/initial Senzing configuration exists
+    try:
+        sz_config_mgr = SzConfigManager("SzConfigMgr", engine_settings, False)
+        default_config_id = sz_config_mgr.get_default_config_id()
+    except SzError as err:
+        print(
+            "\nERROR: Could not initialize SzConfigManager or get default configuration ID"
+        )
+        print(f"ERROR: {err}\n")
+        sys.exit(1)
+
+    # If not in auto mode prompt user
+    if not cli_args.auto:
+        if default_config_id:
+            if not input(
+                "\nA configuration document already exists in the datastore. Do you want to replace it? (y/n)  "
+            ).lower() in ("y", "yes"):
+                sys.exit(1)
+        else:
+            if not input(
+                "\nInstalling template configuration to the datastore. Do you want to continue? (y/n)  "
+            ).lower() in ("y", "yes"):
+                sys.exit(1)
+
+    # Apply a default configuration
+    try:
+        sz_config = SzConfig("SzConfig", engine_settings, False)
+        config_handle = sz_config.create_config()
+        new_config = sz_config.export_config(config_handle)
+        sz_config.close_config(config_handle)
+    except SzError as err:
+        print("\nERROR: Could not initialize SzConfig or get a template configuration")
+        print(f"ERROR: {err}\n")
+        sys.exit(1)
+
+    # Save configuration JSON into Senzing database.
+    try:
+        new_config_id = sz_config_mgr.add_config(
+            new_config, "Configuration added from sz_setup_config"
+        )
+    except SzError as err:
+        print("\nERROR: Failed to add configuration to the datastore")
+        print(f"ERROR: {err}\n")
+        sys.exit(1)
+
+    # Set the default configuration ID.
+    try:
+        sz_config_mgr.set_default_config_id(new_config_id)
+    except SzError as err:
+        print("\nERROR: Failed to set configuration as default")
+        print(f"ERROR: {err}\n")
+        sys.exit(1)
+
+    print(f"\nConfiguration successfully added, id: {new_config_id}")
+
+
+if __name__ == "__main__":
+    main()

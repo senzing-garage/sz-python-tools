@@ -1471,7 +1471,7 @@ class SzCfgShell(cmd.Cmd, object):
 
             # TODO
             # parm_data["DATASOURCE"] = parm_data["DATASOURCE"].upper()
-            parm_data["DATASOURCE"] = parm_data["DATASOURCE"]
+            parm_data["DATASOURCE"] = parm_data["DATASOURCE"].upper()
         except Exception as err:
             colorize_msg(f"Command error: {err}", "error")
             return

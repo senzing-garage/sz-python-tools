@@ -1,0 +1,1651 @@
+#! /usr/bin/env python3
+
+import argparse
+import csv
+import json
+import os
+import random
+import signal
+import sys
+import textwrap
+import time
+from datetime import datetime
+
+from _tool_helpers import get_engine_config, get_max_futures_workers
+from senzing import SzConfigManager, SzEngine, SzEngineFlags, SzError, SzProduct
+
+# TODO Ant - Move to helpers when re-structured
+from sz_database import SzDatabase
+
+try:
+    import orjson
+
+    USE_ORJSON = True
+except:
+    USE_ORJSON = False
+
+import concurrent.futures
+import itertools
+
+# concurrency
+from multiprocessing import Process, Queue, Value
+from queue import Empty, Full
+
+
+# -----------------------------------
+def queue_read(queue):
+    try:
+        return queue.get(True, 1)
+    except Empty:
+        return None
+
+
+# -----------------------------------
+def queue_write(queue, message):
+    while True:
+        try:
+            queue.put(message, True, 1)
+        except Full:
+            continue
+        break
+
+
+# -----------------------------------
+def setup_entity_queue_db(thread_id, thread_stop, entity_queue, resume_queue):
+    try:
+        local_dbo = SzDatabase(g2dbUri)
+    except Exception as err:
+        print(f"\nCould not connect to database: {err}\n")
+        with shut_down.get_lock():
+            shut_down.value = 1
+        return
+    process_entity_queue_db(
+        thread_id, thread_stop, entity_queue, resume_queue, local_dbo
+    )
+    local_dbo.close()
+
+
+# -------------------------------------
+def process_entity_queue_db(
+    thread_id, thread_stop, entity_queue, resume_queue, local_dbo
+):
+    while thread_stop.value == 0:  # or entity_queue.empty() == False:
+        queue_data = queue_read(entity_queue)
+        if queue_data:
+            # print('read entity_queue %s' % row)
+            resume_rows = get_resume_db(local_dbo, queue_data)
+            if resume_rows:
+                queue_write(resume_queue, resume_rows)
+    # print('process_entity_queue %s shut down with %s left in the queue' % (thread_id, entity_queue.qsize()))
+
+
+# -------------------------------------
+def open_csv_file(export_csv, file_path):
+    """# TODO"""
+    handle = None
+
+    if export_csv:
+        column_headers = [
+            "RESOLVED_ENTITY_ID",
+            "RELATED_ENTITY_ID",
+            "MATCH_LEVEL",
+            "MATCH_KEY",
+            "DATA_SOURCE",
+            "RECORD_ID",
+        ]
+
+        try:
+            handle = open(file_path, "a", encoding="utf-8")
+            handle.write(f'{",".join(column_headers)}\n')
+        except IOError as err:
+            # TODO - Ant -
+            # print("\nERROR: cannot write to %s \n%s\n" % (file_path, err))
+            print(f"\nERROR: cannot write to {file_path}: {err}\n")
+            # TODO - Ant -This doesn't look correct?
+            with shut_down.get_lock():
+                shut_down.value = 1
+            return
+
+    return handle
+
+
+# -------------------------------------
+def setup_resume_queue(stat_pack, thread_id, thread_stop, resume_queue):
+    """# TODO"""
+    csv_file_handle = open_csv_file(exportCsv, csv_file_path)
+
+    process_resume_queue(
+        thread_id, thread_stop, resume_queue, stat_pack, csv_file_handle
+    )
+
+    if exportCsv:
+        csv_file_handle.close()
+
+
+# -------------------------------------
+def process_resume_queue(
+    thread_id, thread_stop, resume_queue, stat_pack, csv_file_handle
+):
+    while thread_stop.value == 0:  # or resume_queue.empty() == False:
+        queue_data = queue_read(resume_queue)
+        if queue_data:
+            # print('read resume_queue', row)
+
+            # its a resume to process
+            if isinstance(queue_data, list):
+                stat_pack = process_resume(stat_pack, queue_data, csv_file_handle)
+
+            # its a status write request
+            else:
+                stat_pack = write_stat_pack(stat_pack, queue_data)
+
+    # print('process_resume_queue %s shut down with %s left in the queue' % (thread_id, resume_queue.qsize()))
+
+
+# -------------------------------------
+def get_resume_db(local_dbo, resolved_id):
+    resume_rows = []
+
+    # queryStartTime = time.time()
+    cursor1 = local_dbo.sqlExec(
+        SQL_ENTITIES,
+        [
+            resolved_id,
+        ],
+    )
+    for row_data in local_dbo.fetchAllDicts(cursor1):
+        row_data = complete_resume_db(row_data)
+        resume_rows.append(row_data)
+    # print('   fetching entities took %s seconds' % str(round(time.time() - queryStartTime,2)))
+
+    # abandoned hack to only count the ambiguous entity
+    # ambiguousCount = 0
+    if resume_rows and relationship_filter in (2, 3):
+        # TODO - Ant - Not used
+        # queryStartTime = time.time()
+        cursor1 = local_dbo.sqlExec(
+            SQL_RELATIONS,
+            [
+                resolved_id,
+            ],
+        )
+        for row_data in local_dbo.fetchAllDicts(cursor1):
+            row_data = complete_resume_db(row_data)
+            #        if rowData['IS_AMBIGUOUS'] > 0:
+            #            ambiguousCount += 1
+            resume_rows.append(row_data)
+        # print('   fetching relationships took %s seconds' % str(round(time.time() - queryStartTime,2)))
+
+    # abndoned hack to determine if this is an ambiguous entity
+    # if ambiguousCount and len(local_dbo.fetchAllRows(local_dbo.sqlExec(sqlAmbiguous, [resolved_id, ]))) > 0:
+    #    resume_rows[0]['IS_AMBIGUOUS'] = 1
+
+    return resume_rows
+
+
+# -------------------------------------
+def complete_resume_db(row_data):
+
+    if "RELATED_ENTITY_ID" not in row_data:
+        row_data["RELATED_ENTITY_ID"] = 0
+        row_data["IS_DISCLOSED"] = 0
+        row_data["IS_AMBIGUOUS"] = 0
+    if "RECORD_ID" not in row_data:
+        row_data["RECORD_ID"] = "n/a"
+
+    try:
+        row_data["DATA_SOURCE"] = dsrc_lookup[row_data["DSRC_ID"]]["DSRC_CODE"]
+    except:
+        row_data["DATA_SOURCE"] = "unk"
+    try:
+        row_data["ERRULE_CODE"] = errule_lookup[row_data["ERRULE_ID"]]["ERRULE_CODE"]
+    except:
+        row_data["ERRULE_CODE"] = "unk"
+
+    if row_data["RELATED_ENTITY_ID"] == 0:
+        row_data["MATCH_LEVEL"] = 1 if row_data["ERRULE_CODE"] else 0
+    elif row_data["IS_DISCLOSED"] != 0:
+        row_data["MATCH_LEVEL"] = 11
+    else:
+        try:
+            row_data["MATCH_LEVEL"] = errule_lookup[row_data["ERRULE_ID"]]["RTYPE_ID"]
+        except:
+            row_data["MATCH_LEVEL"] = 3
+    return row_data
+
+
+# -------------------------------------
+def complete_resume_api(row_data):
+
+    # {'RESOLVED_ENTITY_ID': 1, 'RELATED_ENTITY_ID': 0, 'MATCH_LEVEL': 1, 'MATCH_KEY': '+NAME+DOB+EMAIL', 'IS_DISCLOSED': 0, 'IS_AMBIGUOUS': 0, 'DATA_SOURCE': 'CUSTOMERS', 'RECORD_ID': '1003', 'ERRULE_CODE': 'SF1_PNAME_CSTAB'}
+    # {'RESOLVED_ENTITY_ID': 1, 'RELATED_ENTITY_ID': 5, 'MATCH_LEVEL': 2, 'MATCH_KEY': '+NAME+ADDRESS-DOB', 'IS_DISCLOSED': 0, 'IS_AMBIGUOUS': 0, 'DATA_SOURCE': 'CUSTOMERS', 'RECORD_ID': '1005', 'ERRULE_CODE': 'CNAME_CFF_DEXCL'}
+
+    row_data["RESOLVED_ENTITY_ID"] = int(row_data["RESOLVED_ENTITY_ID"])
+    row_data["RELATED_ENTITY_ID"] = int(row_data["RELATED_ENTITY_ID"])
+    row_data["IS_DISCLOSED"] = int(row_data["IS_DISCLOSED"])
+    row_data["IS_AMBIGUOUS"] = int(row_data["IS_AMBIGUOUS"])
+    row_data["MATCH_LEVEL"] = int(row_data["MATCH_LEVEL"])
+    if row_data["IS_DISCLOSED"] != 0:
+        row_data["MATCH_LEVEL"] = 11
+
+    try:
+        row_data["ERRULE_ID"] = errule_lookup_2[row_data["ERRULE_CODE"]]["ERRULE_ID"]
+    except:
+        row_data["ERRULE_ID"] = 0
+
+    return row_data
+
+
+# -------------------------------------
+def process_resume(stat_pack, resume_rows, csv_file_handle):
+
+    if not resume_rows:
+        return stat_pack
+
+    category_total_stat = {
+        "AMBIGUOUS_MATCH": "TOTAL_AMBIGUOUS_MATCH",
+        "POSSIBLE_MATCH": "TOTAL_POSSIBLE_MATCH",
+        "POSSIBLY_RELATED": "TOTAL_POSSIBLY_RELATED",
+        "DISCLOSED_RELATION": "TOTAL_DISCLOSED_RELATION",
+    }
+
+    # for updating the stat pack samples
+    random_index = random_sample_index()
+
+    entity_size = 0
+    record_list = []
+    resume_data = {}
+
+    # summarize entity resume
+    entity_id = resume_rows[0]["RESOLVED_ENTITY_ID"]
+    # isAmbiguousEntity = resume_rows[0]['IS_AMBIGUOUS'] # abandoned hack: first record will have flag for the whole entity
+    for row_data in resume_rows:
+        related_id = str(row_data["RELATED_ENTITY_ID"])
+        data_source = row_data["DATA_SOURCE"]
+        record_id = row_data["RECORD_ID"]
+        principle = (
+            f"{row_data['ERRULE_ID']}: {row_data['ERRULE_CODE']}"
+            if row_data["ERRULE_ID"]
+            else ""
+        )
+        match_key = row_data["MATCH_KEY"]
+
+        if related_id == "0":
+            match_category = "MATCH"
+            entity_size += 1
+            record_list.append(data_source + ":" + record_id)
+        elif row_data["IS_DISCLOSED"] != 0:
+            match_category = "DISCLOSED_RELATION"
+            principle = "DISCLOSURE"
+        elif row_data["IS_AMBIGUOUS"] != 0:
+            match_category = "AMBIGUOUS_MATCH"
+        elif row_data["MATCH_LEVEL"] == 2:
+            match_category = "POSSIBLE_MATCH"
+        else:
+            match_category = "POSSIBLY_RELATED"
+
+        if related_id not in resume_data:
+            resume_data[related_id] = {}
+            resume_data[related_id]["matchCategory"] = match_category
+            resume_data[related_id]["dataSources"] = {}
+            if related_id != "0" and entity_id < row_data["RELATED_ENTITY_ID"]:
+                stat_update = {
+                    "PRINCIPLES_USED": {
+                        match_category: {
+                            principle: {
+                                match_key: {
+                                    "COUNT": 1,
+                                    "SAMPLE": [f"{entity_id} {related_id}"],
+                                }
+                            }
+                        }
+                    }
+                }
+                updateStatpack2(stat_pack, stat_update, sample_size, random_index)
+
+        if data_source not in resume_data[related_id]["dataSources"]:
+            resume_data[related_id]["dataSources"][data_source] = {
+                "count": 1,
+                "principles": [],
+            }
+        else:
+            resume_data[related_id]["dataSources"][data_source]["count"] += 1
+
+        principle_matchkey = f"{principle}||{match_key}"
+        if (
+            principle
+            and principle_matchkey
+            not in resume_data[related_id]["dataSources"][data_source]["principles"]
+        ):
+            resume_data[related_id]["dataSources"][data_source]["principles"].append(
+                principle_matchkey
+            )
+
+        if related_id == "0" and principle:
+            stat_update = {
+                "PRINCIPLES_USED": {
+                    match_category: {
+                        principle: {match_key: {"COUNT": 1, "SAMPLE": [entity_id]}}
+                    }
+                }
+            }
+            updateStatpack2(stat_pack, stat_update, sample_size, random_index)
+
+        if csv_file_handle:
+            write_csv_record(row_data, csv_file_handle)
+
+    # update entity size breakdown
+    # statUpdate = {'TEMP_ESB_STATS': {str(entitySize): {'COUNT': 1, 'SAMPLE': [{'ENTITY_SIZE': entitySize, 'ENTITY_ID': entityID}]}}}
+    # updateStatpack2(statPack, statUpdate, sampleSize, randomIndex)
+    str_entity_size = str(entity_size)
+    if str_entity_size not in stat_pack["TEMP_ESB_STATS"]:
+        stat_pack["TEMP_ESB_STATS"][str_entity_size] = {}
+        stat_pack["TEMP_ESB_STATS"][str_entity_size]["COUNT"] = 0
+        stat_pack["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"] = []
+    stat_pack["TEMP_ESB_STATS"][str_entity_size]["COUNT"] += 1
+    if len(stat_pack["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"]) < sample_size:
+        stat_pack["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"].append(
+            {"ENTITY_SIZE": entity_size, "ENTITY_ID": entity_id}
+        )
+    elif entity_id % 10 == 0 and random_index != 0:
+        stat_pack["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"][random_index] = {
+            "ENTITY_SIZE": entity_size,
+            "ENTITY_ID": entity_id,
+        }
+
+    # update multi-source report
+    if len(resume_data["0"]["dataSources"].keys()) > 1:
+        multi_source_key = "|".join(sorted(resume_data["0"]["dataSources"].keys()))
+        stat_update = {
+            "MULTI_SOURCE": {multi_source_key: {"COUNT": 1, "SAMPLE": [entity_id]}}
+        }
+        updateStatpack2(stat_pack, stat_update, sample_size, random_index)
+
+    # resolved entity stats
+    stat_pack["TOTAL_ENTITY_COUNT"] += 1
+    stat_pack["TOTAL_RECORD_COUNT"] += entity_size
+
+    # summarize relationships by data source (now just for total)
+    relSummary = {}
+    for related_id in resume_data:
+        if related_id == "0":
+            continue
+        match_category = resume_data[related_id]["matchCategory"]
+        if match_category not in relSummary:
+            relSummary[match_category] = {}
+            stat_pack[category_total_stat[match_category] + "_ENTITIES"] += 1
+        if int(related_id) > entity_id:  # only count relationship once
+            stat_pack[category_total_stat[match_category] + "_RELATIONSHIPS"] += 1
+        for data_source in resume_data[related_id]["dataSources"]:
+            if data_source not in relSummary[match_category]:
+                relSummary[match_category][data_source] = [related_id]
+            else:
+                relSummary[match_category][data_source].append(related_id)
+
+    # resolved entity stats
+    for data_source_1 in resume_data["0"]["dataSources"]:
+        record_count = resume_data["0"]["dataSources"][data_source_1]["count"]
+        principle_matchkey = (
+            resume_data["0"]["dataSources"][data_source_1]["principles"][0]
+            if len(resume_data["0"]["dataSources"][data_source_1]["principles"]) == 1
+            else "multiple||multiple"
+        )
+
+        # this just updates entity and record count for the data source
+        stat_pack = updateStatpack(
+            stat_pack, data_source_1, None, None, 1, record_count, 0, None, random_index
+        )
+
+        if record_count == 1:
+            stat_pack = updateStatpack(
+                stat_pack,
+                data_source_1,
+                None,
+                "SINGLE",
+                1,
+                0,
+                0,
+                entity_id,
+                random_index,
+            )
+        else:
+            stat_pack = updateStatpack(
+                stat_pack,
+                data_source_1,
+                None,
+                "DUPLICATE",
+                1,
+                record_count,
+                0,
+                entity_id,
+                random_index,
+                principle_matchkey=principle_matchkey,
+            )
+
+        # cross matches
+        for data_source_2 in resume_data["0"]["dataSources"]:
+            if data_source_2 == data_source_1:
+                continue
+            if len(resume_data["0"]["dataSources"][data_source_2]["principles"]) == 1:
+                principle_matchkey = resume_data["0"]["dataSources"][data_source_2][
+                    "principles"
+                ][0]
+            elif len(resume_data["0"]["dataSources"][data_source_2]["principles"]) > 1:
+                principle_matchkey = "multiple||multiple"
+            elif (
+                len(resume_data["0"]["dataSources"][data_source_1]["principles"]) == 1
+            ):  # maybe the matchkey is on data source1
+                principle_matchkey = resume_data["0"]["dataSources"][data_source_1][
+                    "principles"
+                ][0]
+            else:
+                principle_matchkey = None
+                # continue
+            stat_pack = updateStatpack(
+                stat_pack,
+                data_source_1,
+                data_source_2,
+                "MATCH",
+                1,
+                record_count,
+                0,
+                entity_id,
+                random_index,
+                principle_matchkey=principle_matchkey,
+            )
+
+        # related entity stats
+        for related_id in resume_data:
+            if related_id == "0":
+                continue
+            match_category = resume_data[related_id]["matchCategory"]
+            # statPack[categoryTotalStat[matchCategory]] += 1
+            for data_source_2 in resume_data[related_id]["dataSources"]:
+                principle_matchkey = resume_data[related_id]["dataSources"][
+                    data_source_2
+                ]["principles"][0]
+                # commented out to use target entity's record count
+                # recordCount = resumeData[relatedID]['dataSources'][dataSource2]
+                if data_source_2 == data_source_1:
+                    data_source_2 = None
+
+                # avoid double counting within data source (can't be avoided across data sources)
+                if entity_id < int(related_id) or data_source_2:
+                    stat_pack = updateStatpack(
+                        stat_pack,
+                        data_source_1,
+                        data_source_2,
+                        match_category,
+                        1,
+                        record_count,
+                        1,
+                        str(entity_id) + " " + related_id,
+                        random_index,
+                        principle_matchkey=principle_matchkey,
+                    )
+
+    return stat_pack
+
+
+# -------------------------------------
+def random_sample_index():
+    """# TODO"""
+    target_index = int(sample_size * random.random())
+    if target_index % 10 != 0:
+        return target_index
+
+    return 0
+
+
+# -------------------------------------
+def initialize_stat_pack():
+    """# TODO"""
+    stat_pack = {}
+    stat_pack["SOURCE"] = "G2Snapshot"
+    stat_pack["PROCESS"] = {}
+    stat_pack["PROCESS"]["STATUS"] = "Incomplete"
+    stat_pack["PROCESS"]["START_TIME"] = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
+    stat_pack["PROCESS"]["LAST_ENTITY_ID"] = 0
+    stat_pack["TOTAL_RECORD_COUNT"] = 0
+    stat_pack["TOTAL_ENTITY_COUNT"] = 0
+    stat_pack["TOTAL_AMBIGUOUS_MATCH_ENTITIES"] = 0
+    stat_pack["TOTAL_AMBIGUOUS_MATCH_RELATIONSHIPS"] = 0
+    stat_pack["TOTAL_POSSIBLE_MATCH_ENTITIES"] = 0
+    stat_pack["TOTAL_POSSIBLE_MATCH_RELATIONSHIPS"] = 0
+    stat_pack["TOTAL_POSSIBLY_RELATED_ENTITIES"] = 0
+    stat_pack["TOTAL_POSSIBLY_RELATED_RELATIONSHIPS"] = 0
+    stat_pack["TOTAL_DISCLOSED_RELATION_ENTITIES"] = 0
+    stat_pack["TOTAL_DISCLOSED_RELATION_RELATIONSHIPS"] = 0
+    stat_pack["DATA_SOURCES"] = {}
+    stat_pack["TEMP_ESB_STATS"] = {}
+
+    return stat_pack
+
+
+# -------------------------------------
+def updateStatpack(
+    stat_pack,
+    data_source_1,
+    data_source_2,
+    stat_prefix,
+    entity_count,
+    record_count,
+    relation_count,
+    sample_value,
+    random_index,
+    **kwargs,
+):
+    """# TODO"""
+
+    if datasource_filter and data_source_1 != datasource_filter:
+        return stat_pack
+
+    principle_matchkey = kwargs.get("principle_matchkey")
+
+    if data_source_1 not in stat_pack["DATA_SOURCES"]:
+        stat_pack = initDataSourceStats(stat_pack, data_source_1)
+    if (
+        data_source_2
+        and data_source_2
+        not in stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"]
+    ):
+        stat_pack = initDataSourceStats(stat_pack, data_source_1, data_source_2)
+
+    # special case for entity/record count at the data source level with no sample value
+    if not stat_prefix:
+        stat_pack["DATA_SOURCES"][data_source_1]["ENTITY_COUNT"] += entity_count
+        stat_pack["DATA_SOURCES"][data_source_1]["RECORD_COUNT"] += record_count
+        return stat_pack
+
+    # within data source
+    if not data_source_2:
+        if record_count == 0:  # --this is for single count
+            stat_pack["DATA_SOURCES"][data_source_1][
+                stat_prefix + "_COUNT"
+            ] += entity_count
+        else:
+            stat_pack["DATA_SOURCES"][data_source_1][
+                stat_prefix + "_ENTITY_COUNT"
+            ] += entity_count
+            stat_pack["DATA_SOURCES"][data_source_1][
+                stat_prefix + "_RECORD_COUNT"
+            ] += record_count
+        if relation_count:
+            stat_pack["DATA_SOURCES"][data_source_1][
+                stat_prefix + "_RELATION_COUNT"
+            ] += relation_count
+
+        if (
+            len(stat_pack["DATA_SOURCES"][data_source_1][stat_prefix + "_SAMPLE"])
+            < sample_size
+        ):
+            stat_pack["DATA_SOURCES"][data_source_1][stat_prefix + "_SAMPLE"].append(
+                sample_value
+            )
+        elif random_index != 0:
+            stat_pack["DATA_SOURCES"][data_source_1][stat_prefix + "_SAMPLE"][
+                random_index
+            ] = sample_value
+
+        if principle_matchkey:
+            p, m = principle_matchkey.split("||")
+            stat_update = {
+                "DATA_SOURCES": {
+                    data_source_1: {
+                        stat_prefix
+                        + "_PRINCIPLES": {
+                            p: {m: {"COUNT": 1, "SAMPLE": [sample_value]}}
+                        }
+                    }
+                }
+            }
+            updateStatpack2(stat_pack, stat_update, sample_size, random_index)
+
+    # across data sources
+    else:
+        if record_count == 0:
+            stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
+                stat_prefix + "_COUNT"
+            ] += entity_count
+        else:
+            stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
+                stat_prefix + "_ENTITY_COUNT"
+            ] += entity_count
+            stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
+                stat_prefix + "_RECORD_COUNT"
+            ] += record_count
+        if relation_count:
+            stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
+                stat_prefix + "_RELATION_COUNT"
+            ] += relation_count
+        if (
+            len(
+                stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][
+                    data_source_2
+                ][stat_prefix + "_SAMPLE"]
+            )
+            < sample_size
+        ):
+            stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
+                stat_prefix + "_SAMPLE"
+            ].append(sample_value)
+        elif random_index != 0:
+            stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
+                stat_prefix + "_SAMPLE"
+            ][random_index] = sample_value
+
+        if principle_matchkey:
+            p, m = principle_matchkey.split("||")
+            stat_update = {
+                "DATA_SOURCES": {
+                    data_source_1: {
+                        "CROSS_MATCHES": {
+                            data_source_2: {
+                                stat_prefix
+                                + "_PRINCIPLES": {
+                                    p: {m: {"COUNT": 1, "SAMPLE": [sample_value]}}
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            updateStatpack2(stat_pack, stat_update, sample_size, random_index)
+
+    return stat_pack
+
+
+# -------------------------------------
+def updateStatpack2(d, u, lmax, rsi):
+    """# TODO"""
+    for k, v in u.items():
+        if isinstance(v, dict):
+            d[k] = updateStatpack2(d.get(k, {}), v, lmax, rsi)
+        elif isinstance(v, list):
+            if not d.get(k):
+                d[k] = []
+            if len(d[k]) < lmax:
+                d[k].append(v[0])
+            elif rsi != 0:
+                d[k][rsi] = v[0]
+        elif isinstance(v, int):
+            if not d.get(k):
+                d[k] = 0
+            d[k] += v
+    return d
+
+
+# -------------------------------------
+def initDataSourceStats(stat_pack, data_source_1, data_source_2=None):
+    """# TODO"""
+    if not data_source_2:
+        stat_pack["DATA_SOURCES"][data_source_1] = {}
+        stat_pack["DATA_SOURCES"][data_source_1]["ENTITY_COUNT"] = 0
+        stat_pack["DATA_SOURCES"][data_source_1]["RECORD_COUNT"] = 0
+        stat_pack["DATA_SOURCES"][data_source_1]["SINGLE_COUNT"] = 0
+        stat_pack["DATA_SOURCES"][data_source_1]["SINGLE_SAMPLE"] = []
+        for stat_type in [
+            "DUPLICATE",
+            "AMBIGUOUS_MATCH",
+            "POSSIBLE_MATCH",
+            "POSSIBLY_RELATED",
+            "DISCLOSED_RELATION",
+        ]:
+            stat_pack["DATA_SOURCES"][data_source_1][stat_type + "_ENTITY_COUNT"] = 0
+            stat_pack["DATA_SOURCES"][data_source_1][stat_type + "_RECORD_COUNT"] = 0
+            if stat_type != "DUPLICATE":
+                stat_pack["DATA_SOURCES"][data_source_1][
+                    stat_type + "_RELATION_COUNT"
+                ] = 0
+            stat_pack["DATA_SOURCES"][data_source_1][stat_type + "_SAMPLE"] = []
+        stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"] = {}
+    else:
+        stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2] = {}
+        for stat_type in [
+            "MATCH",
+            "AMBIGUOUS_MATCH",
+            "POSSIBLE_MATCH",
+            "POSSIBLY_RELATED",
+            "DISCLOSED_RELATION",
+        ]:
+            stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
+                stat_type + "_ENTITY_COUNT"
+            ] = 0
+            stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
+                stat_type + "_RECORD_COUNT"
+            ] = 0
+            stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
+                stat_type + "_SAMPLE"
+            ] = []
+            if stat_type != "MATCH":
+                stat_pack["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][
+                    data_source_2
+                ][stat_type + "_RELATION_COUNT"] = 0
+
+    return stat_pack
+
+
+# -------------------------------------
+def write_csv_record(csv_data, csv_file_handle):
+    """# TODO"""
+    column_values = [
+        str(csv_data["RESOLVED_ENTITY_ID"]),
+        str(csv_data["RELATED_ENTITY_ID"]),
+        str(csv_data["MATCH_LEVEL"]),
+        f'"{csv_data["MATCH_KEY"][1:] if csv_data["MATCH_KEY"] else ""}"',
+        f'"{csv_data["DATA_SOURCE"]}"',
+        f'"{csv_data["RECORD_ID"]}"',
+        f'"{csv_data["RECORD_ID"]}"',
+    ]
+
+    try:
+        csv_file_handle.write(f'{",".join(column_values)}\n')
+    except IOError as err:
+        print(f"\nERROR: Cannot write to file: {err}\n")
+        with shut_down.get_lock():
+            shut_down.value = 1
+
+
+# -------------------------------------
+def process_entities(thread_count):
+    """# TODO"""
+
+    new_stat_pack = True
+
+    # TODO - Ant - sz_diagnostic no longer reports logical/physical cores and it was broken in recent V3 builds
+    # TODO - Investigate adding a scale factor to test_workers, I think I did before, notes?
+    max_workers = thread_count if thread_count else get_max_futures_workers()
+
+    if os.path.exists(stats_file_path):
+        with open(stats_file_path, "r", encoding="utf-8") as f:
+            stat_data = f.read()
+        stat_pack = json.loads(stat_data) if stat_data else {}
+
+        if "PROCESS" in stat_pack:
+            prior_status = stat_pack["PROCESS"]["STATUS"]
+            last_entity_id = (
+                stat_pack["PROCESS"]["LAST_ENTITY_ID"]
+                if isinstance(stat_pack["PROCESS"]["LAST_ENTITY_ID"], int)
+                else 0
+            )
+        else:
+            prior_status = "Unknown"
+            last_entity_id = 0
+        print(
+            f'\n{prior_status} snapshot file exists with {stat_pack["TOTAL_ENTITY_COUNT"]} entities processed!'
+        )
+
+        if quietOn:
+            print("PRIOR FILES WILL BE OVERWRITTEN\n")
+        else:
+            if prior_status != "Complete" and last_entity_id != 0:
+                if input(
+                    "\nDo you want to pick up where it left off? (y/n) "
+                ).lower() in ("y", "yes"):
+                    new_stat_pack = False
+
+            if new_stat_pack:
+                if input(
+                    "\nAre you sure you want to overwrite it? (y/n) "
+                ).lower() not in ["y", "Y", "yes", "YES"]:
+                    shut_down.value = 1
+                    return
+            print()
+
+    if new_stat_pack and os.path.exists(csv_file_path):
+        os.remove(csv_file_path)
+
+    if new_stat_pack:
+        stat_pack = initialize_stat_pack()
+
+    if not datasource_filter:
+        max_entity_id = g2Dbo.fetchRow(
+            g2Dbo.sqlExec("select max(RES_ENT_ID) from RES_ENT")
+        )[0]
+        sql0 = "select RES_ENT_ID from RES_ENT where RES_ENT_ID between ? and ?"
+    else:
+        print(
+            f"\nDetermining entity_id range for {datasource_filter}... ",
+            end="",
+            flush=True,
+        )
+        sql = (
+            "select  "
+            " min(b.RES_ENT_ID), "
+            " max(b.RES_ENT_ID) "
+            "from OBS_ENT a "
+            "join RES_ENT_OKEY b on b.OBS_ENT_ID = a.OBS_ENT_ID "
+            "where a.DSRC_ID = " + str(datasourceFilterID)
+        )
+        min_entity_id, max_entity_id = g2Dbo.fetchRow(g2Dbo.sqlExec(sql))
+        print(f"from {min_entity_id} to {max_entity_id}\n")
+        if min_entity_id and new_stat_pack:
+            stat_pack["PROCESS"]["LAST_ENTITY_ID"] = min_entity_id - 1
+
+        sql0 = (
+            "select distinct"
+            " a.RES_ENT_ID "
+            "from RES_ENT_OKEY a "
+            "join OBS_ENT b on b.OBS_ENT_ID = a.OBS_ENT_ID "
+            "where a.RES_ENT_ID between ? and ? and b.DSRC_ID = "
+            + str(datasourceFilterID)
+        )
+
+    if not max_entity_id:
+        if not datasource_filter:
+            print("\nRepository is empty!\n")
+        else:
+            print("\nNo entities found for data source filter!\n")
+        shut_down.value = 1
+        return
+
+    sql0 = g2Dbo.sqlPrep(sql0)
+
+    # TODO - Ant -
+    # entity_queue = Queue(thread_count * 10)
+    # resume_queue = Queue(thread_count * 10)
+    entity_queue = Queue(max_workers * 10)
+    resume_queue = Queue(max_workers * 10)
+
+    # TODO - Ant -
+    # print(f"Starting {thread_count} threads...")
+    print(f"Starting {max_workers} threads...")
+    process_list = []
+
+    process_list.append(
+        Process(
+            target=setup_resume_queue, args=(stat_pack, 99, thread_stop, resume_queue)
+        )
+    )
+
+    # TODO - Ant -
+    # for thread_id in range(thread_count - 1):
+    for thread_id in range(max_workers - 1):
+        process_list.append(
+            Process(
+                target=setup_entity_queue_db,
+                args=(thread_id, thread_stop, entity_queue, resume_queue),
+            )
+        )
+    for process in process_list:
+        process.start()
+
+    proc_start_time = time.time()
+    batch_start_time = time.time()
+    entity_count = 0
+    batch_entity_count = 0
+
+    beg_entity_id = stat_pack["PROCESS"]["LAST_ENTITY_ID"] + 1
+    end_entity_id = beg_entity_id + chunk_size
+    while True:
+        if not datasource_filter:
+            print(f"Getting entities from {beg_entity_id} to {end_entity_id}...")
+        else:
+            print(
+                f"Getting entities from {beg_entity_id} to {end_entity_id} for {datasource_filter} records..."
+            )
+        entity_rows = g2Dbo.fetchAllRows(
+            g2Dbo.sqlExec(sql0, (beg_entity_id, end_entity_id))
+        )
+
+        if entity_rows:
+            last_row_entity_id = entity_rows[len(entity_rows) - 1][0]
+        for entity_row in entity_rows:
+            queue_write(entity_queue, entity_row[0])
+            # print('put queue1 %s' % row['RES_ENT_ID'])
+
+            # status display
+            entity_count += 1
+            batch_entity_count += 1
+            if (
+                entity_count % PROGRESS_INTERVAL == 0
+                or entity_row[0] == last_row_entity_id
+            ):
+                threads_running = 0
+                for process in process_list:
+                    if process.is_alive():
+                        threads_running += 1
+                # TODO - Ant - Not used
+                # qdepth = entity_queue.qsize() + resume_queue.qsize()
+                now = datetime.now().strftime("%I:%M%p").lower()
+                elapsed_mins = round((time.time() - proc_start_time) / 60, 1)
+                # TODO - Ant - Used in multiple places, make func
+                eps = int(
+                    float(entity_count)
+                    / (
+                        float(
+                            time.time() - proc_start_time
+                            if time.time() - proc_start_time != 0
+                            else 1
+                        )
+                    )
+                )
+                eps2 = int(
+                    float(batch_entity_count)
+                    / (
+                        float(
+                            time.time() - batch_start_time
+                            if time.time() - batch_start_time != 0
+                            else 1
+                        )
+                    )
+                )
+                print(
+                    "%s entities processed at %s after %s minutes, %s / %s per second, %s processes, %s entity queue, %s resume queue"
+                    % (
+                        entity_count,
+                        now,
+                        elapsed_mins,
+                        f"{eps2:,}",
+                        f"{eps:,}",
+                        threads_running,
+                        entity_queue.qsize(),
+                        resume_queue.qsize(),
+                    )
+                )
+                batch_start_time = time.time()
+                batch_entity_count = 0
+
+            # get out if errors hit or out of records
+            if shut_down.value:
+                if shut_down.value == 9:
+                    print("USER INTERRUPT! Shutting down... ")
+                break
+
+        # get out if errors hit
+        if shut_down.value:
+            break
+        else:  # set next batch
+            if end_entity_id >= max_entity_id:
+                break
+
+            # write interim snapshot file
+            queues_empty = wait_for_queues(entity_queue, resume_queue)
+            stat_data = {
+                "writeStatus": "Interim",
+                "lastEntityId": end_entity_id,
+                "queuesEmpty": queues_empty,
+                "statsFileName": stats_file_path,
+            }
+            queue_write(resume_queue, stat_data)
+            queues_empty = wait_for_queues(entity_queue, resume_queue)
+
+            # get next chunk
+            beg_entity_id += chunk_size
+            end_entity_id += chunk_size
+
+    # write final snapshot file
+    print("Waiting for queues to empty...")
+    queues_empty = wait_for_queues(entity_queue, resume_queue)
+    if not shut_down.value:
+        stat_data = {
+            "writeStatus": "Final",
+            "lastEntityId": (
+                max_entity_id if not datasource_filter else datasource_filter
+            ),
+            "queuesEmpty": queues_empty,
+            "statsFileName": stats_file_path,
+        }
+        queue_write(resume_queue, stat_data)
+        queues_empty = wait_for_queues(entity_queue, resume_queue)
+
+    # stop the threads
+
+    print("Stopping threads...")
+    with thread_stop.get_lock():
+        thread_stop.value = 1
+    start = time.time()
+    while time.time() - start <= 15:
+        if not any(process.is_alive() for process in process_list):
+            break
+        time.sleep(1)
+    for process in process_list:
+        if process.is_alive():
+            print(process.name, "did not terminate gracefully")
+            process.terminate()
+        process.join()
+    entity_queue.close()
+    resume_queue.close()
+
+
+# -------------------------------------
+
+
+def get_entity_features(sz_engine, esb_data):
+    """# TODO"""
+    try:
+        response = sz_engine.get_entity_by_entity_id(
+            esb_data[2],
+            SzEngineFlags.SZ_ENTITY_INCLUDE_REPRESENTATIVE_FEATURES,
+        )
+        # TODO Ant - This works with V4? What do we return if not found?
+        # response = response.decode() if response else ""
+    except SzError:
+        # TODO - Ant - We return {} anyway?
+        return {}
+
+    json_data = orjson.loads(response) if USE_ORJSON else json.loads(response)
+    feature_info = {}
+    for ftype_code in json_data["RESOLVED_ENTITY"]["FEATURES"]:
+        distinct_feature_count = 0
+        for distinct_feature in json_data["RESOLVED_ENTITY"]["FEATURES"][ftype_code]:
+            if ftype_code == "GENDER" and distinct_feature["FEAT_DESC"] not in (
+                "M",
+                "F",
+            ):  # don't count invalid genders
+                continue
+            distinct_feature_count += 1
+        if ftype_code not in feature_info:
+            feature_info[ftype_code] = 0
+        feature_info[ftype_code] += distinct_feature_count
+
+    return [esb_data[0], esb_data[1], feature_info]
+
+
+# -------------------------------------
+def wait_for_queues(entity_queue, resume_queue):
+    """# TODO"""
+    waits = 0
+
+    while entity_queue.qsize() or resume_queue.qsize():
+        time.sleep(1)
+        waits += 1
+        if waits >= 10:
+            break
+        elif entity_queue.qsize() or resume_queue.qsize():
+            print(
+                " waiting for %s entity_queue and %s resume_queue records"
+                % (entity_queue.qsize(), resume_queue.qsize())
+            )
+
+    if entity_queue.qsize() or resume_queue.qsize():
+        print(" warning: queues are not empty!")
+        return False
+
+    return True
+
+
+# -------------------------------------
+def write_stat_pack(stat_pack, stat_data):
+    """# TODO"""
+    write_status = stat_data["writeStatus"]
+    last_entity_id = stat_data["lastEntityId"]
+    queues_empty = stat_data["queuesEmpty"]
+    stats_file_name = stat_data["statsFileName"]
+
+    print(f" {write_status} stats written to {stats_file_name}")
+
+    if write_status == "Interim":
+        stat_pack["PROCESS"]["STATUS"] = "Interim"
+    elif shut_down.value == 0:
+        stat_pack["PROCESS"]["STATUS"] = "Complete"
+    elif shut_down.value == 9:
+        stat_pack["PROCESS"]["STATUS"] = "Aborted by user"
+    else:
+        stat_pack["PROCESS"]["STATUS"] = "Error!"
+
+    if last_entity_id != 0:
+        stat_pack["PROCESS"]["LAST_ENTITY_ID"] = last_entity_id
+    stat_pack["PROCESS"]["QUEUES"] = "empty" if queues_empty else "NOT EMPTY!"
+    stat_pack["PROCESS"]["END_TIME"] = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
+
+    diff = datetime.now() - datetime.strptime(
+        stat_pack["PROCESS"]["START_TIME"], "%m/%d/%Y %H:%M:%S"
+    )
+    days, seconds = diff.days, diff.seconds
+    hours = days * 24 + seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    stat_pack["PROCESS"]["RUN_TIME"] = f"{hours}:{minutes}:{seconds}"
+
+    # TODO - Ant - Make func?
+    if stat_pack["TOTAL_RECORD_COUNT"]:
+        stat_pack["TOTAL_COMPRESSION"] = (
+            str(
+                round(
+                    100.00
+                    - (
+                        (
+                            float(stat_pack["TOTAL_ENTITY_COUNT"])
+                            / float(stat_pack["TOTAL_RECORD_COUNT"])
+                        )
+                        * 100.00
+                    ),
+                    2,
+                )
+            )
+            + "%"
+        )
+
+    for data_source in stat_pack["DATA_SOURCES"]:
+        stat_pack["DATA_SOURCES"][data_source]["COMPRESSION"] = (
+            str(
+                round(
+                    100.00
+                    - (
+                        (
+                            float(
+                                stat_pack["DATA_SOURCES"][data_source]["ENTITY_COUNT"]
+                            )
+                            / float(
+                                stat_pack["DATA_SOURCES"][data_source]["RECORD_COUNT"]
+                            )
+                        )
+                        * 100.00
+                    ),
+                    2,
+                )
+            )
+            + "%"
+        )
+
+    # delete the computed entity size breakdown as it would be out of date
+    #  someone might have opened an interim file in G2Explorer and computed it
+    if stat_pack.get("ENTITY_SIZE_BREAKDOWN"):
+        del stat_pack["ENTITY_SIZE_BREAKDOWN"]
+
+    with open(stats_file_name, "w", encoding="utf-8") as outfile:
+        json.dump(stat_pack, outfile, indent=4)
+
+    return stat_pack
+
+
+# TODO - Ant - Iterator?
+# -------------------------------------
+def next_export_record(export_handle, export_headers=None):
+    """# TODO"""
+    row_string = sz_engine.fetch_next(export_handle)
+    if not row_string:
+        return None
+
+    try:
+        row_data = next(csv.reader([row_string[0:-1]]))
+    except:
+        # TODO - Ant - Standarise all errors!
+        print(" err: " + row_string)
+        return None
+
+    if export_headers:
+        return dict(zip(export_headers, row_data))
+
+    return row_data
+
+
+# -------------------------------------
+def process_entities_api_only():
+    """# TODO"""
+
+    print("\nCalling export API...")
+
+    export_flags = SzEngineFlags.SZ_EXPORT_INCLUDE_ALL_ENTITIES
+
+    # TODO - Ant - Why checking for 1?
+    if relationship_filter == 1:
+        pass  # --don't include any relationships
+    elif relationship_filter == 2:
+        export_flags = (
+            export_flags | SzEngineFlags.SZ_ENTITY_INCLUDE_POSSIBLY_SAME_RELATIONS
+        )
+    else:
+        export_flags = export_flags | SzEngineFlags.SZ_ENTITY_INCLUDE_ALL_RELATIONS
+
+    export_fields = [
+        "RESOLVED_ENTITY_ID",
+        "RELATED_ENTITY_ID",
+        "MATCH_LEVEL",
+        "MATCH_KEY",
+        "IS_DISCLOSED",
+        "IS_AMBIGUOUS",
+        "ERRULE_CODE",
+        "DATA_SOURCE",
+        "RECORD_ID",
+    ]
+
+    try:
+        export_handle = sz_engine.export_csv_entity_report(
+            ",".join(export_fields), export_flags
+        )
+        export_headers = next_export_record(export_handle)
+    except SzError as err:
+        # TODO - Ant - Color these?
+        print(f"\n{err}\n")
+        return 1
+
+    stat_pack = initialize_stat_pack()
+    # TODO - Ant - Convert path to pathlib
+    if os.path.exists(csv_file_path):
+        os.remove(csv_file_path)
+    csv_file_handle = open_csv_file(exportCsv, csv_file_path)
+
+    entity_count = 0
+    last_entity_id = -1
+    record_count = 0
+    process_start_time = time.time()
+
+    export_record = next_export_record(export_handle, export_headers)
+    while export_record:
+        # gather all the records for the resume
+        resume_records = []
+        last_entity_id = export_record["RESOLVED_ENTITY_ID"]
+        while export_record and export_record["RESOLVED_ENTITY_ID"] == last_entity_id:
+            record_count += 1
+            resume_records.append(complete_resume_api(export_record))
+            export_record = next_export_record(export_handle, export_headers)
+
+        stat_pack = process_resume(stat_pack, resume_records, csv_file_handle)
+        entity_count += 1
+
+        # status display
+        if entity_count % PROGRESS_INTERVAL == 0 or not export_record:
+            now = datetime.now().strftime("%I:%M%p").lower()
+            elapsedMins = round((time.time() - proc_start_time) / 60, 1)
+            eps = int(
+                float(entity_count)
+                / (
+                    float(
+                        time.time() - process_start_time
+                        if time.time() - process_start_time != 0
+                        else 1
+                    )
+                )
+            )
+            print(f" {entity_count} entities processed at {now}, {eps} per second")
+
+        # get out if errors hit or out of records
+        if shut_down.value or not export_record:
+            break
+
+    stat_data = {
+        "writeStatus": "Final",
+        "lastEntityId": last_entity_id,
+        "queuesEmpty": "n/a",
+        "statsFileName": stats_file_path,
+    }
+    write_stat_pack(stat_pack, stat_data)
+
+
+# --------------------------------------
+def calculate_esb_stats():
+    """# TODO"""
+    with open(stats_file_path, "r", encoding="utf-8") as f:
+        stat_data = f.read()
+        stat_pack = json.loads(stat_data) if stat_data else {}
+
+    esb_entities = []
+    for str_entity_size in stat_pack["TEMP_ESB_STATS"]:
+        if str_entity_size == "1":
+            continue
+        for i in range(len(stat_pack["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"])):
+            entity_id = stat_pack["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"][i][
+                "ENTITY_ID"
+            ]
+            esb_entities.append([str_entity_size, i, entity_id])
+
+    print(f"Reviewing {len(esb_entities)} entities...")
+
+    try:
+        sz_engine = SzEngine("pySzSnapshotEsb", engine_settings, False)
+    except SzError as err:
+        print(f"\nSzError: {err}\n")
+        with shut_down.get_lock():
+            shut_down.value = 1
+        return
+
+    cnt = 0
+    test_type = 2
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        if test_type == 1:
+            futures = {
+                executor.submit(get_entity_features, sz_engine, esb_data): esb_data
+                for esb_data in itertools.islice(
+                    esb_entities,
+                    0,
+                    executor._max_workers,  # pylint: disable=protected-access
+                )
+            }
+        else:
+            futures = {
+                executor.submit(get_entity_features, sz_engine, esb_data): esb_data
+                for esb_data in esb_entities
+            }
+
+        while futures:
+            done, futures = concurrent.futures.wait(
+                futures, return_when=concurrent.futures.FIRST_COMPLETED
+            )
+            for fut in done:
+                result = fut.result()
+                if result:
+                    str_entity_size = result[0]
+                    i = result[1]
+                    stat_pack["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"][i].update(
+                        result[2]
+                    )
+                    if test_type == 1:
+                        print(
+                            stat_pack["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"][i][
+                                "ENTITY_ID"
+                            ]
+                        )
+                cnt += 1
+                if cnt % 1000 == 0:
+                    print(f"{cnt} entities processed")
+            if test_type == 1:
+                for esb_data in itertools.islice(esb_entities, len(done)):
+                    futures.add(
+                        executor.submit(get_entity_features, sz_engine, esb_data)
+                    )
+
+    print(f"{cnt} entities processed, done!")
+
+    # final display and updates
+    stat_pack["API_VERSION"] = api_version["BUILD_VERSION"]
+    stat_pack["RUN_DATE"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print()
+    for stat in stat_pack:
+        if type(stat_pack[stat]) not in (list, dict):
+            print(f"{stat} = {stat_pack[stat]}")
+    print()
+
+    with open(stats_file_path, "w", encoding="utf-8") as outfile:
+        json.dump(stat_pack, outfile, indent=4)
+
+    # TODO - Ant
+    # sz_engine.destroy()
+
+
+# --------------------------------------
+def signal_handler(signal, frame):
+    with shut_down.get_lock():
+        shut_down.value = 9
+    return
+
+
+# --------------------------------------
+def pause(question="PRESS ENTER TO CONTINUE..."):
+    """# TODO"""
+    try:
+        response = input(question)
+    except:
+        response = None
+
+    return response
+
+
+# --------------------------------------
+if __name__ == "__main__":
+
+    shut_down = Value("i", 0)
+    thread_stop = Value("i", 0)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    proc_start_time = time.time()
+    PROGRESS_INTERVAL = 10000
+
+    output_file_root = os.getenv("SENZING_OUTPUT_FILE_ROOT", None)
+
+    env_size = os.getenv("SENZING_SAMPLE_SIZE", "")
+    sample_size = int(env_size) if env_size and env_size.isdigit() else 1000
+
+    datasource_filter = os.getenv("SENZING_DATASOURCE_FILTER", None)
+
+    env_filter = os.getenv("SENZING_RELATIONSHIP_FILTER", None)
+    relationship_filter = int(env_filter) if env_filter and env_filter.isdigit() else 3
+
+    env_chunk = os.getenv("SENZING_CHUNK_SIZE", None)
+    chunk_size = int(env_chunk) if env_chunk and env_chunk.isdigit() else 1000000
+
+    env_thread = os.getenv("SENZING_THREAD_COUNT", None)
+    thread_count = int(env_thread) if env_thread and env_thread.isdigit() else 0
+
+    # capture the command line arguments
+    argParser = argparse.ArgumentParser()
+    argParser.add_argument(
+        "-c",
+        "--config_file_name",
+        dest="config_file_name",
+        default=None,
+        help="Path and name of optional G2Module.ini file to use.",
+    )
+    # TODO - Ant - Make this positional arg as it's always needed
+    argParser.add_argument(
+        "-o",
+        "--output_file_root",
+        default=output_file_root,
+        help='root name for files created such as "/project/snapshots/snapshot1"',
+    )
+    argParser.add_argument(
+        "-s",
+        "--sample_size",
+        type=int,
+        default=sample_size,
+        help="defaults to %s" % sample_size,
+    )
+    argParser.add_argument(
+        "-d",
+        "--datasource_filter",
+        help="data source code to analayze, defaults to all",
+    )
+    argParser.add_argument(
+        "-f",
+        "--relationship_filter",
+        type=int,
+        default=relationship_filter,
+        help="filter options 1=No Relationships, 2=Include possible matches, 3=Include possibly related and disclosed. Defaults to %s"
+        % relationship_filter,
+    )
+    argParser.add_argument(
+        "-a",
+        "--for_audit",
+        action="store_true",
+        default=False,
+        help="export csv file for audit",
+    )
+    argParser.add_argument(
+        "-k",
+        "--chunk_size",
+        type=int,
+        default=chunk_size,
+        help="defaults to %s" % chunk_size,
+    )
+    argParser.add_argument(
+        "-t",
+        "--thread_count",
+        type=int,
+        default=thread_count,
+        help="defaults to %s" % thread_count,
+    )
+    argParser.add_argument(
+        "-u",
+        "--use_api",
+        action="store_true",
+        default=False,
+        help="use export api instead of sql to perform snapshot",
+    )
+    argParser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_true",
+        default=False,
+        help="doesn't ask to confirm before overwrite files",
+    )
+
+    args = argParser.parse_args()
+
+    output_file_root = args.output_file_root
+    sample_size = args.sample_size
+    datasource_filter = args.datasource_filter
+    relationship_filter = args.relationship_filter
+    exportCsv = args.for_audit
+    chunk_size = args.chunk_size
+    thread_count = args.thread_count
+    use_api = args.use_api
+    quietOn = args.quiet
+
+    # check the output file
+    if not output_file_root:
+        print(
+            "\nPlease use -o to select an output path and root file name such as /project/audit/snap1"
+        )
+        sys.exit(1)
+
+    # TODO - Ant
+    # Check we can locate an engine configuration
+    engine_settings = get_engine_config(args.config_file_name)
+
+    # TODO Ant - move sanity checks like this into helpers code
+    if not json.loads(engine_settings)["SQL"]["CONNECTION"]:
+        print("\nCONNECTION parameter not found in [SQL] section of the ini file\n")
+        sys.exit(1)
+    g2dbUri = json.loads(engine_settings)["SQL"]["CONNECTION"]
+
+    try:
+        sz_engine = SzEngine("pySzEngine", engine_settings, False)
+
+        sz_product = SzProduct()
+        api_version = json.loads(sz_product.get_version())
+        api_version_major = int(api_version["VERSION"][0:1])
+
+        sz_configmgr = SzConfigManager("pySzConfigmgr", engine_settings, False)
+        default_config_id = sz_configmgr.get_default_config_id()
+        default_config = sz_configmgr.get_config(default_config_id)
+        config_data = json.loads(default_config)
+
+        dsrc_lookup = {}
+        dsrc_lookup_by_code = {}
+        # TODO - Ant - SZ_CONFIG? Jira
+        for cfg_record in config_data["G2_CONFIG"]["CFG_DSRC"]:
+            dsrc_lookup[cfg_record["DSRC_ID"]] = cfg_record
+            dsrc_lookup_by_code[cfg_record["DSRC_CODE"]] = cfg_record
+
+        errule_lookup = {}
+        errule_lookup_2 = {}
+        for cfg_record in config_data["G2_CONFIG"]["CFG_ERRULE"]:
+            errule_lookup[cfg_record["ERRULE_ID"]] = cfg_record
+            errule_lookup_2[cfg_record["ERRULE_CODE"]] = cfg_record
+
+        AMBIGUOUS_FTYPE_ID = 0
+        esb_ftype_lookup = {}
+        for cfg_record in config_data["G2_CONFIG"]["CFG_FTYPE"]:
+            if cfg_record["DERIVED"] == "No":
+                esb_ftype_lookup[cfg_record["FTYPE_ID"]] = cfg_record
+            if cfg_record["FTYPE_CODE"] == "AMBIGUOUS_ENTITY":
+                AMBIGUOUS_FTYPE_ID = cfg_record["FTYPE_ID"]
+    except SzError as err:
+        print(f"\n{err}\n")
+        sys.exit(1)
+    # TODO Ant - Finally, deconstruct?
+
+    # TODO - Ant - Convert to pathlib
+    if os.path.splitext(output_file_root)[1] == ".json":
+        output_file_root = os.path.splitext(output_file_root)[0]
+    # else:
+    #    print("\nPlease don't use a file extension as both a .json and a .csv file will be created\n")
+    #    sys.exit(1)
+
+    stats_file_path = output_file_root + ".json"
+    csv_file_path = output_file_root + ".csv"
+    STATS_FILE_EXISTED = os.path.exists(stats_file_path)
+
+    try:
+        with open(stats_file_path, "a", encoding="utf-8") as f:
+            pass
+    except IOError as err:
+        print(f"\nCannot write to stats file: {err}\n")
+        sys.exit(1)
+
+    # TODO - Ant - ?
+    if not STATS_FILE_EXISTED:
+        os.remove(stats_file_path)
+
+    # see if there is database access
+    try:
+        g2Dbo = SzDatabase(g2dbUri)
+    except Exception as err:
+        print(f"\n{err}")
+        g2Dbo = None
+
+    if not g2Dbo:
+        print(
+            textwrap.dedent(
+                """\
+
+            Direct database access not available, performing an API only snapshot at this time. Installing direct database access
+            drivers can significantly reduce the time it takes to snapshot on very large databases.
+
+            """
+            )
+        )
+
+        if not quietOn:
+            if input("Continue? (y/n) ").lower() not in ("y", "yes"):
+                sys.exit(1)
+
+    # validate data source filter if supplied
+    if datasource_filter:
+        # TODO - Ant engine isn't storing addDatasource as upper in sz_configtool? Check...
+        # if datasourceFilter.upper() not in dsrcLookupByCode:
+        if (datasource_filter or datasource_filter.upper()) not in dsrc_lookup_by_code:
+            print(f"\nData source code {datasource_filter} is not valid\n")
+            sys.exit(1)
+        elif not g2Dbo:
+            print("\nSpecifying a data source filter requires database access\n")
+            sys.exit(1)
+        else:
+            # TODO - Ant engine isn't storing addDatasource as upper in sz_configtool?
+            # datasourceFilterID = dsrcLookupByCode[datasourceFilter.upper()]["DSRC_ID"]
+            datasourceFilterID = dsrc_lookup_by_code[datasource_filter]["DSRC_ID"]
+
+    # process the entities
+    if use_api or not g2Dbo:
+        process_entities_api_only()
+    else:
+        SQL_ENTITIES = (
+            "select " + " a.RES_ENT_ID as RESOLVED_ENTITY_ID, "
+            " a.ERRULE_ID, "
+            " a.MATCH_KEY, "
+            " b.DSRC_ID, "
+            " c.RECORD_ID "
+            "from RES_ENT_OKEY a "
+            "join OBS_ENT b on b.OBS_ENT_ID = a.OBS_ENT_ID "
+            "join DSRC_RECORD c on c.ENT_SRC_KEY = b.ENT_SRC_KEY and c.DSRC_ID = b.DSRC_ID "
+            "where a.RES_ENT_ID = ?"
+        )
+
+        SQL_RELATIONS = (
+            "select "
+            " a.RES_ENT_ID as RESOLVED_ENTITY_ID, "
+            " a.REL_ENT_ID as RELATED_ENTITY_ID, "
+            " b.LAST_ERRULE_ID as ERRULE_ID, "
+            " b.IS_DISCLOSED, "
+            " b.IS_AMBIGUOUS, "
+            " b.MATCH_KEY, "
+            " d.DSRC_ID "
+            "from RES_REL_EKEY a "
+            "join RES_RELATE b on b.RES_REL_ID = a.RES_REL_ID "
+            "join RES_ENT_OKEY c on c.RES_ENT_ID = a.REL_ENT_ID "
+            "join OBS_ENT d on d.OBS_ENT_ID = c.OBS_ENT_ID "
+            "where a.RES_ENT_ID = ?"
+        )
+
+        # --adjusts the parameter syntax based on the database type
+        SQL_ENTITIES = g2Dbo.sqlPrep(SQL_ENTITIES)
+        SQL_RELATIONS = g2Dbo.sqlPrep(SQL_RELATIONS)
+
+        # # abandoned hack to determine if this is an ambiguous entity
+        # sqlAmbiguous = f'select 1 from RES_FEAT_EKEY where RES_ENT_ID = ? and FTYPE_ID = {ambiguousFtypeID}'
+        # sqlAmbiguous = g2Dbo.sqlPrep(sqlAmbiguous)
+
+        process_entities(thread_count)
+
+    # get feature stats from esb samples
+    if shut_down.value == 0:
+        calculate_esb_stats()
+
+    elapsed_mins = round((time.time() - proc_start_time) / 60, 1)
+    if shut_down.value == 0:
+        print(f"Process completed successfully in {elapsed_mins} minutes")
+    else:
+        print(f"Process aborted after {elapsed_mins} minutes!")
+
+    sys.exit(shut_down.value)
