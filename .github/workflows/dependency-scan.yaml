@@ -50,6 +50,6 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install .
 
-      - uses: pypa/gh-action-pip-audit@v1.0.8
+      - uses: pypa/gh-action-pip-audit@v1.1.0
         with:
           inputs: requirements.txt
