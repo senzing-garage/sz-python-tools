@@ -19,7 +19,7 @@ __updated__ = "2024-06-13"
 def get_version_details(sz_root_path: Path) -> List[str]:
     """Return version details of Senzing installation"""
     try:
-        sz_root_path = sz_root_path.joinpath("g2BuildVersion.json")
+        sz_root_path = sz_root_path.joinpath("szBuildVersion.json")
         with open(sz_root_path, encoding="utf-8") as file_version:
             version_details = json.load(file_version)
     except IOError as err:
@@ -114,7 +114,7 @@ def main() -> None:
     # sz_install_root would then = /opt/senzing
     # TODO Put back when in API package
     # sz_path = Path(__file__).resolve().parents[1]
-    sz_path = Path("/opt/senzing/g2").resolve()
+    sz_path = Path("/opt/senzing/er").resolve()
     sz_path_root = Path(__file__).resolve().parents[2]
     project_path = Path(args.path).expanduser().resolve()
 
@@ -123,7 +123,7 @@ def main() -> None:
     etc_path = project_path.joinpath("etc")
     lib_path = project_path.joinpath("lib")
     python_path = project_path.joinpath("python")
-    resources_path = project_path.joinpath("resources")
+    resources_path = project_path.joinpath("bin")
     sdk_path = project_path.joinpath("sdk")
     var_path = project_path.joinpath("var")
 
@@ -142,12 +142,11 @@ def main() -> None:
         (
             f"\nProject location: {project_path}\n"
             f"Senzing version:  {version_details[0]}\n"
-            f"Data version:     {version_details[1]}\n"
         )
     )
 
     # TODO Change names when tools updated
-    ignore_files = ["G2CreateProject.py", "G2UpdateProject.py"]
+    ignore_files = ["sz_create_project.py", "G2UpdateProject.py"]
     # Example: ignore_paths = [sz_path.joinpath('python')]
     ignore_paths: List[str] = []
     excludes = ignore_files + ignore_paths
@@ -177,7 +176,7 @@ def main() -> None:
     )
 
     # Soft link data
-    data_path.symlink_to(sz_path_root.joinpath("data", version_details[1]))
+    copytree(sz_path_root.joinpath("data"), data_path, ignore=ignore_patterns(*excludes), symlinks=True)
 
     # Files & strings to modify
     update_files = [
@@ -216,22 +215,6 @@ def main() -> None:
         0o660,
         files_to_ignore=["g2.jar"],
     )
-    lib_path.joinpath("g2.jar").chmod(0o664)
-
-    # python
-    set_file_permissions(python_path, 0o660, recursive=True)
-    python_path.joinpath("G2Audit.py").chmod(0o770)
-    python_path.joinpath("G2Command.py").chmod(0o770)
-    python_path.joinpath("G2ConfigTool.py").chmod(0o770)
-    python_path.joinpath("G2Database.py").chmod(0o770)
-    python_path.joinpath("G2Explorer.py").chmod(0o770)
-    python_path.joinpath("G2Export.py").chmod(0o770)
-    python_path.joinpath("G2Loader.py").chmod(0o770)
-    python_path.joinpath("G2SetupConfig.py").chmod(0o770)
-    python_path.joinpath("G2Snapshot.py").chmod(0o770)
-    python_path.joinpath("demo", "truth", "truthset-load1.sh").chmod(0o770)
-    python_path.joinpath("demo", "truth", "truthset-load2.sh").chmod(0o770)
-    python_path.joinpath("demo", "truth", "truthset-load3.sh").chmod(0o770)
 
     # resources
     set_file_permissions(resources_path, 0o660, recursive=True)
