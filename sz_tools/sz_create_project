@@ -122,8 +122,7 @@ def main() -> None:
     data_path = project_path.joinpath("data")
     etc_path = project_path.joinpath("etc")
     lib_path = project_path.joinpath("lib")
-    python_path = project_path.joinpath("python")
-    resources_path = project_path.joinpath("bin")
+    resources_path = project_path.joinpath("resources")
     sdk_path = project_path.joinpath("sdk")
     var_path = project_path.joinpath("var")
 
@@ -203,8 +202,9 @@ def main() -> None:
     set_file_permissions(project_path, 0o660)
     project_path.joinpath("setupEnv").chmod(0o770)
 
+    # TODO - Ant - Might need adjustmant on some files when helpers are finalised and in place
     # bin
-    set_file_permissions(bin_path, 0o770)
+    set_file_permissions(bin_path, 0o770, recursive=True)
 
     # etc
     set_file_permissions(etc_path, 0o660)
