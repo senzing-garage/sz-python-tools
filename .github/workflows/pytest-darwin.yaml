@@ -60,7 +60,7 @@ jobs:
           COVERAGE_FILE: "coverage.${{ matrix.python-version }}"
         run: |
           mv .coverage "$COVERAGE_FILE"
-  
+
       - name: Store coverage file
         uses: actions/upload-artifact@v4
         with:
