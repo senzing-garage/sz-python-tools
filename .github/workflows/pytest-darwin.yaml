@@ -55,17 +55,17 @@ jobs:
           export DYLD_LIBRARY_PATH=/opt/senzing/g2/lib:/opt/senzing/er/lib/macos
           pytest tests/ --verbose --capture=no --cov=src
 
-      - name: rename coverage file
+      - name: Rename coverage file
         env:
-          COVERAGE_FILE: ".coverage.${{ matrix.python-version }}"
+          COVERAGE_FILE: "coverage.${{ matrix.python-version }}"
         run: |
           mv .coverage "$COVERAGE_FILE"
-
+  
       - name: Store coverage file
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.python-version }}
-          path: .coverage.${{ matrix.python-version }}
+          path: coverage.${{ matrix.python-version }}
 
   coverage:
     name: coverage

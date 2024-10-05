@@ -57,18 +57,17 @@ jobs:
       # - name: Run pytest on examples
       #   run: pytest examples/ --verbose --capture=no
 
-      - name: rename coverage file
+      - name: Rename coverage file
         env:
-          COVERAGE_FILE: ".coverage.${{ matrix.python-version }}"
+          COVERAGE_FILE: "coverage.${{ matrix.python-version }}"
         run: |
-          ls -al
           mv .coverage "$COVERAGE_FILE"
 
       - name: Store coverage file
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.python-version }}
-          path: .coverage.${{ matrix.python-version }}
+          path: coverage.${{ matrix.python-version }}
 
   coverage:
     name: coverage
