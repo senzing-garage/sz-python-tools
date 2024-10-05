@@ -16,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-13]
+        os: [macos-latest]
         # 3.8 and 3.9 are unsupported on the darwin runner
         python-version: ["3.10", "3.11"]
         senzingapi-version: [staging-v4]
@@ -45,14 +45,14 @@ jobs:
           senzingapi-version: ${{ matrix.senzingapi-version }}
 
       - name: copy /etc files
-        run: sudo cp testdata/senzing-license/g2.lic /opt/senzing/g2/etc/g2.lic
+        run: sudo cp testdata/senzing-license/g2.lic /opt/senzing/er/etc/g2.lic
 
       - name: copy test database files
         run: mkdir /tmp/sqlite && cp testdata/sqlite/G2C.db /tmp/sqlite/G2C.db
 
       - name: run pytest on tests
         run: |
-          export DYLD_LIBRARY_PATH=/opt/senzing/g2/lib:/opt/senzing/g2/lib/macos
+          export DYLD_LIBRARY_PATH=/opt/senzing/g2/lib:/opt/senzing/er/lib/macos
           pytest tests/ --verbose --capture=no --cov=src
 
       - name: rename coverage file
