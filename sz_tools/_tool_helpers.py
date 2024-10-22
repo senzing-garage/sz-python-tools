@@ -382,7 +382,11 @@ def get_ini_as_json_str(ini_file: Path) -> str:
         )
         sys.exit(0)
 
-    return json.dumps(config_dict)
+    # TODO - Ant -
+    # return json.dumps(config_dict)
+    return (
+        orjson.dumps(config_dict).decode() if ORJSON_AVAIL else json.dumps(config_dict)
+    )
 
 
 def get_engine_config(ini_file_name: Union[str, None] = None) -> str:

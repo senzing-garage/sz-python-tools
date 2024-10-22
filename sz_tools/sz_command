@@ -2492,7 +2492,7 @@ def main(args: argparse.Namespace) -> None:
     first_loop = True
     restart = False
 
-    # Check we can locate an engine configuration
+    # Check an engine configuration can be located
     config = get_engine_config(args.iniFile)
 
     # Execute a single command

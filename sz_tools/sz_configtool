@@ -6803,6 +6803,9 @@ if __name__ == "__main__":
     )
     args = argParser.parse_args()
 
+    # TODO - Ant - Standardise getting common settings in helpers across all tools
+    # TODO - Ant - G2Module not working - JB ?
+
     # Check if INI file or env var is specified, otherwise use default INI file
     # iniFileName = None
 

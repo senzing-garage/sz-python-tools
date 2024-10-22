@@ -1,0 +1,55 @@
+{
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
+    "cSpell.words": [
+        "configmgr",
+        "CONFIGPATH",
+        "DISQUAL",
+        "dsrcs",
+        "dunder",
+        "EFCALL",
+        "engineflags",
+        "libg",
+        "literalinclude",
+        "longlong",
+        "psutil",
+        "pytest",
+        "reclass",
+        "reinit",
+        "RESOURCEPATH",
+        "retruned",
+        "RODO",
+        "senzprojs",
+        "SUPPORTPATH",
+        "szerror",
+        "testdata",
+        "ulonglong"
+    ],
+    "terminal.integrated.env.linux": {
+        // "PYTHONPATH": ".:${workspaceFolder}/src:${workspaceFolder}/src/senzing",
+        // "PYTHONPATH": ".:/Users/ant/Work/Senzing/git/sz-sdk-python/src/senzing",
+        "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing",
+        // "LD_LIBRARY_PATH": "/home/ant/senzprojs/3.8.0.23292/lib:/home/ant/senzprojs/3.8.0.23292/lib/jre/lib/server:/home/ant/senzprojs/3.8.0.23292/lib/debian:"
+        "LD_LIBRARY_PATH": "/opt/senzing/g2/lib/:/opt/senzing/g2/lib/jre/lib/server:/opt/senzing/g2/lib/debian:",
+        "SENZING_ENGINE_CONFIGURATION_JSON": "{\"PIPELINE\":{\"CONFIGPATH\":\"/etc/opt/senzing\",\"RESOURCEPATH\":\"/opt/senzing/g2/resources\",\"SUPPORTPATH\":\"/opt/senzing/data\"},\"SQL\":{\"CONNECTION\":\"sqlite3://na:na@/tmp/sqlite/G2C.db\"}}"
+    },
+    "python.testing.pytestArgs": [],
+    "python.autoComplete.extraPaths": [
+        // "/Users/ant/Work/Senzing/git/sz-sdk-python/src",
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src",
+        // "/Users/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
+    ],
+    "python.analysis.extraPaths": [
+        // "/Users/ant/Work/Senzing/git/sz-sdk-python/src",
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src",
+        // "/Users/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
+    ],
+    // "pylint.args": [
+        // " \"--init-hook='import sys; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src\\\")'; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing\\\")'\""
+        // " \"--init-hook='import sys; sys.path.append(\\\"${workspaceFolder}/src\\\")'\""    ],
+    // "python.testing.pytestArgs": [
+    //     "tests"
+    // ],
+}
