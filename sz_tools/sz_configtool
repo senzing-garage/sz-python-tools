@@ -23,6 +23,7 @@ except (ImportError, ModuleNotFoundError):
 # from G2IniParams import G2IniParams
 # from senzing import G2Config, G2ConfigMgr, SzError
 
+from _tool_helpers import get_engine_config
 from senzing import SzConfig, SzConfigManager, SzError
 
 try:
@@ -170,6 +171,58 @@ class Colors:
     FG_CYAN3 = "\033[38;5;43m"
     FG_CHARTREUSE3 = "\033[38;5;70m"
     FG_ORANGERED1 = "\033[38;5;202m"
+
+
+# TODO - Ant - Organize these
+# TODO - Ant - Env vars for all
+# TODO - Ant - Check help visually looks good and help is accurate
+# def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
+def parse_cli_args() -> argparse.Namespace:
+    """# TODO"""
+    # TODO - Ant -
+    # settings: dict[str, Union[bool, int, list[str], None, str]] = {}
+
+    arg_parser = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description="Utility to view and manipulate the Senzing configuration",
+        # epilog=textwrap.dedent(
+        #     """\
+        #     Arguments can be specified with either CLI arguments or environment variables, some arguments have
+        #     default values.
+        #     The order of precedence for selecting which value to use is:
+        #     1) CLI Argument
+        #     2) Environment variable
+        #     3) Default value if available
+        #     For additional help and information: https://github.com/Senzing/file-loader/blob/main/README.md
+        #     """
+        # ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    arg_parser.add_argument("file_to_process", default=None, nargs="?")
+    arg_parser.add_argument(
+        "-c",
+        "--ini-file-name",
+        dest="ini_file_name",
+        default=None,
+        help="name of a G2Module.ini file to use",
+    )
+    arg_parser.add_argument(
+        "-f",
+        "--force",
+        dest="force_mode",
+        default=False,
+        action="store_true",
+        help="when reading from a file, execute each command without prompts",
+    )
+    arg_parser.add_argument(
+        "-H",
+        "--hist_disable",
+        dest="hist_disable",
+        action="store_true",
+        default=False,
+        help="disable history file usage",
+    )
+    return arg_parser.parse_args()
 
 
 def colorize(in_string, color_list="None"):
@@ -6774,34 +6827,10 @@ def add_attributes_to_arg(arg, **kwargs):
     return arg
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """main"""
 
-    argParser = argparse.ArgumentParser()
-    argParser.add_argument("file_to_process", default=None, nargs="?")
-    argParser.add_argument(
-        "-c",
-        "--ini-file-name",
-        dest="ini_file_name",
-        default=None,
-        help="name of a G2Module.ini file to use",
-    )
-    argParser.add_argument(
-        "-f",
-        "--force",
-        dest="force_mode",
-        default=False,
-        action="store_true",
-        help="when reading from a file, execute each command without prompts",
-    )
-    argParser.add_argument(
-        "-H",
-        "--hist_disable",
-        dest="hist_disable",
-        action="store_true",
-        default=False,
-        help="disable history file usage",
-    )
-    args = argParser.parse_args()
+    cli_args = parse_cli_args()
 
     # TODO - Ant - Standardise getting common settings in helpers across all tools
     # TODO - Ant - G2Module not working - JB ?
@@ -6821,19 +6850,29 @@ if __name__ == "__main__":
     #     iniParamCreator = G2IniParams()
     #     engine_settings = iniParamCreator.getJsonINIParams(iniFileName)
 
-    secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
-    if not secj or (secj and len(secj) == 0):
-        print(
-            "\nERROR: SENZING_ENGINE_CONFIGURATION_JSON environment variable is not set"
-        )
-        sys.exit(1)
+    # secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
+    # if not secj or (secj and len(secj) == 0):
+    #     print(
+    #         "\nERROR: SENZING_ENGINE_CONFIGURATION_JSON environment variable is not set"
+    #     )
+    #     sys.exit(1)
+
+    # Check an engine configuration can be located
+    engine_config = get_engine_config(cli_args.ini_file_name)
 
     # cmd_obj = SzCmdShell(engine_settings, args.hist_disable, args.force_mode, args.file_to_process)
-    cmd_obj = SzCfgShell(secj, args.hist_disable, args.force_mode, args.file_to_process)
+    cmd_obj = SzCfgShell(
+        engine_config,
+        cli_args.hist_disable,
+        cli_args.force_mode,
+        cli_args.file_to_process,
+    )
 
-    if args.file_to_process:
+    if cli_args.file_to_process:
         cmd_obj.fileloop()
     else:
         cmd_obj.cmdloop()
 
-    sys.exit()
+
+if __name__ == "__main__":
+    main()

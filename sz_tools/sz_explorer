@@ -50,51 +50,122 @@ except ImportError:
 # TODO - Ant - Metadata?
 
 
-# ---------------------------
-def execute_sz_api(
-    api_name: str,
-    flags: List[str],
-    parms: Union[List[Union[str, int]], int, str],
-) -> Dict[str, Any]:
+def parse_cli_args() -> argparse.Namespace:
     """# TODO"""
-    parms = parms if isinstance(parms, list) else [parms]
-    # TODO - Ant - Replace others too
-    caller = inspect.stack()[1].function
-
-    try:
-        flags_int = SzEngineFlags.combine_flags(flags)
-        parms.append(flags_int)
-    except SzError as err:
-        raise SzError(f"{caller}: {api_name} - {err}") from None
-
     # TODO - Ant -
-    # api_called = f"{api_name}({', '.join(str(x) for x in parm_list)})"
+    # settings: dict[str, Union[bool, int, list[str], None, str]] = {}
 
-    try:
-        api_call = getattr(sz_engine, api_name)
-        response = api_call(*parms)
-        response_data: Dict[str, Any] = json.loads(response)
-    except AttributeError:
-        raise SzError(
-            f"{caller}: {api_name} not available in {api_version['BUILD_VERSION']}"
-        ) from None
-    except SzError as err:
-        raise SzError(f"{caller}: {api_name} - {err}") from None
+    arg_parser = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description="Utility to explore Senzing outcomes",
+        # epilog=textwrap.dedent(
+        #     """\
+        #     Arguments can be specified with either CLI arguments or environment variables, some arguments have
+        #     default values.
+        #     The order of precedence for selecting which value to use is:
+        #     1) CLI Argument
+        #     2) Environment variable
+        #     3) Default value if available
+        #     For additional help and information: https://github.com/Senzing/file-loader/blob/main/README.md
+        #     """
+        # ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    arg_parser.add_argument(
+        "-c",
+        "--config_file_name",
+        dest="ini_file_name",
+        default=None,
+        help="Path and name of optional G2Module.ini file to use.",
+    )
+    arg_parser.add_argument(
+        "-s",
+        "--snapshot_json_file",
+        dest="snapshot_file_name",
+        default=None,
+        help="the name of a json statistics file computed by G2Snapshot.py",
+    )
+    arg_parser.add_argument(
+        "-a",
+        "--audit_json_file",
+        dest="audit_file_name",
+        default=None,
+        help="the name of a json statistics file computed by G2Audit.py",
+    )
+    arg_parser.add_argument(
+        "-w",
+        "--webapp_url",
+        dest="webapp_url",
+        default=None,
+        help="the url to the senzing webapp if available",
+    )
+    arg_parser.add_argument(
+        "-D",
+        "--debug_output",
+        dest="debug_output",
+        default=None,
+        help="print raw api json to screen or <filename.txt>",
+    )
+    arg_parser.add_argument(
+        "-H",
+        "--histDisable",
+        dest="histDisable",
+        action="store_true",
+        default=False,
+        help="disable history file usage",
+    )
+    arg_parser.add_argument(
+        "-t",
+        "--debugTrace",
+        dest="debugTrace",
+        action="store_true",
+        default=False,
+        help="output debug trace information",
+    )
 
-    if debugOutput:
-        n_t = "\n\t"
-        show_debug(
-            caller,
-            f"{api_name}\n\t{n_t.join(flags)}\n{json.dumps(response_data, indent=4)}",
-        )
-
-    return response_data
+    return arg_parser.parse_args()
 
 
-# ==============================
+# def execute_sz_api(
+#     api_name: str,
+#     flags: List[str],
+#     parms: Union[List[Union[str, int]], int, str],
+# ) -> Dict[str, Any]:
+#     """# TODO"""
+#     parms = parms if isinstance(parms, list) else [parms]
+#     # TODO - Ant - Replace others too
+#     caller = inspect.stack()[1].function
+
+#     try:
+#         flags_int = SzEngineFlags.combine_flags(flags)
+#         parms.append(flags_int)
+#     except SzError as err:
+#         raise SzError(f"{caller}: {api_name} - {err}") from None
+
+#     # TODO - Ant -
+#     # api_called = f"{api_name}({', '.join(str(x) for x in parm_list)})"
+
+#     try:
+#         api_call = getattr(sz_engine, api_name)
+#         response = api_call(*parms)
+#         response_data: Dict[str, Any] = json.loads(response)
+#     except AttributeError:
+#         raise SzError(
+#             f"{caller}: {api_name} not available in {api_version['BUILD_VERSION']}"
+#         ) from None
+#     except SzError as err:
+#         raise SzError(f"{caller}: {api_name} - {err}") from None
+
+#     if debugOutput:
+#         n_t = "\n\t"
+#         show_debug(
+#             caller,
+#             f"{api_name}\n\t{n_t.join(flags)}\n{json.dumps(response_data, indent=4)}",
+#         )
+
+#     return response_data
 
 
-# ----------------------------
 def colorize(in_string, color_list="None"):
     return Colors.apply(in_string, color_list)
 
@@ -286,19 +357,29 @@ class Node(object):
 
 
 # ==============================
+
+
 class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
-    def __init__(self):
+    def __init__(self, cli_args, engine_settings, api_version, sz_engine, cfgData):
         cmd.Cmd.__init__(self)
         readline.set_completer_delims(" ")
 
         self.intro = "\nType help or ? to list commands.\n"
-        self.prompt = prompt
+        self.prompt = "(g2) "
 
         # store config dicts for fast lookup
+        self.api_version = api_version
         self.cfg_data = cfgData
+        self.cli_args = cli_args
+        self.debugOutput = cli_args.debug_output
         self.dsrc_lookup = {}
+        self.engine_settings = engine_settings
+        self.histDisable = cli_args.histDisable
+        self.sz_engine = sz_engine
+        self.webapp_url = cli_args.webapp_url
+
         for cfg_record in self.cfg_data["G2_CONFIG"]["CFG_DSRC"]:
             self.dsrc_lookup[cfg_record["DSRC_ID"]] = cfg_record
         self.dsrc_code_lookup = {}
@@ -442,10 +523,10 @@ class G2CmdShell(cmd.Cmd):
             )
 
         # default last snapshot/audit file from parameters
-        if args.snapshot_file_name:
-            self.current_settings["snapshotFile"] = args.snapshot_file_name
-        if args.audit_file_name:
-            self.current_settings["auditFile"] = args.audit_file_name
+        if self.cli_args.snapshot_file_name:
+            self.current_settings["snapshotFile"] = self.cli_args.snapshot_file_name
+        if self.cli_args.audit_file_name:
+            self.current_settings["auditFile"] = self.cli_args.audit_file_name
 
         # load prior snapshot file
         if "snapshotFile" in self.current_settings and os.path.exists(
@@ -507,20 +588,77 @@ class G2CmdShell(cmd.Cmd):
 
         # history
         self.readline_avail = True if "readline" in sys.modules else False
-        self.hist_disable = histDisable
         self.histCheck()
 
         # feedback file
         self.feedback_log = []
         self.feedback_updated = False
         self.feedback_filename = (
-            json.loads(config)["PIPELINE"]["CONFIGPATH"] + os.sep + "feedback.log"
+            json.loads(self.engine_settings)["PIPELINE"]["CONFIGPATH"]
+            + os.sep
+            + "feedback.log"
         )
         if os.path.exists(self.feedback_filename):
             with open(self.feedback_filename, "r", encoding="utf-8") as f:
                 self.feedback_log = [json.loads(x) for x in f.readlines()]
 
     # ---------------------------
+
+    def execute_sz_api(
+        self,
+        api_name: str,
+        flags: List[str],
+        parms: Union[List[Union[str, int]], int, str],
+    ) -> Dict[str, Any]:
+        """# TODO"""
+        parms = parms if isinstance(parms, list) else [parms]
+        # TODO - Ant - Replace others too
+        caller = inspect.stack()[1].function
+
+        try:
+            flags_int = SzEngineFlags.combine_flags(flags)
+            parms.append(flags_int)
+        except SzError as err:
+            raise SzError(f"{caller}: {api_name} - {err}") from None
+
+        # TODO - Ant -
+        # api_called = f"{api_name}({', '.join(str(x) for x in parm_list)})"
+
+        try:
+            api_call = getattr(self.sz_engine, api_name)
+            response = api_call(*parms)
+            response_data: Dict[str, Any] = json.loads(response)
+        except AttributeError:
+            raise SzError(
+                f"{caller}: {api_name} not available in {self.api_version['BUILD_VERSION']}"
+            ) from None
+        except SzError as err:
+            raise SzError(f"{caller}: {api_name} - {err}") from None
+
+        if self.debugOutput:
+            n_t = "\n\t"
+            self.show_debug(
+                caller,
+                f"{api_name}\n\t{n_t.join(flags)}\n{json.dumps(response_data, indent=4)}",
+            )
+
+        return response_data
+
+    def show_debug(self, call: str, output: str = "") -> None:
+        """# TODO"""
+        if self.debugOutput.upper() in ("S", "SCR", "SCREEN") and output:
+            print(f"- {call} -\n")
+            print(f"{output}\n")
+            return
+
+        try:
+            with open(self.debugOutput, "a", encoding="utf-8") as f:
+                f.write(f"- {call} -\n")
+                f.write(f"{output}\n\n")
+        except IOError as err:
+            # TODO - Ant - Color
+            print(f"cannot write to {self.debugOutput}: {err}")
+
     def get_names(self):
         """hides functions from available list of Commands. Seperate help sections for some"""
         return [n for n in dir(self.__class__) if n not in self.__hidden_methods]
@@ -638,7 +776,7 @@ class G2CmdShell(cmd.Cmd):
         self.histFileError = None
         self.histAvail = False
 
-        if not self.hist_disable:
+        if not self.histDisable:
 
             if readline:
                 tmpHist = "." + os.path.basename(
@@ -763,7 +901,7 @@ class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
     def do_version(self, arg):
-        print(f"\nSenzing api version is: {api_version['BUILD_VERSION']}\n")
+        print(f"\nSenzing api version is: {self.api_version['BUILD_VERSION']}\n")
 
     # ---------------------------
     def help_load(self):
@@ -1341,7 +1479,7 @@ class G2CmdShell(cmd.Cmd):
             if entity_id == "unknown":  # bypass missing
                 continue
             try:
-                json_data = execute_sz_api(
+                json_data = self.execute_sz_api(
                     "get_entity_by_entity_id", get_flag_list, int(entity_id)
                 )
             except SzError as err:
@@ -2897,7 +3035,7 @@ class G2CmdShell(cmd.Cmd):
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
         ]
         try:
-            json_response = execute_sz_api(
+            json_response = self.execute_sz_api(
                 "search_by_attributes", search_flag_list, json.dumps(search_json)
             )
         except SzError as err:
@@ -3189,11 +3327,11 @@ class G2CmdShell(cmd.Cmd):
 
         try:
             if len(arg_tokens) == 1:
-                resolved_json = execute_sz_api(
+                resolved_json = self.execute_sz_api(
                     "get_entity_by_entity_id", get_flag_list, int(arg_tokens[0])
                 )
             else:
-                resolved_json = execute_sz_api(
+                resolved_json = self.execute_sz_api(
                     "get_entity_by_record_id", get_flag_list, arg_tokens
                 )
         except SzError as err:
@@ -3246,9 +3384,9 @@ class G2CmdShell(cmd.Cmd):
             )
             report_type = "detail" if show_detail else "summary"
             tbl_title = f"Entity {report_type} for entity {colorize_entity(entity_id)}: {entity_name}"
-            if webapp_url:
+            if self.webapp_url:
                 tbl_title += f"  {colorize('WebApp:', 'dim')} " + colorize(
-                    f"{webapp_url}/graph/{entity_id}", "highlight1,underline"
+                    f"{self.webapp_url}/graph/{entity_id}", "highlight1,underline"
                 )
 
             # summarize by data source
@@ -3398,7 +3536,7 @@ class G2CmdShell(cmd.Cmd):
         trys = 0
         while True:
             try:
-                resolved_json = execute_sz_api(
+                resolved_json = self.execute_sz_api(
                     "get_entity_by_entity_id", get_flag_list, entity_id
                 )
                 if data_source:
@@ -3559,7 +3697,7 @@ class G2CmdShell(cmd.Cmd):
         """# TODO"""
         get_flag_list = ["SZ_ENTITY_INCLUDE_ALL_FEATURES"]
         try:
-            json_data = execute_sz_api(
+            json_data = self.execute_sz_api(
                 "get_entity_by_entity_id",
                 get_flag_list,
                 int(entity_id),
@@ -3568,7 +3706,9 @@ class G2CmdShell(cmd.Cmd):
             print_message(err, "error")
             return
 
-        sz_diagnostic_module = SzDiagnostic("pyG2Diagnostic", config, False)
+        sz_diagnostic_module = SzDiagnostic(
+            "pyG2Diagnostic", self.engine_settings, False
+        )
 
         # get the features in order
         ordered_feature_list = []
@@ -3654,7 +3794,7 @@ class G2CmdShell(cmd.Cmd):
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
         ]
         try:
-            json_data_2 = execute_sz_api(
+            json_data_2 = self.execute_sz_api(
                 "get_entity_by_entity_id", get_flag_list, int(entity_id)
             )
         except SzError as err:
@@ -3680,7 +3820,7 @@ class G2CmdShell(cmd.Cmd):
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
         ]
         try:
-            json_data_2 = execute_sz_api(
+            json_data_2 = self.execute_sz_api(
                 "get_entity_by_entity_id", get_flag_list, int(entity_id)
             )
         except SzError as err:
@@ -3760,7 +3900,7 @@ class G2CmdShell(cmd.Cmd):
         compare_list = []
         for entity_id in entity_list:
             try:
-                json_data = execute_sz_api(
+                json_data = self.execute_sz_api(
                     "get_entity_by_entity_id", get_flag_list, int(entity_id)
                 )
             except SzError as err:
@@ -3996,9 +4136,11 @@ class G2CmdShell(cmd.Cmd):
             tbl_columns.append(
                 {"name": column_header, "width": column_width, "align": "left"}
             )
-            if webapp_url:
+            if self.webapp_url:
                 url_row.append(
-                    colorize(f"{webapp_url}/graph/{entity_id}", "highlight1,underline")
+                    colorize(
+                        f"{self.webapp_url}/graph/{entity_id}", "highlight1,underline"
+                    )
                 )
 
         # set the row titles
@@ -4020,7 +4162,7 @@ class G2CmdShell(cmd.Cmd):
 
         # add the data
         tbl_rows = []
-        if webapp_url:
+        if self.webapp_url:
             tbl_rows.append([row_titles["urlRow"]] + url_row)
         tbl_rows.append([row_titles["dataSourceRow"]] + data_sources_row)
         if len("".join(cross_rels_row)) > 0:
@@ -4102,7 +4244,7 @@ class G2CmdShell(cmd.Cmd):
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
         ]
         try:
-            json_data = execute_sz_api(
+            json_data = self.execute_sz_api(
                 "find_network_by_entity_id",
                 get_flag_list,
                 [[root_entity_id], max_degree, build_out_degree, max_entities],
@@ -4649,7 +4791,7 @@ class G2CmdShell(cmd.Cmd):
 
         why_flag_list = ["SZ_WHY_ENTITY_DEFAULT_FLAGS"]
         try:
-            json_data = execute_sz_api(
+            json_data = self.execute_sz_api(
                 "why_entity_by_entity_id", why_flag_list, int(entity_list[0])
             )
         # except Exception as err:
@@ -4686,7 +4828,7 @@ class G2CmdShell(cmd.Cmd):
             "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
         ]
         try:
-            json_data = execute_sz_api(
+            json_data = self.execute_sz_api(
                 "why_records",
                 whyFlagList,
                 [entity_list[0], entity_list[1], entity_list[2], entity_list[3]],
@@ -4744,7 +4886,7 @@ class G2CmdShell(cmd.Cmd):
 
         why_flag_list = ["SZ_WHY_ENTITIES_DEFAULT_FLAGS"]
         try:
-            json_data = execute_sz_api(
+            json_data = self.execute_sz_api(
                 "why_entities",
                 why_flag_list,
                 [int(entity_list[0]), int(entity_list[1])],
@@ -4841,7 +4983,7 @@ class G2CmdShell(cmd.Cmd):
         for entity_id in entity_list:
             entity_data[entity_id] = {}
             try:
-                json_data = execute_sz_api(
+                json_data = self.execute_sz_api(
                     "why_entity_by_entity_id", why_flag_list, int(entity_id)
                 )
             except SzError as err:
@@ -4928,7 +5070,7 @@ class G2CmdShell(cmd.Cmd):
             # see how this entity is related to the others
             get_flag_list = ["SZ_ENTITY_BRIEF_DEFAULT_FLAGS"]
             try:
-                json_data2 = execute_sz_api(
+                json_data2 = self.execute_sz_api(
                     "get_entity_by_entity_id", get_flag_list, int(entity_id)
                 )
             except SzError as err:
@@ -4954,7 +5096,7 @@ class G2CmdShell(cmd.Cmd):
                 "SZ_ENTITY_INCLUDE_RECORD_DATA",
             ]
             try:
-                json_data2 = execute_sz_api(
+                json_data2 = self.execute_sz_api(
                     "search_by_attributes", search_flag_list, json.dumps(search_json)
                 )
             except SzError as err:
@@ -5529,7 +5671,7 @@ class G2CmdShell(cmd.Cmd):
         ]
 
         try:
-            get_entity_data = execute_sz_api(
+            get_entity_data = self.execute_sz_api(
                 "get_entity_by_entity_id", get_flag_list, int(entity_id)
             )
         except SzError as err:
@@ -5594,7 +5736,7 @@ class G2CmdShell(cmd.Cmd):
 
         how_flag_list = ["SZ_HOW_ENTITY_DEFAULT_FLAGS"]
         try:
-            json_data = execute_sz_api(
+            json_data = self.execute_sz_api(
                 "how_entity_by_entity_id", how_flag_list, int(entity_id)
             )
         except SzError as err:
@@ -6703,8 +6845,8 @@ class G2CmdShell(cmd.Cmd):
 
         # add the records
         try:
-            sz_engine.add_record("TEST", "SCORE_RECORD_1", json.dumps(record1json))
-            sz_engine.add_record("TEST", "SCORE_RECORD_2", json.dumps(record2json))
+            self.sz_engine.add_record("TEST", "SCORE_RECORD_1", json.dumps(record1json))
+            self.sz_engine.add_record("TEST", "SCORE_RECORD_2", json.dumps(record2json))
         except SzError as err:
             # TODO - Ant - str() ?
             print_message(err, "error")
@@ -6714,8 +6856,8 @@ class G2CmdShell(cmd.Cmd):
 
         # delete the two temporary records
         try:
-            sz_engine.delete_record("TEST", "SCORE_RECORD_1")
-            sz_engine.delete_record("TEST", "SCORE_RECORD_2")
+            self.sz_engine.delete_record("TEST", "SCORE_RECORD_1")
+            self.sz_engine.delete_record("TEST", "SCORE_RECORD_2")
         except SzError as err:
             print_message(err, "error")
             return
@@ -6775,7 +6917,7 @@ class G2CmdShell(cmd.Cmd):
         ]
 
         try:
-            entity_data = execute_sz_api(
+            entity_data = self.execute_sz_api(
                 "get_entity_by_entity_id", get_entity_flags, from_entity_id
             )
         except Exception as err:
@@ -6831,7 +6973,7 @@ class G2CmdShell(cmd.Cmd):
             json_data[trusted_id_type] = trusted_id_number
             print(f"updating {data_source}: {record_id} ...")
             try:
-                sz_engine.add_record(data_source, record_id, json.dumps(json_data))
+                self.sz_engine.add_record(data_source, record_id, json.dumps(json_data))
             except SzError as err:
                 print_message(err, "error")
                 break
@@ -6844,7 +6986,7 @@ class G2CmdShell(cmd.Cmd):
         )
         # TODO - Ant - What is this doing?
         try:
-            resolved_json = execute_sz_api(
+            resolved_json = self.execute_sz_api(
                 "get_entity_by_record_id", [], get_record_data.split()
             )
         except SzError as err:
@@ -6921,12 +7063,12 @@ class G2CmdShell(cmd.Cmd):
             ]
 
             try:
-                resolved_json_1 = execute_sz_api(
+                resolved_json_1 = self.execute_sz_api(
                     "get_entity_by_entity_id",
                     get_entity_flags,
                     feedback_data["entity_id1"],
                 )
-                resolved_json_2 = execute_sz_api(
+                resolved_json_2 = self.execute_sz_api(
                     "get_entity_by_entity_id",
                     get_entity_flags,
                     feedback_data["entity_id2"],
@@ -6987,7 +7129,7 @@ class G2CmdShell(cmd.Cmd):
         print("\nRecords:")
         for record_data in record_list:
             try:
-                record_json = execute_sz_api(
+                record_json = self.execute_sz_api(
                     "get_record",
                     get_record_flags,
                     [record_data["DATA_SOURCE"], record_data["RECORD_ID"]],
@@ -7036,7 +7178,7 @@ class G2CmdShell(cmd.Cmd):
                 }
             )
             try:
-                sz_engine.add_record(
+                self.sz_engine.add_record(
                     new_json["DATA_SOURCE"], new_json["RECORD_ID"], json.dumps(new_json)
                 )
             except SzError as err:
@@ -7051,7 +7193,7 @@ class G2CmdShell(cmd.Cmd):
             + feedback_data["record_list"][0]["RECORD_ID"]
         )
         try:
-            resolved_json = execute_sz_api(
+            resolved_json = self.execute_sz_api(
                 "get_entity_by_record_id", [], get_record_data.split()
             )
         except SzError as err:
@@ -7361,7 +7503,7 @@ class G2CmdShell(cmd.Cmd):
                 exported_entity_list.append(entity_id)
 
                 try:
-                    json_data = execute_sz_api(
+                    json_data = self.execute_sz_api(
                         "get_entity_by_entity_id", get_flag_list, int(entity_id)
                     )
                 except SzError as err:
@@ -7452,20 +7594,20 @@ class G2CmdShell(cmd.Cmd):
 
 
 # --------------------------------------
-def show_debug(call: str, output: str = "") -> None:
-    """# TODO"""
-    if debugOutput.upper() in ("S", "SCR", "SCREEN") and output:
-        print(f"- {call} -\n")
-        print(f"{output}\n")
-        return
+# def show_debug(call: str, output: str = "") -> None:
+#     """# TODO"""
+#     if debugOutput.upper() in ("S", "SCR", "SCREEN") and output:
+#         print(f"- {call} -\n")
+#         print(f"{output}\n")
+#         return
 
-    try:
-        with open(debugOutput, "a", encoding="utf-8") as f:
-            f.write(f"- {call} -\n")
-            f.write(f"{output}\n\n")
-    except IOError as err:
-        # TODO - Ant - Color
-        print(f"cannot write to {debugOutput}: {err}")
+#     try:
+#         with open(debugOutput, "a", encoding="utf-8") as f:
+#             f.write(f"- {call} -\n")
+#             f.write(f"{output}\n\n")
+#     except IOError as err:
+#         # TODO - Ant - Color
+#         print(f"cannot write to {debugOutput}: {err}")
 
 
 # --------------------------------------
@@ -7498,71 +7640,14 @@ def _append_slash_if_dir(p):
         return p
 
 
-# --------------------------------------
-if __name__ == "__main__":
-    appPath = os.path.dirname(os.path.abspath(sys.argv[0]))
+def main() -> None:
+    """main"""
 
-    # capture the command line arguments
-    argParser = argparse.ArgumentParser()
-    argParser.add_argument(
-        "-c",
-        "--config_file_name",
-        dest="ini_file_name",
-        default=None,
-        help="Path and name of optional G2Module.ini file to use.",
-    )
-    argParser.add_argument(
-        "-s",
-        "--snapshot_json_file",
-        dest="snapshot_file_name",
-        default=None,
-        help="the name of a json statistics file computed by G2Snapshot.py",
-    )
-    argParser.add_argument(
-        "-a",
-        "--audit_json_file",
-        dest="audit_file_name",
-        default=None,
-        help="the name of a json statistics file computed by G2Audit.py",
-    )
-    argParser.add_argument(
-        "-w",
-        "--webapp_url",
-        dest="webapp_url",
-        default=None,
-        help="the url to the senzing webapp if available",
-    )
-    argParser.add_argument(
-        "-D",
-        "--debug_output",
-        dest="debug_output",
-        default=None,
-        help="print raw api json to screen or <filename.txt>",
-    )
-    argParser.add_argument(
-        "-H",
-        "--histDisable",
-        dest="histDisable",
-        action="store_true",
-        default=False,
-        help="disable history file usage",
-    )
-    argParser.add_argument(
-        "-t",
-        "--debugTrace",
-        dest="debugTrace",
-        action="store_true",
-        default=False,
-        help="output debug trace information",
-    )
+    cli_args = parse_cli_args()
 
-    args = argParser.parse_args()
-    snapshotFileName = args.snapshot_file_name
-    auditFileName = args.audit_file_name
-    webapp_url = args.webapp_url
-    debugOutput = args.debug_output
-    histDisable = args.histDisable
-    debugTrace = args.debugTrace
+    snapshotFileName = cli_args.snapshot_file_name
+    auditFileName = cli_args.audit_file_name
+    debugTrace = cli_args.debugTrace
 
     # validate snapshot file if specified
     if snapshotFileName and not os.path.exists(snapshotFileName):
@@ -7580,31 +7665,30 @@ if __name__ == "__main__":
         colorize("  |      |   |  ___ \\  ", "DIM") + "Exploratory Data Analysis\n"
     )
     splash += colorize(" _____| ____/ _/    _\\ \n", "DIM")
-    prompt = "(g2) "
     print(splash)
 
     # get the version information
     try:
         sz_product = SzProduct()
         api_version = json.loads(sz_product.get_version())
-        api_version_major = int(api_version["VERSION"][0:1])
+        # api_version_major = int(api_version["VERSION"][0:1])
     # except G2Exception as err:
     except SzError as err:
         print_message(err, "error")
         sys.exit(1)
 
     # Check we can locate an engine configuration
-    config = get_engine_config(args.ini_file_name)
+    engine_config = get_engine_config(cli_args.ini_file_name)
 
     try:
-        sz_engine = SzEngine("pyG2Explorer", config, debugTrace)
+        sz_engine = SzEngine("pyG2Explorer", engine_config, debugTrace)
     except SzError as err:
         print_message(err, "error")
         sys.exit(1)
 
     # get needed config data
     try:
-        sz_config_mgr = SzConfigManager("pyG2ConfigMgr", config, False)
+        sz_config_mgr = SzConfigManager("pyG2Explorer", engine_config, debugTrace)
         default_config_id = sz_config_mgr.get_default_config_id()
         default_config_doc = sz_config_mgr.get_config(default_config_id)
         cfgData = json.loads(default_config_doc)
@@ -7614,7 +7698,8 @@ if __name__ == "__main__":
         sys.exit(1)
     # g2ConfigMgr.destroy()
 
-    G2CmdShell().cmdloop()
+    G2CmdShell(cli_args, engine_config, api_version, sz_engine, cfgData).cmdloop()
 
-    # g2Engine.destroy()
-    sys.exit()
+
+if __name__ == "__main__":
+    main()

@@ -82,6 +82,76 @@ __updated__ = "2024-06-13"
 # Due to the way the Cmd module works, don't want doc strings on everything
 # pylint: disable=missing-function-docstring
 
+
+# TODO - Ant - Organize these
+# TODO - Ant - Env vars for all
+# TODO - Ant - Check help visually looks good and help is accurate
+# def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
+def parse_cli_args() -> argparse.Namespace:
+    """# TODO"""
+    # TODO - Ant -
+    # settings: dict[str, Union[bool, int, list[str], None, str]] = {}
+
+    arg_parser = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description="Utility to interact with Senzing APIs",
+        # epilog=textwrap.dedent(
+        #     """\
+        #     Arguments can be specified with either CLI arguments or environment variables, some arguments have
+        #     default values.
+        #     The order of precedence for selecting which value to use is:
+        #     1) CLI Argument
+        #     2) Environment variable
+        #     3) Default value if available
+        #     For additional help and information: https://github.com/Senzing/file-loader/blob/main/README.md
+        #     """
+        # ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    arg_parser.add_argument(
+        "fileToProcess",
+        default=None,
+        help="path and file name of file with commands to process",
+        nargs="?",
+    )
+    # TODO SzModule.ini for V4?
+    # TODO Change -- args across all tools to match
+    arg_parser.add_argument(
+        "-c",
+        "--iniFile",
+        help="optional path and file name of G2Module.ini to use",
+    )
+    # TODO Need to make mutually exclusive with file
+    arg_parser.add_argument(
+        "-C",
+        "--command",
+        nargs="*",
+        help="run a single command non-interactively",
+    )
+    # TODO Check what this looks like in help, meta?
+    arg_parser.add_argument(
+        "-o",
+        "--captureFile",
+        help="capture session output to a file",
+    )
+    arg_parser.add_argument(
+        "-t",
+        "--debugTrace",
+        action="store_true",
+        default=False,
+        help="output debug information",
+    )
+    arg_parser.add_argument(
+        "-H",
+        "--histDisable",
+        action="store_true",
+        default=False,
+        help="disable use of history file",
+    )
+
+    return arg_parser.parse_args()
+
+
 # -------------------------------------------------------------------------
 # Decorators
 # -------------------------------------------------------------------------
@@ -2487,32 +2557,35 @@ def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
     return SzEngineFlags.combine_flags(flags)  # type: ignore
 
 
-def main(args: argparse.Namespace) -> None:
+def main() -> None:
     """main"""
     first_loop = True
     restart = False
 
-    # Check an engine configuration can be located
-    config = get_engine_config(args.iniFile)
+    cli_args = parse_cli_args()
 
+    # Check an engine configuration can be located
+    engine_config = get_engine_config(cli_args.iniFile)
+
+    # TODO - Ant - Clean up using both cli_args.xxx and cli_args together
     # Execute a single command
-    if args.command:
-        cmd_obj = SzCmdShell(config, args.debugTrace, args)
-        cmd_obj.one_cmd(args.command)
+    if cli_args.command:
+        cmd_obj = SzCmdShell(engine_config, cli_args.debugTrace, cli_args)
+        cmd_obj.one_cmd(cli_args.command)
         return
 
     # Execute a file of commands
-    if args.fileToProcess:
-        cmd_obj = SzCmdShell(config, args.debugTrace, args)
-        cmd_obj.file_loop(args.fileToProcess)
+    if cli_args.fileToProcess:
+        cmd_obj = SzCmdShell(engine_config, cli_args.debugTrace, cli_args)
+        cmd_obj.file_loop(cli_args.fileToProcess)
         return
 
     # Start command shell
     # Don't use args.debugTrace here, may need to restart
-    debug_trace = args.debugTrace
+    debug_trace = cli_args.debugTrace
 
     while first_loop or restart:
-        cmd_obj = SzCmdShell(config, debug_trace, args)
+        cmd_obj = SzCmdShell(engine_config, debug_trace, cli_args)
         cmd_obj.cmdloop()
         restart = True if cmd_obj.restart or cmd_obj.restart_debug else False
         debug_trace = True if cmd_obj.restart_debug else False
@@ -2524,47 +2597,4 @@ def main(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument(
-        "fileToProcess",
-        default=None,
-        help="path and file name of file with commands to process",
-        nargs="?",
-    )
-    # TODO SzModule.ini for V4?
-    # TODO Change -- args across all tools to match
-    parser.add_argument(
-        "-c",
-        "--iniFile",
-        help="optional path and file name of G2Module.ini to use",
-    )
-    # TODO Need to make mutually exclusive with file
-    parser.add_argument(
-        "-C",
-        "--command",
-        nargs="*",
-        help="run a single command non-interactively",
-    )
-    # TODO Check what this looks like in help, meta?
-    parser.add_argument(
-        "-o",
-        "--captureFile",
-        help="capture session output to a file",
-    )
-    parser.add_argument(
-        "-t",
-        "--debugTrace",
-        action="store_true",
-        default=False,
-        help="output debug information",
-    )
-    parser.add_argument(
-        "-H",
-        "--histDisable",
-        action="store_true",
-        default=False,
-        help="disable use of history file",
-    )
-
-    cli_args = parser.parse_args()
-    main(cli_args)
+    main()

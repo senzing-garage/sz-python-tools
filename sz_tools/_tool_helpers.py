@@ -9,13 +9,19 @@ from __future__ import annotations
 import cmd
 import concurrent.futures
 import configparser
+import logging
+import math
 import os
 import re
 import subprocess
 import sys
+import termios
 import textwrap
+import time
+import tty
 from contextlib import suppress
 from pathlib import Path
+from signal import SIGALRM, alarm, signal
 from typing import TYPE_CHECKING, Any, Dict, List, TextIO, Union
 
 READLINE_AVAIL = False
@@ -54,6 +60,15 @@ CONFIG_FILE = "G2Module.ini"
 # -------------------------------------------------------------------------
 # Helper classes
 # -------------------------------------------------------------------------
+
+# -------------------------------------------------------------------------
+# Classes for custom exceptions
+# -------------------------------------------------------------------------
+
+
+class TimedOut(Exception):
+    """# TODO"""
+
 
 # -------------------------------------------------------------------------
 # Classes for handling colors
@@ -143,7 +158,7 @@ class Colors:
         # This class is mostly for sz_explorer as it has many color requirements
         # Other tools need to do basic coloring of text, setting this theme uses
         # the colors set by the terminal preferences so a user will see the colors
-        # they expect in the output from tools
+        # they expect and set in their terminal in the output from tools
         elif theme.upper() == "TERMINAL":
             cls.GOOD = cls.FG_GREEN  # Green
             cls.BAD = cls.FG_RED  # Red
@@ -388,7 +403,7 @@ def get_ini_as_json_str(ini_file: Path) -> str:
         orjson.dumps(config_dict).decode() if ORJSON_AVAIL else json.dumps(config_dict)
     )
 
-
+# TODO - Ant - Message to inform where config came from?
 def get_engine_config(ini_file_name: Union[str, None] = None) -> str:
     """# TODO"""
 
@@ -788,3 +803,84 @@ def get_max_futures_workers() -> int:
     # Test the max number of workers ThreadPoolExecutor allocates to use in sizing actual workers to request
     with concurrent.futures.ThreadPoolExecutor() as test:
         return test._max_workers  # pylint: disable=protected-access
+
+
+# -------------------------------------------------------------------------
+# Human readable helpers
+# -------------------------------------------------------------------------
+
+
+def human_readable_bytes(bytes_: int) -> str:
+    """# TODO"""
+    if bytes_ == 0:
+        return "0"
+
+    factor = 1024
+    magnitude = ["B", "KB", "MB", "GB", "TB"]
+    magnitude_pos = int(math.log(bytes_) / math.log(factor))
+
+    # Don't overflow!
+    magnitude_pos = min(magnitude_pos, len(magnitude) - 1)
+
+    return f"{(bytes_ / (factor**magnitude_pos)):.2f} {magnitude[magnitude_pos]}"
+
+
+# -------------------------------------------------------------------------
+# Input helpers
+# -------------------------------------------------------------------------
+
+
+def get_char() -> str:
+    """# TODO"""
+    file_desc = sys.stdin.fileno()
+    orig = termios.tcgetattr(file_desc)
+
+    try:
+        tty.setcbreak(file_desc)
+        return sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(file_desc, termios.TCSAFLUSH, orig)
+
+
+def get_char_with_timeout(time_out: int) -> str:
+    """# TODO"""
+
+    def handler(*_):  # type: ignore[no-untyped-def]
+        raise TimedOut
+
+    current_handler = signal(SIGALRM, handler)
+    alarm(time_out)
+
+    while True:
+        try:
+            return get_char()
+        except TimedOut:
+            return ""
+        finally:
+            signal(SIGALRM, current_handler)
+
+
+# -------------------------------------------------------------------------
+# Startup helpers
+# -------------------------------------------------------------------------
+def startup_message(
+    logger: logging.Logger, module_name: str, pause_time: int = 2
+) -> None:
+    message = f"""
+                *************************************************************************************************************************
+
+                {module_name} is a sample utility to accelerate getting started with Senzing and ingesting data in Proof
+                of Concept (PoC) scenarios. {module_name} is a supported for PoCs but not for production use.
+
+                Senzing is a library providing entity resolution APIs. These APIs are to be utilized by your own
+                applications, process and systems. {module_name} is a demonstrable application using some of the available APIs.
+
+                Typically, the Senzing APIs are embedded in and called by streaming systems to provide real time entity
+                resolution capabilities.
+
+                *************************************************************************************************************************
+                """
+
+    lines = [line for line in message.split("\n")]
+
+    time.sleep(1)

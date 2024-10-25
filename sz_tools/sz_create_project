@@ -16,6 +16,38 @@ __date__ = "2024-06-13"
 __updated__ = "2024-06-13"
 
 
+def parse_cli_args() -> argparse.Namespace:
+    """# TODO"""
+    # TODO - Ant -
+    # settings: dict[str, Union[bool, int, list[str], None, str]] = {}
+
+    arg_parser = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description="Utility to create a new instance of a Senzing project in a path",
+        # epilog=textwrap.dedent(
+        #     """\
+        #     Arguments can be specified with either CLI arguments or environment variables, some arguments have
+        #     default values.
+        #     The order of precedence for selecting which value to use is:
+        #     1) CLI Argument
+        #     2) Environment variable
+        #     3) Default value if available
+        #     For additional help and information: https://github.com/Senzing/file-loader/blob/main/README.md
+        #     """
+        # ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    arg_parser.add_argument(
+        "path",
+        # default="~/senzing",
+        # help="path to create new Senzing project in, it must not already exist (Default: %(default)s)",
+        help="path to create new Senzing project in, it must not already exist",
+        metavar="PATH",
+    )
+
+    return arg_parser.parse_args()
+
+
 def get_version_details(sz_root_path: Path) -> List[str]:
     """Return version details of Senzing installation"""
     try:
@@ -98,17 +130,8 @@ def set_file_permissions(
 
 def main() -> None:
     """main"""
-    parser = argparse.ArgumentParser(
-        description="Create a new instance of a Senzing project in a path"
-    )
-    parser.add_argument(
-        "path",
-        default="~/senzing",
-        help="path to create new Senzing project in, it must not already exist (Default: %(default)s)",
-        metavar="PATH",
-        nargs="?",
-    )
-    args = parser.parse_args()
+
+    cli_args = parse_cli_args()
 
     # sz_path on normal rpm/deb install = /opt/senzing/g2
     # sz_install_root would then = /opt/senzing
@@ -116,7 +139,7 @@ def main() -> None:
     # sz_path = Path(__file__).resolve().parents[1]
     sz_path = Path("/opt/senzing/er").resolve()
     sz_path_root = Path(__file__).resolve().parents[2]
-    project_path = Path(args.path).expanduser().resolve()
+    project_path = Path(cli_args.path).expanduser().resolve()
 
     bin_path = project_path.joinpath("bin")
     data_path = project_path.joinpath("data")
@@ -137,12 +160,7 @@ def main() -> None:
         sys.exit(1)
 
     version_details = get_version_details(sz_path)
-    print(
-        (
-            f"\nProject location: {project_path}\n"
-            f"Senzing version:  {version_details[0]}\n"
-        )
-    )
+    print(f"\nSenzing version:  {version_details[0]}\n")
 
     # TODO Change names when tools updated
     ignore_files = ["sz_create_project.py", "G2UpdateProject.py"]
@@ -175,7 +193,12 @@ def main() -> None:
     )
 
     # Soft link data
-    copytree(sz_path_root.joinpath("data"), data_path, ignore=ignore_patterns(*excludes), symlinks=True)
+    copytree(
+        sz_path_root.joinpath("data"),
+        data_path,
+        ignore=ignore_patterns(*excludes),
+        symlinks=True,
+    )
 
     # Files & strings to modify
     update_files = [
