@@ -19,6 +19,7 @@ import textwrap
 import traceback
 from contextlib import suppress
 from typing import Any, Dict, List, Union
+import textwrap
 
 from _tool_helpers import Colors, Node, get_engine_config
 from senzing import (
@@ -82,39 +83,153 @@ def execute_sz_api(
 
 class G2CmdShell(cmd.Cmd):
 
-    def entity_features_by_id(self, resolved_entity):
+    #-------------------
+    # api extractors
+    #-------------------
+
+    def get_entity_features(self, feature_data):
         features_by_id = {}
-        for ftype_code in resolved_entity['FEATURES']:
+        for ftype_code in feature_data:
             feat_config = self.ftype_code_lookup[ftype_code]
-            for distinct_feature_record in resolved_entity["FEATURES"][ftype_code]:
+            for distinct_feature_record in feature_data[ftype_code]:
                 for feat_record in distinct_feature_record["FEAT_DESC_VALUES"]:
                     lib_feat_id = feat_record["LIB_FEAT_ID"]
                     features_by_id[lib_feat_id] = feat_config.copy()
                     features_by_id[lib_feat_id]['FEAT_DESC'] = feat_record["FEAT_DESC"]
         return features_by_id
 
-    def entity_records_with_features(self, resolved_entity):
-        record_list = []
-        entity_features = self.entity_features_by_id(resolved_entity)
-        for record in resolved_entity["RECORDS"]:
-            features_by_type = {}
-            features_by_class = {}
-            record_features = {}
-            for feat_record in record.get("FEATURES", []):
-                lib_feat_id = feat_record["LIB_FEAT_ID"]
-                if lib_feat_id in entity_features:
-                    ftype_id = entity_features[lib_feat_id]["FTYPE_ID"]
-                    if ftype_id not in features_by_type:
-                        features_by_type[ftype_id] = [entity_features[lib_feat_id]]
-                    else:
-                        features_by_type[ftype_id].append(entity_features[lib_feat_id])
-            record_list.append({
-                "DATA_SOURCE": record["DATA_SOURCE"],
-                "RECORD_ID": record["RECORD_ID"],
-                "FEATURES_BY_TYPE": features_by_type
-            })
+    def get_record_features(self, entity_features, feature_list):
+        features_by_type = {}
+        record_features = {}
+        for feat_record in feature_list:
+            lib_feat_id = feat_record["LIB_FEAT_ID"]
+            if lib_feat_id in entity_features:
+                feature_data = entity_features[lib_feat_id].copy()
+                feature_data['USAGE_TYPE'] = feat_record.get("USAGE_TYPE", "")
+                if feature_data['USAGE_TYPE'] == 'PRIMARY':
+                    feature_data['USAGE_TYPE_SORT'] = "1-PRIMARY"
+                elif feature_data['USAGE_TYPE']:
+                    feature_data['USAGE_TYPE_SORT'] = f"2-{feature_data['USAGE_TYPE']}"
+                else:
+                    feature_data['USAGE_TYPE_SORT'] = "3-UNSPECIFIED"
+                ftype_id = feature_data["FTYPE_ID"]
+                if ftype_id not in features_by_type:
+                    features_by_type[ftype_id] = [feature_data]
+                else:
+                    features_by_type[ftype_id].append(feature_data)
+        return features_by_type 
 
-        return record_list 
+    def get_unmapped_list(self, unmapped_data):
+        if not unmapped_data:
+            return []
+        else:
+            return [{k: v} for k, v in unmapped_data.items()]
+
+    #-------------------
+    # display formatters
+    #-------------------
+
+    def fmt_records(self, record_list, display_limit=2):
+        source_data = {}
+        for record in record_list:
+            if record["DATA_SOURCE"] not in source_data:
+                source_data[record["DATA_SOURCE"]] = [record["RECORD_ID"]]
+            else:
+                source_data[record["DATA_SOURCE"]].append(record["RECORD_ID"])
+        display_list = []
+        for data_source in sorted(source_data.keys()):
+            colored_source = colorize_dsrc(data_source)
+            if display_limit == 1:
+                if len(source_data[data_source]) > 1:
+                    display_list.append(f"{colored_source}: {len(source_data[data_source])} records")
+                else:
+                    display_list.append(f"{colored_source}: {record_id}")
+            else:
+                line_cnt = 0
+                display_list.append(colored_source)
+                for record_id in sorted(source_data[data_source]):
+                    display_list.append(record_id)
+                    line_cnt += 1
+                    if line_cnt == display_limit:
+                        break
+                if display_limit > 0 and len(source_data[data_source]) > display_limit:
+                    display_list.append(f"+{len(source_data[data_source])-display_limit} more")
+        return '\n'.join(display_list)
+
+    def fmt_features(self, feature_data, display_limit=2):
+        max_column_width = 80
+        display_list = []
+        for ftype_id in sorted(feature_data.keys(), key=lambda k: self.feature_sequence[k]):
+            line_cnt = 0
+            last_feature_str = ''
+            for feature in sorted(feature_data[ftype_id], key=lambda k: (k['USAGE_TYPE_SORT'], k['FEAT_DESC'])):
+                ftype_code = feature["FTYPE_CODE"]
+                usage_type = f' ({feature.get("USAGE_TYPE")})' if feature.get("USAGE_TYPE") else ''
+                feat_desc = feature["FEAT_DESC"]
+                if feat_desc + usage_type == last_feature_str:
+                    continue
+
+                line_cnt += 1
+                if line_cnt == display_limit:
+                    continue
+
+                last_feature_str = feat_desc + usage_type
+                colored_ftype = colorize_attr(ftype_code) + ':'
+                colored_utype = colorize(usage_type, "dim, italics")
+
+                if len(ftype_code + feat_desc + usage_type) + 2 < max_column_width:
+                    display_list.append(f"{colored_ftype}{feat_desc}{colored_utype}")
+                elif len(feat_desc + usage_type) + 1 < max_column_width - 1:
+                    display_list.append(colored_ftype)
+                    display_list.append(f" {feat_desc}{colored_utype}")
+                else:
+                    display_list.append(colored_ftype)
+                    wrapper = textwrap.TextWrapper(width=max_column_width - 1)  
+                    for line in wrapper.wrap(text=feat_desc):
+                        display_list.append(' ' + line)
+                    if usage_type:
+                        if len(display_list[-1] + usage_type) < max_column_width - 1:
+                            display_list[-1] += colored_utype
+                        else:
+                            display_list.append(colored_utype)
+
+
+            if display_limit > 0 and line_cnt > display_limit:
+                display_list.append(f"{colored_ftype}: +{line_cnt - display_limit} more")
+
+        return '\n'.join(display_list)
+
+    def fmt_unmapped(self, unmapped_list, display_limit=2):
+        max_column_width = 80
+        attr_data = {}
+        for record in unmapped_list:
+            attr, value = list(record.items())[0]
+            if attr not in attr_data:
+                attr_data[attr] = [str(value)]
+            else:
+                attr_data[attr].append(str(value))
+        display_list = []
+        for attr in sorted(attr_data.keys()):
+            colored_attr = colorize_attr(attr) + ':'
+            attr_value_list = sorted(set(attr_data[attr]))
+
+            line_cnt = 0
+            for value in attr_value_list:
+                if len(attr + value) + 1 < max_column_width:
+                    display_list.append(f"{colored_attr} {value}")
+                else:
+                    display_list.append(colored_attr)
+                    wrapper = textwrap.TextWrapper(width=max_column_width - 1)  
+                    for line in wrapper.wrap(text=value):
+                        display_list.append(' ' + line)
+                line_cnt += 1
+                if line_cnt == display_limit:
+                    break
+            if display_limit > 0 and len(attr_value_list) > display_limit:
+                display_list.append(f"{colored_attr}: +{len(attr_value_list)-display_limit} more")
+
+        return '\n'.join(display_list)
+
 
     # ---------------------------
     def __init__(self, args, api_version, sz_config_data, sz_engine, sz_dbo):
@@ -148,16 +263,20 @@ class G2CmdShell(cmd.Cmd):
             self.ftype_code_lookup[ftype_code]["CFUNC_CODE"] = cfunc_code
 
         # supplment feature code lookup with sort order (scored features first)
-        self.feature_sequence = {}
         for ftype_code in self.ftype_code_lookup:
+            ftype_id = self.ftype_code_lookup[ftype_code]["FTYPE_ID"]
             if self.ftype_code_lookup[ftype_code].get("CFUNC_CODE"):
-                self.ftype_code_lookup[ftype_code]['SORT_ORDER'] = 10000 + self.ftype_code_lookup[ftype_code]["FTYPE_ID"]
+                self.ftype_code_lookup[ftype_code]['SORT_ORDER'] = 10000 + ftype_id
             else:
-                self.ftype_code_lookup[ftype_code]['SORT_ORDER'] = 20000 + self.ftype_code_lookup[ftype_code]["FTYPE_ID"]
-            self.feature_sequence[self.ftype_code_lookup[ftype_code]['FTYPE_ID']] = self.ftype_code_lookup[ftype_code]['SORT_ORDER']
+                self.ftype_code_lookup[ftype_code]['SORT_ORDER'] = 20000 + ftype_id
 
         self.ambiguous_ftype_id = self.ftype_code_lookup['AMBIGUOUS_ENTITY']["FTYPE_ID"]
         self.ftype_code_lookup["AMBIGUOUS_ENTITY"]["SORT_ORDER"] = 1
+
+        self.feature_sequence = {
+            self.ftype_code_lookup[x]["FTYPE_ID"]: self.ftype_code_lookup[x]["SORT_ORDER"] 
+            for x in self.ftype_code_lookup
+        }
 
         self.valid_match_level_parameters = {
             "0": "SINGLE_SAMPLE",
@@ -895,7 +1014,9 @@ class G2CmdShell(cmd.Cmd):
                 print_message(err, "error")
                 continue
 
-            for record in self.entity_records_with_features(json_data["RESOLVED_ENTITY"]):
+            features_by_id = self.get_entity_features(json_data["RESOLVED_ENTITY"]['FEATURES'])
+            for record in json_data["RESOLVED_ENTITY"]['RECORDS']:
+                record['FEATURES_BY_TYPE'] = self.get_record_features(features_by_id, record['FEATURES'])
                 record_list.append(record)
                 ftypes_used.extend(list(record['FEATURES_BY_TYPE'].keys()))
         ftypes_used = sorted(set(ftypes_used))
@@ -1031,9 +1152,9 @@ class G2CmdShell(cmd.Cmd):
             for entity_size_data in self.snapshot_data["ENTITY_SIZE_BREAKDOWN"]:
                 if (sign in ("=", ">=", "<=") and entity_size_data["ENTITY_SIZE"] == size):
                     these_records = entity_size_data["SAMPLE_ENTITIES"]
-                elif sign in ("<", "<=") and entity_size_data["ENTITY_SIZE"] < size:
+                elif sign in ("<", "<=") and entity_size_data["ENTITY_SIZE"] <= size:
                     these_records = entity_size_data["SAMPLE_ENTITIES"]
-                elif sign in (">", ">=") and entity_size_data["ENTITY_SIZE"] > size:
+                elif sign in (">", ">=") and entity_size_data["ENTITY_SIZE"] >= size:
                     these_records = entity_size_data["SAMPLE_ENTITIES"]
                 else:
                     continue
@@ -1103,6 +1224,7 @@ class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
     def compute_entitySizeBreakdown(self):
+        print_message("Reviewing examples ...", "info")
         esb_data = {}
         for str_entity_size in sorted(self.snapshot_data["TEMP_ESB_STATS"].keys()):
             entity_size = int(str_entity_size)
@@ -1137,14 +1259,10 @@ class G2CmdShell(cmd.Cmd):
                     "REVIEW_COUNT": 0,
                     "REVIEW_FEATURES": [],
                 }
-            esb_data[entity_size_level]["ENTITY_COUNT"] += self.snapshot_data[
-                "TEMP_ESB_STATS"
-            ][str_entity_size]["COUNT"]
+            esb_data[entity_size_level]["ENTITY_COUNT"] += self.snapshot_data["TEMP_ESB_STATS"][str_entity_size]["COUNT"]
 
             # review each entity
-            for sample_record in self.snapshot_data["TEMP_ESB_STATS"][str_entity_size][
-                "SAMPLE"
-            ]:
+            for sample_record in self.snapshot_data["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"]:
                 review_features = []
                 for raw_attr in sample_record.keys():
                     if raw_attr in ("ENTITY_ID", "ENTITY_SIZE"):
@@ -1154,24 +1272,13 @@ class G2CmdShell(cmd.Cmd):
                     distinct_feature_count = sample_record[ftype_code]
                     if ftype_code == "NAME" and distinct_feature_count > max_name_cnt:
                         review_features.append(ftype_code)
-                    elif (
-                        ftype_code == "ADDRESS"
-                        and distinct_feature_count > max_addr_cnt
-                    ):
+                    elif (ftype_code == "ADDRESS" and distinct_feature_count > max_addr_cnt):
                         review_features.append(ftype_code)
-                    elif (
-                        ftype_excl == "Yes"
-                        and distinct_feature_count > max_exclusive_cnt
-                    ):
+                    elif (ftype_excl == "Yes" and distinct_feature_count > max_exclusive_cnt):
                         review_features.append(ftype_code)
                 if review_features:
                     sample_record["REVIEW_FEATURES"] = review_features
-                    esb_data[entity_size_level]["REVIEW_FEATURES"] = list(
-                        set(
-                            esb_data[entity_size_level]["REVIEW_FEATURES"]
-                            + review_features
-                        )
-                    )
+                    esb_data[entity_size_level]["REVIEW_FEATURES"] = list(set(esb_data[entity_size_level]["REVIEW_FEATURES"] + review_features))
                     esb_data[entity_size_level]["REVIEW_COUNT"] += 1
                 esb_data[entity_size_level]["SAMPLE_ENTITIES"].append(sample_record)
 
@@ -1179,16 +1286,14 @@ class G2CmdShell(cmd.Cmd):
         for entity_size_level in sorted(esb_data.keys()):
             entity_size_record = esb_data[entity_size_level]
             entity_size_record["ENTITY_SIZE"] = entity_size_level
-            entity_size_record["ENTITY_SIZE_GROUP"] = str(entity_size_level) + (
-                "+" if int(entity_size_level) >= 10 else ""
-            )
+            entity_size_record["ENTITY_SIZE_GROUP"] = str(entity_size_level) + ("+" if int(entity_size_level) >= 10 else "")
             self.snapshot_data["ENTITY_SIZE_BREAKDOWN"].append(entity_size_record)
 
         try:
             with open(self.snapshot_file, "w", encoding="utf-8") as f:
                 json.dump(self.snapshot_data, f)
         except IOError as err:
-            print_message(f"Could not save review to {self.snapshot_file}", "error")
+            print_message(f"{err} writing to {self.snapshot_file}", "error")
 
     # ---------------------------
     def help_multiSourceSummary(self):
@@ -2565,7 +2670,7 @@ class G2CmdShell(cmd.Cmd):
             data_source_filter = kwargs["dataSourceFilter"]
 
         show_detail = False
-        show_features = False
+        features_only = False
         show_all = False
         arg_tokens = []
 
@@ -2573,7 +2678,7 @@ class G2CmdShell(cmd.Cmd):
             if token.upper() == "DETAIL":
                 show_detail = True
             elif token.upper().startswith("FEATURE"):
-                show_features = True
+                features_only = True
             elif token.upper() == "ALL":
                 show_all = True
             else:
@@ -2582,7 +2687,7 @@ class G2CmdShell(cmd.Cmd):
         if len(arg_tokens) == 2 and arg_tokens[0].upper() == "SEARCH":
             last_token = arg_tokens[1]
             if (
-                not last_token.isdigit()
+                (not last_token.isdigit())
                 or last_token == "0"
                 or int(last_token) > len(self.last_search_result)
             ):
@@ -2614,44 +2719,24 @@ class G2CmdShell(cmd.Cmd):
 
         try:
             if len(arg_tokens) == 1:
-                resolved_json = execute_sz_api(
+                json_data = execute_sz_api(
                     "get_entity_by_entity_id", get_flag_list, int(arg_tokens[0])
                 )
             else:
-                resolved_json = execute_sz_api(
+                json_data = execute_sz_api(
                     "get_entity_by_record_id", get_flag_list, arg_tokens
                 )
         except SzError as err:
             print_message(err, "error")
             return -1 if called_direct else 0
 
-        related_entity_count = (
-            len(resolved_json["RELATED_ENTITIES"])
-            if "RELATED_ENTITIES" in resolved_json
-            else 0
-        )
-        entity_id = str(resolved_json["RESOLVED_ENTITY"]["ENTITY_ID"])
-        entity_name = resolved_json["RESOLVED_ENTITY"]["ENTITY_NAME"]
-        entity_features = resolved_json["RESOLVED_ENTITY"]["FEATURES"]
+        related_entity_count = len(json_data.get("RELATED_ENTITIES", []))
+        entity_id = json_data["RESOLVED_ENTITY"]["ENTITY_ID"]
+        entity_name = json_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
+        entity_features = self.get_entity_features(json_data["RESOLVED_ENTITY"]['FEATURES'])
+        self.last_entity_id = entity_id
 
-        # TODO - Ant
-        # Build a dict with lib_feat_id as key for all the entity features
-        features_by_id = {}
-        for feat_cat in entity_features:
-            for cat_row in entity_features[feat_cat]:
-                features_by_id[cat_row["LIB_FEAT_ID"]] = {
-                    "feat_cat": feat_cat,
-                    "feat_desc": cat_row["FEAT_DESC"],
-                }
-
-                if "USAGE_TYPE" in cat_row:
-                    features_by_id[cat_row["LIB_FEAT_ID"]]["usage_type"] = cat_row[
-                        "USAGE_TYPE"
-                    ]
-
-        self.last_entity_id = int(entity_id)
-
-        if show_features:
+        if features_only:
             tbl_columns = []
             tbl_columns.append({"name": "Feature", "width": 30, "align": "left"})
             tbl_columns.append({"name": "Description", "width": 50, "align": "left"})
@@ -2659,25 +2744,63 @@ class G2CmdShell(cmd.Cmd):
             report_type = "features"
             tbl_title = f"Entity {report_type} for entity {colorize_entity(entity_id)}: {entity_name}"
             tbl_rows = self.get_features(entity_id)
-            if tbl_rows:
-                self.render_table(tbl_title, tbl_columns, tbl_rows)
-            return 0
-        else:
-            tbl_columns = []
-            tbl_columns.append({"name": "Record ID", "width": 50, "align": "left"})
-            tbl_columns.append({"name": "Entity Data", "width": 100, "align": "left"})
-            tbl_columns.append(
-                {"name": "Additional Data", "width": 100, "align": "left"}
-            )
-            report_type = "detail" if show_detail else "summary"
-            tbl_title = f"Entity {report_type} for entity {colorize_entity(entity_id)}: {entity_name}"
-            if args.webapp_url:
-                tbl_title += f"  {colorize('WebApp:', 'dim')} " + colorize(
-                    f"{args.webapp_url}/graph/{entity_id}", "highlight1,underline"
-                )
+            self.render_table(tbl_title, tbl_columns, tbl_rows)
+            self.show_report("auto")
+            return
 
-            # summarize by data source
+        report_type = "detail" if show_detail else "summary"
+        table_data = {}
+        for record in sorted(json_data["RESOLVED_ENTITY"]["RECORDS"], key=lambda k: (k["DATA_SOURCE"], k["RECORD_ID"])):
+            data_source = record["DATA_SOURCE"]
+            record_id = record["RECORD_ID"]
+            record_only = {"DATA_SOURCE": data_source, "RECORD_ID": record_id}
+            features_by_type = self.get_record_features(entity_features, record["FEATURES"])
+            unmapped_items = self.get_unmapped_list(record.get("UNMAPPED_DATA"))
             if report_type == "summary":
+                table_key = data_source
+            else: 
+                table_key = data_source + record_id
+            if table_key not in table_data:
+                table_data[table_key] = {
+                    "RECORDS": [record_only],
+                    "FEATURES": features_by_type,
+                    "UNMAPPED": unmapped_items
+                }
+            else:
+                table_data[table_key]['RECORDS'].append(record_only)
+                for ftype_id in features_by_type:
+                    if ftype_id not in table_data[table_key]['FEATURES']:
+                        table_data[table_key]['FEATURES'][ftype_id] = features_by_type[ftype_id]
+                    else:
+                        table_data[table_key]['FEATURES'][ftype_id] += features_by_type[ftype_id]
+                table_data[table_key]['UNMAPPED'] += unmapped_items
+
+        tbl_columns = []
+        tbl_columns.append({"name": "Sources", "width": 50, "align": "left"})
+        tbl_columns.append({"name": "Features", "width": 100, "align": "left"})
+        tbl_columns.append({"name": "Additional Data", "width": 100, "align": "left"})
+        tbl_title = f"Entity {report_type} for entity {colorize_entity(entity_id)}: {entity_name}"
+        if args.webapp_url:
+            tbl_title += f"  {colorize('WebApp:', 'dim')} " + colorize(f"{args.webapp_url}/graph/{entity_id}", "highlight1,underline")
+
+        tbl_rows = []
+        for table_key in table_data:
+            source_display = self.fmt_records(table_data[table_key]["RECORDS"])
+            feature_display = self.fmt_features(table_data[table_key]["FEATURES"])
+            unmapped_display = self.fmt_unmapped(table_data[table_key]["UNMAPPED"])
+            tbl_rows.append([
+                source_display,
+                feature_display,
+                unmapped_display
+            ])
+        report = self.render_table2(tbl_title, tbl_columns, tbl_rows)
+        self.current_render_string = report
+
+        self.show_report("auto")
+
+        if False:
+            if False:
+                # summarize by data source
                 data_sources = {}
                 record_list = []
                 for record in resolved_json["RESOLVED_ENTITY"]["RECORDS"]:
@@ -3945,6 +4068,10 @@ class G2CmdShell(cmd.Cmd):
         if not entity_data:
             return -1 if calledDirect else 0
 
+        self.why_display(entity_data, tbl_title, first_row_title)
+
+    def why_display(self, entity_data, tbl_title, first_row_title):
+
         tbl_columns = [
             {
                 "name": colorize(first_row_title, "row_title"),
@@ -4060,11 +4187,9 @@ class G2CmdShell(cmd.Cmd):
         for i in range(len(tbl_rows)):
             tbl_rows[i][0] = colorize(tbl_rows[i][0], "row_title")
 
-        # display the table
         self.render_table(tbl_title, tbl_columns, tbl_rows, displayFlag="No")
-        self.show_report("auto", from_how_or_why=True)
-
-        return 0
+        if first_row_title != 'Step':
+            self.show_report("auto", from_how_or_why=True)
 
     # ---------------------------
     def why_entity(self, entity_list):
@@ -4586,8 +4711,9 @@ class G2CmdShell(cmd.Cmd):
         records_by_source = {}
         for record in record_list:
             if record["DATA_SOURCE"] not in records_by_source:
-                records_by_source[record["DATA_SOURCE"]] = []
-            records_by_source[record["DATA_SOURCE"]].append(record["RECORD_ID"])
+                records_by_source[record["DATA_SOURCE"]] = [record["RECORD_ID"]]
+            else:
+                records_by_source[record["DATA_SOURCE"]].append(record["RECORD_ID"])
         record_display = []
         for data_source in sorted(records_by_source.keys()):
             colored_data_source = colorize_dsrc(data_source)
@@ -4926,6 +5052,10 @@ class G2CmdShell(cmd.Cmd):
             )
         )
 
+    #def do_how2why(self, arg):
+
+
+
     # ---------------------------
     def do_how(self, arg):
         caller = sys._getframe().f_back.f_code.co_name != "onecmd"
@@ -4934,7 +5064,7 @@ class G2CmdShell(cmd.Cmd):
             return -1 if caller else 0
 
         how_display_level = "overview"
-        for level in ["summary", "concise", "table", "verbose"]:
+        for level in ["summary", "columnar", "brief", "table", "verbose"]:
             if level in arg:
                 how_display_level = level
                 arg = arg.replace(level, "").strip()
@@ -5161,6 +5291,7 @@ class G2CmdShell(cmd.Cmd):
             name_was_scored = False
             for lib_feat_id in step_data["VIRTUAL_ENTITY_1"]["features"]:
                 feature_data = step_data["VIRTUAL_ENTITY_1"]["features"][lib_feat_id]
+                print(feature_data)
                 feature_data = self.why_format_feature(
                     feature_data, step_data["MATCH_INFO"]
                 )
@@ -5405,7 +5536,7 @@ class G2CmdShell(cmd.Cmd):
                 elif cnt == 3 and len(feat_desc_info_list) > 4:
                     ftype_node.add_child(Node("~~~"))
 
-        # start rendering nodes based on requested view and filter
+        columnar_data = {}
         tree_nodes = {}
         filter_str = None
         while True:
@@ -5634,7 +5765,21 @@ class G2CmdShell(cmd.Cmd):
                             step_data[right_virtual_entity]["VIRTUAL_ENTITY_ID"], "dim"
                         )
 
-                        if how_display_level == "concise":
+                        if how_display_level == "columnar":
+                            for step_num in sorted(resolution_steps.keys()):
+                                for virtual_entity in [resolution_steps[step_num][tag] for tag in ["VIRTUAL_ENTITY_1", "VIRTUAL_ENTITY_2"]]:
+                                    if virtual_entity["node_type"] == "singleton":
+                                        step_key = f"{step_num:05}-{virtual_entity['VIRTUAL_ENTITY_ID']}"
+               
+                                        columnar_data[step_key] = {
+                                            "dataSources": self.why_fmt_record_list(virtual_entity["MEMBER_RECORDS"][0]["RECORDS"]),
+                                            "whyKey": {
+                                                "matchKey": resolution_steps[step_num]["MATCH_INFO"]["MATCH_KEY"],
+                                                "ruleCode": resolution_steps[step_num]["MATCH_INFO"]["ERRULE_CODE"]},
+                                            "features": virtual_entity["features"]
+                                        }
+
+                        elif how_display_level == "brief":
                             step_node_desc += f"\n{colored_virtual_id1} {step_data[left_virtual_entity]['colored_desc']} {step_data[left_virtual_entity]['entity_name']}"
                             if not step_data["step_type"].startswith("Add"):
                                 step_node_desc += f"\n{colored_virtual_id2} {step_data[right_virtual_entity]['colored_desc']} {step_data[right_virtual_entity]['entity_name']}"
@@ -5862,14 +6007,18 @@ class G2CmdShell(cmd.Cmd):
                             )
                             step_node_text = self.current_render_string
 
-                        tree_nodes[step_node_id] = Node(step_node_id)
-                        tree_nodes[step_node_id].node_desc = step_node_desc
-                        tree_nodes[step_node_id].node_text = step_node_text
-                        tree_nodes[render_node_id].add_child(tree_nodes[step_node_id])
-                        tree_nodes[step_node_id].add_parent(tree_nodes[render_node_id])
+                        if how_display_level != "columnar":
+                            tree_nodes[step_node_id] = Node(step_node_id)
+                            tree_nodes[step_node_id].node_desc = step_node_desc
+                            tree_nodes[step_node_id].node_text = step_node_text
+                            tree_nodes[render_node_id].add_child(tree_nodes[step_node_id])
+                            tree_nodes[step_node_id].add_parent(tree_nodes[render_node_id])
 
             if how_display_level == "overview":
                 how_report = summary_node.render_tree(filter_str)
+            elif how_display_level == "columnar":
+                 self.why_display(columnar_data, 'whyhow', 'Step')
+                 how_report = self.current_render_string
             elif tree_nodes["root"].children:  # will be no children if singleton
                 if filter_str and filter_str.startswith("~node~"):
                     filter_str = filter_str[6:]
@@ -5915,7 +6064,7 @@ class G2CmdShell(cmd.Cmd):
 
             reply = input(
                 colorize_prompt(
-                    "\nSelect (O)verview, (C)oncise view, (T)able view, (S)earch or (Q)uit ... "
+                    "\nSelect (O)verview, (B)reif, (C)olumnar, (T)able, (V)erbose, (S)earch or (Q)uit ... "
                 )
             )
             if reply:
@@ -5929,9 +6078,13 @@ class G2CmdShell(cmd.Cmd):
                 how_display_level = "overview"
                 filter_str = None
             elif reply.upper() == ("C"):
-                how_display_level = "concise"
+                how_display_level = "columnar"
+            elif reply.upper() == ("B"):
+                how_display_level = "brief"
             elif reply.upper() == ("T"):
                 how_display_level = "table"
+            elif reply.upper() == ("V"):
+                how_display_level = "verbose"
             elif reply.upper() == ("S"):
                 if len(reply) > 1:
                     filter_str = reply[1:].strip()
@@ -6571,6 +6724,51 @@ class G2CmdShell(cmd.Cmd):
             self.show_report("auto")
             print("")
         return
+
+
+    # ---------------------------
+    def render_table2(self, tbl_title, tbl_columns, tbl_rows, **kwargs):
+
+        title_color = kwargs.get("titleColor", "table_title")
+        title_justify = kwargs.get("titleJustify", "l")
+        header_color = kwargs.get("headerColor", "column_header")
+        combine_headers = kwargs.get("combineHeaders", False)
+
+        table_object = PrettyTable()
+        table_object.hrules = PRETTY_TABLE_ALL
+        table_object.set_style(SINGLE_BORDER)
+
+        field_name_list = []
+        column_header_list = []
+        for column_data in tbl_columns:
+            field_name_list.append(column_data["name"])
+            column_header_list.append(
+                "\n".join(
+                    colorize(str(x), "column_header")
+                    for x in str(column_data["name"]).split("\n")
+                )
+            )
+        table_object.field_names = field_name_list
+        table_object.header = False
+        table_object.add_row(column_header_list)
+
+        total_row_cnt = 0
+        for row in tbl_rows:
+            total_row_cnt += 1
+            row[0] = "\n".join([i for i in str(row[0]).split("\n")])
+            table_object.add_row(row)
+
+        # format with data in the table
+        for column_data in tbl_columns:
+            table_object.align[column_data["name"]] = column_data["align"][0:1].lower()
+
+        table_str = table_object.get_string()
+        if combine_headers:
+            table_str = self.combine_table_headers(table_str)
+        if tbl_title:
+            table_str = f"{colorize(tbl_title, title_color)}\n{table_str}"
+
+        return table_str
 
     # ---------------------------
     def combine_table_headers(self, report_str):
