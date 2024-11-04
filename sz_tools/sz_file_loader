@@ -61,8 +61,12 @@ errors_file = f"{MODULE_NAME}_errors_{START_TS}.log"
 with_info_file = f"{MODULE_NAME}_withInfo_{START_TS}.jsonl"
 # If running in a container use /data/
 if os.getenv("SENZING_DOCKER_LAUNCHED"):
-    errors_file = f"/data/{errors_file}"
-    with_info_file = f"/data/{with_info_file}"
+    # TODO Quick fix for JB, still work in progress
+    # TODO Prior file_loader uses /data for Docker as volume mount for data input/output files
+    if pathlib.Path("/data").exists():
+        errors_file = f"/data/{errors_file}"
+        with_info_file = f"/data/{with_info_file}"
+
 
 try:
     logger = logging.getLogger(pathlib.Path(sys.argv[0]).stem)
