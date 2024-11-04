@@ -34,7 +34,7 @@ with suppress(ImportError):
 
 ORJSON_AVAIL = False
 try:
-    import orjson  # type: ignore
+    import orjson
 
     JsonDecodeError = orjson.JSONDecodeError
     ORJSON_AVAIL = True
@@ -84,9 +84,7 @@ class Colors:
         """apply list of colors to a string"""
         # TODO colors_list is a string with multiple entries separated by ,
         if colors_list:
-            prefix = "".join(
-                [getattr(cls, i.strip().upper()) for i in colors_list.split(",")]
-            )
+            prefix = "".join([getattr(cls, i.strip().upper()) for i in colors_list.split(",")])
             return f"{prefix}{to_color}{cls.RESET}"
 
         return to_color
@@ -372,13 +370,13 @@ def get_ini_as_json_str(ini_file: Path) -> str:
     try:
         with open(ini_file, encoding="utf-8") as test:
             _ = test.read()
-    except IOError as err:
-        raise err
+    except OSError as err:
+        print_error(err)
+        sys.exit(1)
 
-    ini_parser = configparser.ConfigParser(
-        empty_lines_in_values=False, interpolation=None
-    )
+    ini_parser = configparser.ConfigParser(empty_lines_in_values=False, interpolation=None)
     ini_parser.read(ini_file)
+    # TODO - Ant - Fix this typing
     config_dict: Dict[Any, Any] = {}
 
     for group_name in ini_parser.sections():
@@ -386,22 +384,15 @@ def get_ini_as_json_str(ini_file: Path) -> str:
         config_dict[normalized_group_name] = {}
         for var_name in ini_parser[group_name]:
             normalized_var_name: str = var_name.upper()
-            config_dict[normalized_group_name][normalized_var_name] = ini_parser[
-                group_name
-            ][var_name]
+            config_dict[normalized_group_name][normalized_var_name] = ini_parser[group_name][var_name]
 
     # Check ini file isn't empty
     if not config_dict:
-        print(
-            f"ERROR: Successfully read {ini_file} but it appears to be empty or malformed"
-        )
+        print(f"ERROR: Successfully read {ini_file} but it appears to be empty or malformed")
         sys.exit(0)
 
-    # TODO - Ant -
-    # return json.dumps(config_dict)
-    return (
-        orjson.dumps(config_dict).decode() if ORJSON_AVAIL else json.dumps(config_dict)
-    )
+    return orjson.dumps(config_dict).decode() if ORJSON_AVAIL else json.dumps(config_dict)
+
 
 # TODO - Ant - Message to inform where config came from?
 def get_engine_config(ini_file_name: Union[str, None] = None) -> str:
@@ -474,9 +465,7 @@ def colorize_json(json_str: str) -> str:
     value_replacer = rf"\1\2{Colors.JSONVALUECOLOR}\3{Colors.RESET}\4\5"
     # Look for values first to make regex a little easier to construct
     # Regex is matching: ': "Robert Smith", ' and using the groups in the replacer to add color
-    json_color = re.sub(
-        r"(: ?)(\")([\w\/+][^\{\"]+?)(\")(\}?|,{1}|\n)", value_replacer, json_str
-    )
+    json_color = re.sub(r"(: ?)(\")([\w\/+][^\{\"]+?)(\")(\}?|,{1}|\n)", value_replacer, json_str)
     # Regex is matching: ': "ENTITY_ID": ' and using the groups in the replacer to add color
     json_color = re.sub(r"(\")([\w ]*?)(\")(:{1})", key_replacer, json_color)
 
@@ -521,22 +510,23 @@ def colorize_output(
 # -------------------------------------------------------------------------
 
 
+# TODO - Ant - Change other print_info* to color only ERROR/INFO/etc
 # TODO msg str can contain err in f-string
-def print_error(msg: Union[Exception, str]) -> None:
+def print_error(msg: Union[Exception, str], end_str: str = "\n") -> None:
     """# TODO"""
-    print(colorize_output(f"\nERROR: {msg}\n", "error"))
-
-
-# TODO msg str can contain err in f-string
-def print_info(msg: Union[Exception, str]) -> None:
-    """# TODO"""
-    print(colorize_output(f"\n{msg}\n", "info"))
+    print(f"\n{colorize_output('ERROR:', 'error')} {msg}", end=end_str)
 
 
 # TODO msg str can contain err in f-string
-def print_warning(msg: Union[Exception, str]) -> None:
+def print_info(msg: Union[Exception, str], end_str: str = "\n") -> None:
     """# TODO"""
-    print(colorize_output(f"\nWARNING: {msg}\n", "warning"))
+    print(colorize_output(f"\n{msg}", "info"), end=end_str)
+
+
+# TODO msg str can contain err in f-string
+def print_warning(msg: Union[Exception, str], end_str: str = "\n") -> None:
+    """# TODO"""
+    print(colorize_output(f"\nWARNING: {msg}", "warning"), end=end_str)
 
 
 def print_response(
@@ -547,7 +537,10 @@ def print_response(
     format_json_cmd: bool,
     cmd_color: bool,
     cmd_format: bool,
-    scroll_output: bool,
+    # TODO - Ant - Need to check tools calling this send scroll_output when appropriate
+    # TODO - Ant - For example sz_command calls do_responseReformatJson here which calls this but doesn't send scroll_output
+    # TODO - Ant - but ir does have a scroll setting, setting to False for now
+    scroll_output: bool = False,
     color: str = "",
 ) -> str:
     """# TODO"""
@@ -569,9 +562,7 @@ def print_response(
         else:
             # TODO Is this check still needed?
             if type(response) not in [dict, list]:
-                response = (
-                    orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
-                )
+                response = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
 
             # Format JSON if global config or single command formatter specifies
             if (format_json and not cmd_format) or (cmd_format and format_json_cmd):
@@ -599,9 +590,7 @@ def print_response(
             subprocess.run([scroll_cmd], shell=True, check=True)
         except subprocess.CalledProcessError as err:
             print(f"\n{output}\n")
-            print_error(
-                f"Couldn't use paging on JSON response, calling less returned: {err.args[0]}"
-            )
+            print_error(f"Couldn't use paging on JSON response, calling less returned: {err.args[0]}")
     else:
         print(f"\n{output}\n")
 
@@ -613,7 +602,7 @@ def print_response(
     return output
 
 
-# TODO Organise
+# TODO Organize
 # TODO Black formatting is off as it separates into multiple lines and the
 # TODO pylint disable is ignored
 # fmt: off
@@ -682,9 +671,7 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
 
         if re.match(rf"^\s*{help_topic[3:]}", line) and not line_color:
             sep_column = line.find(help_topic[3:]) + len(help_topic[3:])
-            help_text += (
-                line[0:sep_column] + colorize_str(line[sep_column:], "dim") + "\n"
-            )
+            help_text += line[0:sep_column] + colorize_str(line[sep_column:], "dim") + "\n"
         else:
             help_text += colorize_str(line, line_color) + "\n"
 
@@ -738,13 +725,11 @@ def history_setup() -> str:
 
 # TODO
 def capture_file(file_path: str) -> TextIO:
-    """ """
+    """# TODO"""
     try:
         out_file = open(file_path, "w", encoding="utf-8")
     except IOError as err:
-        print_warning(
-            f"Can't write to capture file, continuing without capturing: {err}"
-        )
+        print_warning(f"Can't write to capture file, continuing without capturing: {err}")
         raise IOError from err
 
     return out_file
@@ -769,7 +754,7 @@ def response_to_clipboard(last_response: str) -> None:
         print_warning(f"Couldn't copy to clipboard: {err}")
 
 
-def response_to_file(file_path: str, last_response: str) -> None:  # type: ignore[no-untyped-def]
+def response_to_file(file_path: str, last_response: str) -> None:
     """# TODO"""
     try:
         with open(file_path, "w", encoding="utf-8") as out:
@@ -779,18 +764,14 @@ def response_to_file(file_path: str, last_response: str) -> None:  # type: ignor
         print_error(err)
 
 
-def response_reformat_json(
-    last_response: str, color_json: bool, format_json: bool
-) -> None:
+def response_reformat_json(last_response: str, color_json: bool, format_json: bool) -> None:
     """# TODO"""
 
     if not last_response.startswith("{"):
         print_warning("The last response isn't JSON")
         return
 
-    print_response(
-        last_response, color_json, False, not format_json, False, False, False
-    )
+    print_response(last_response, color_json, False, not format_json, False, False, False)
 
 
 # -------------------------------------------------------------------------
@@ -863,9 +844,7 @@ def get_char_with_timeout(time_out: int) -> str:
 # -------------------------------------------------------------------------
 # Startup helpers
 # -------------------------------------------------------------------------
-def startup_message(
-    logger: logging.Logger, module_name: str, pause_time: int = 2
-) -> None:
+def startup_message(logger: logging.Logger, module_name: str, pause_time: int = 2) -> None:
     message = f"""
                 *************************************************************************************************************************
 
@@ -881,6 +860,6 @@ def startup_message(
                 *************************************************************************************************************************
                 """
 
-    lines = [line for line in message.split("\n")]
+    # lines = [line for line in message.split("\n")]
 
     time.sleep(1)

@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 
 """ # TODO """
+# History isn't saved when do_quit is used?
 # TODO Check all outputs using appropriate print_ helper
 # TODO Test all completers work
 # TODO Check all help
@@ -12,7 +13,6 @@ import argparse
 import cmd
 import configparser
 import functools
-import gc
 import glob
 import json
 import os
@@ -43,15 +43,7 @@ from _tool_helpers import (
     response_to_clipboard,
     response_to_file,
 )
-from senzing import (
-    SzConfig,
-    SzConfigManager,
-    SzDiagnostic,
-    SzEngine,
-    SzEngineFlags,
-    SzError,
-    SzProduct,
-)
+from senzing import SzAbstractFactory, SzEngineFlags, SzError
 
 T = TypeVar("T")
 P = ParamSpec("P")
@@ -177,9 +169,7 @@ def sz_cmds_decorator(
                 try:
                     # Parse arguments for a command and add to kwargs
                     # to use in calling method
-                    kwargs["parsed_args"] = self.parser.parse_args(
-                        [f"{func.__name__[3:]}"] + self.parse(cmd_args)
-                    )
+                    kwargs["parsed_args"] = self.parser.parse_args([f"{func.__name__[3:]}"] + self.parse(cmd_args))
 
                     if "flags" in kwargs["parsed_args"] and kwargs["parsed_args"].flags:
                         kwargs["flags"] = get_engine_flags(kwargs["parsed_args"].flags)
@@ -248,39 +238,33 @@ class SzCmdShell(cmd.Cmd):
         engine_settings: str,
         debug: bool,
         args_cli: argparse.Namespace,
+        sz_abstract_factory: SzAbstractFactory,
     ):
         super().__init__()
 
         self.cli_args = args_cli
+
         # Acquire Senzing API engines
         self.debug_trace = debug
         self.engine_settings = engine_settings
+        self.sz_factory = sz_abstract_factory
 
         try:
-            self.sz_config = SzConfig(
-                "pySzConfig", self.engine_settings, verbose_logging=self.debug_trace
-            )
-            self.sz_configmgr = SzConfigManager(
-                "pySzConfigMgr", self.engine_settings, verbose_logging=self.debug_trace
-            )
-            self.sz_diagnostic = SzDiagnostic(
-                "pySzDiagnostic", self.engine_settings, verbose_logging=self.debug_trace
-            )
-            self.sz_engine = SzEngine(
-                "pySzEngine",
-                self.engine_settings,
-                verbose_logging=self.debug_trace,
-            )
-            self.sz_product = SzProduct(
-                "pySzProduct", self.engine_settings, self.debug_trace
-            )
+            self.sz_config = self.sz_factory.create_sz_config()
+            self.sz_configmgr = self.sz_factory.create_sz_configmanager()
+            self.sz_diagnostic = self.sz_factory.create_sz_diagnostic()
+            self.sz_engine = self.sz_factory.create_sz_engine()
+            self.sz_product = self.sz_factory.create_sz_product()
         except SzError as err:
-            print(err)
+            print_error(err)
             sys.exit(1)
 
         # TODO Move to helpers if repeated
         # Get engine flags for use in auto completion
         self.engine_flags_list = list(SzEngineFlags.__members__.keys())
+
+        # Collect attributes from configuration
+        self.attrs = self.get_config_attrs()
 
         # Hide methods - could be deprecated, undocumented, not supported, experimental
         self.__hidden_cmds = (
@@ -303,7 +287,6 @@ class SzCmdShell(cmd.Cmd):
         self.history_disable = self.cli_args.histDisable
         self.history_msg = ""
 
-        # TODO
         # TODO test
         # Capture output
         self.capture_file = None
@@ -323,8 +306,6 @@ class SzCmdShell(cmd.Cmd):
 
         # General
         self.last_response = ""
-        self.restart = False
-        self.restart_debug = False
         self.scroll_output = False
         self.timer = False
 
@@ -336,9 +317,7 @@ class SzCmdShell(cmd.Cmd):
         # Display can't read/write config message once, not at all in container
         self.config_error = False
         env_launched = os.getenv("SENZING_DOCKER_LAUNCHED", None)
-        self.docker_launched = (
-            True if env_launched in ("y", "yes", "t", "true", "on", "1") else False
-        )
+        self.docker_launched = True if env_launched in ("y", "yes", "t", "true", "on", "1") else False
 
         # -------------------------------------------------------------------------
         # do_* command parsers
@@ -353,24 +332,16 @@ class SzCmdShell(cmd.Cmd):
 
         # szconfig parsers
 
-        getConfig_parser = self.subparsers.add_parser(
-            "getConfig", usage=argparse.SUPPRESS
-        )
+        getConfig_parser = self.subparsers.add_parser("getConfig", usage=argparse.SUPPRESS)
         getConfig_parser.add_argument("config_id", type=int)
 
         # szconfigmanager parsers
 
-        replaceDefaultConfigID_parser = self.subparsers.add_parser(
-            "replaceDefaultConfigID", usage=argparse.SUPPRESS
-        )
-        replaceDefaultConfigID_parser.add_argument(
-            "current_default_config_id", type=int
-        )
+        replaceDefaultConfigID_parser = self.subparsers.add_parser("replaceDefaultConfigID", usage=argparse.SUPPRESS)
+        replaceDefaultConfigID_parser.add_argument("current_default_config_id", type=int)
         replaceDefaultConfigID_parser.add_argument("new_default_config_id", type=int)
 
-        setDefaultConfigID_parser = self.subparsers.add_parser(
-            "setDefaultConfigID", usage=argparse.SUPPRESS
-        )
+        setDefaultConfigID_parser = self.subparsers.add_parser("setDefaultConfigID", usage=argparse.SUPPRESS)
         setDefaultConfigID_parser.add_argument("config_id", type=int)
 
         # szdiagnostic parsers
@@ -378,18 +349,12 @@ class SzCmdShell(cmd.Cmd):
         checkDatastorePerformance_parser = self.subparsers.add_parser(
             "checkDatastorePerformance", usage=argparse.SUPPRESS
         )
-        checkDatastorePerformance_parser.add_argument(
-            "secondsToRun", default=3, nargs="?", type=int
-        )
+        checkDatastorePerformance_parser.add_argument("secondsToRun", default=3, nargs="?", type=int)
 
-        getFeature_parser = self.subparsers.add_parser(
-            "getFeature", usage=argparse.SUPPRESS
-        )
+        getFeature_parser = self.subparsers.add_parser("getFeature", usage=argparse.SUPPRESS)
         getFeature_parser.add_argument("featureID", type=int)
 
-        purgeRepository_parser = self.subparsers.add_parser(
-            "purgeRepository", usage=argparse.SUPPRESS
-        )
+        purgeRepository_parser = self.subparsers.add_parser("purgeRepository", usage=argparse.SUPPRESS)
         purgeRepository_parser.add_argument(
             "-FORCEPURGE",
             "--FORCEPURGE",
@@ -401,56 +366,38 @@ class SzCmdShell(cmd.Cmd):
 
         # szengine parsers
 
-        addRecord_parser = self.subparsers.add_parser(
-            "addRecord", usage=argparse.SUPPRESS
-        )
+        addRecord_parser = self.subparsers.add_parser("addRecord", usage=argparse.SUPPRESS)
         addRecord_parser.add_argument("data_source_code")
         addRecord_parser.add_argument("record_id")
         addRecord_parser.add_argument("record_definition")
         addRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        deleteRecord_parser = self.subparsers.add_parser(
-            "deleteRecord", usage=argparse.SUPPRESS
-        )
+        deleteRecord_parser = self.subparsers.add_parser("deleteRecord", usage=argparse.SUPPRESS)
         deleteRecord_parser.add_argument("data_source_code")
         deleteRecord_parser.add_argument("record_id")
         deleteRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        exportCSVEntityReport_parser = self.subparsers.add_parser(
-            "exportCSVEntityReport", usage=argparse.SUPPRESS
-        )
+        exportCSVEntityReport_parser = self.subparsers.add_parser("exportCSVEntityReport", usage=argparse.SUPPRESS)
         exportCSVEntityReport_parser.add_argument("output_file")
-        exportCSVEntityReport_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
-        exportCSVEntityReport_parser.add_argument(
-            "-t", "--csv_column_list", required=False, type=str
-        )
+        exportCSVEntityReport_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        exportCSVEntityReport_parser.add_argument("-t", "--csv_column_list", required=False, type=str)
 
-        exportJSONEntityReport_parser = self.subparsers.add_parser(
-            "exportJSONEntityReport", usage=argparse.SUPPRESS
-        )
+        exportJSONEntityReport_parser = self.subparsers.add_parser("exportJSONEntityReport", usage=argparse.SUPPRESS)
         exportJSONEntityReport_parser.add_argument("output_file")
-        exportJSONEntityReport_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        exportJSONEntityReport_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         findInterestingEntitiesByEntityID_parser = self.subparsers.add_parser(
             "findInterestingEntitiesByEntityID", usage=argparse.SUPPRESS
         )
         findInterestingEntitiesByEntityID_parser.add_argument("entity_id", type=int)
-        findInterestingEntitiesByEntityID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        findInterestingEntitiesByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         findInterestingEntitiesByRecordID_parser = self.subparsers.add_parser(
             "findInterestingEntitiesByRecordID", usage=argparse.SUPPRESS
         )
         findInterestingEntitiesByRecordID_parser.add_argument("data_source_code")
         findInterestingEntitiesByRecordID_parser.add_argument("record_id")
-        findInterestingEntitiesByRecordID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        findInterestingEntitiesByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         # TODO
         # TODO What if a char or non-int is sent?
@@ -461,17 +408,13 @@ class SzCmdShell(cmd.Cmd):
             return list(map(int, ints.split(",")))
 
         # TODO Add required False to all parsers
-        findNetworkByEntityID_parser = self.subparsers.add_parser(
-            "findNetworkByEntityID", usage=argparse.SUPPRESS
-        )
+        findNetworkByEntityID_parser = self.subparsers.add_parser("findNetworkByEntityID", usage=argparse.SUPPRESS)
         # findNetworkByEntityID_parser.add_argument("entity_list")
         findNetworkByEntityID_parser.add_argument("entity_list", type=list_of_ints)
         findNetworkByEntityID_parser.add_argument("max_degrees", type=int)
         findNetworkByEntityID_parser.add_argument("build_out_degree", type=int)
         findNetworkByEntityID_parser.add_argument("max_entities", type=int)
-        findNetworkByEntityID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        findNetworkByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         # TODO
         def list_of_tuples(rec_keys: str) -> list[tuple[str, str]]:
@@ -492,74 +435,44 @@ class SzCmdShell(cmd.Cmd):
 
             return rec_keys_list
 
-        findNetworkByRecordID_parser = self.subparsers.add_parser(
-            "findNetworkByRecordID", usage=argparse.SUPPRESS
-        )
+        findNetworkByRecordID_parser = self.subparsers.add_parser("findNetworkByRecordID", usage=argparse.SUPPRESS)
         # findNetworkByRecordID_parser.add_argument("record_list")
         findNetworkByRecordID_parser.add_argument("record_list", type=list_of_tuples)
         findNetworkByRecordID_parser.add_argument("max_degrees", type=int)
         findNetworkByRecordID_parser.add_argument("build_out_degree", type=int)
         findNetworkByRecordID_parser.add_argument("max_entities", type=int)
-        findNetworkByRecordID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        findNetworkByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        findPathByEntityID_parser = self.subparsers.add_parser(
-            "findPathByEntityID", usage=argparse.SUPPRESS
-        )
+        findPathByEntityID_parser = self.subparsers.add_parser("findPathByEntityID", usage=argparse.SUPPRESS)
         findPathByEntityID_parser.add_argument("start_entity_id", type=int)
         findPathByEntityID_parser.add_argument("end_entity_id", type=int)
         findPathByEntityID_parser.add_argument("max_degrees", type=int)
         # TODO nargs needs to change if accepting lists instead of json
-        findPathByEntityID_parser.add_argument(
-            "-e", "--exclusions", default="", nargs="?", required=False
-        )
-        findPathByEntityID_parser.add_argument(
-            "-r", "--required_data_sources", default="", nargs="?", required=False
-        )
-        findPathByEntityID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        findPathByEntityID_parser.add_argument("-e", "--exclusions", default="", nargs="?", required=False)
+        findPathByEntityID_parser.add_argument("-r", "--required_data_sources", default="", nargs="?", required=False)
+        findPathByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        findPathByRecordID_parser = self.subparsers.add_parser(
-            "findPathByRecordID", usage=argparse.SUPPRESS
-        )
+        findPathByRecordID_parser = self.subparsers.add_parser("findPathByRecordID", usage=argparse.SUPPRESS)
         findPathByRecordID_parser.add_argument("start_data_source_code")
         findPathByRecordID_parser.add_argument("start_record_id")
         findPathByRecordID_parser.add_argument("end_data_source_code")
         findPathByRecordID_parser.add_argument("end_record_id")
         findPathByRecordID_parser.add_argument("max_degrees", type=int)
         # TODO nargs needs to change if accepting lists instead of json
-        findPathByRecordID_parser.add_argument(
-            "-e", "--exclusions", default="", nargs="?", required=False
-        )
-        findPathByRecordID_parser.add_argument(
-            "-r", "--required_data_sources", default="", nargs="?", required=False
-        )
-        findPathByRecordID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        findPathByRecordID_parser.add_argument("-e", "--exclusions", default="", nargs="?", required=False)
+        findPathByRecordID_parser.add_argument("-r", "--required_data_sources", default="", nargs="?", required=False)
+        findPathByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        getEntityByEntityID_parser = self.subparsers.add_parser(
-            "getEntityByEntityID", usage=argparse.SUPPRESS
-        )
+        getEntityByEntityID_parser = self.subparsers.add_parser("getEntityByEntityID", usage=argparse.SUPPRESS)
         getEntityByEntityID_parser.add_argument("entity_id", type=int)
-        getEntityByEntityID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        getEntityByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        getEntityByRecordID_parser = self.subparsers.add_parser(
-            "getEntityByRecordID", usage=argparse.SUPPRESS
-        )
+        getEntityByRecordID_parser = self.subparsers.add_parser("getEntityByRecordID", usage=argparse.SUPPRESS)
         getEntityByRecordID_parser.add_argument("data_source_code")
         getEntityByRecordID_parser.add_argument("record_id")
-        getEntityByRecordID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        getEntityByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        getRecord_parser = self.subparsers.add_parser(
-            "getRecord", usage=argparse.SUPPRESS
-        )
+        getRecord_parser = self.subparsers.add_parser("getRecord", usage=argparse.SUPPRESS)
         getRecord_parser.add_argument("data_source_code")
         getRecord_parser.add_argument("record_id")
         getRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
@@ -568,72 +481,46 @@ class SzCmdShell(cmd.Cmd):
             "getVirtualEntityByRecordID", usage=argparse.SUPPRESS
         )
         # getVirtualEntityByRecordID_parser.add_argument("record_list")
-        getVirtualEntityByRecordID_parser.add_argument(
-            "record_list", type=list_of_tuples
-        )
-        getVirtualEntityByRecordID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        getVirtualEntityByRecordID_parser.add_argument("record_list", type=list_of_tuples)
+        getVirtualEntityByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        howEntityByEntityID_parser = self.subparsers.add_parser(
-            "howEntityByEntityID", usage=argparse.SUPPRESS
-        )
+        howEntityByEntityID_parser = self.subparsers.add_parser("howEntityByEntityID", usage=argparse.SUPPRESS)
         howEntityByEntityID_parser.add_argument("entity_id", type=int)
-        howEntityByEntityID_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        howEntityByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        processRedoRecord_parser = self.subparsers.add_parser(
-            "processRedoRecord", usage=argparse.SUPPRESS
-        )
+        preprocessRecord_parser = self.subparsers.add_parser("preprocessRecord", usage=argparse.SUPPRESS)
+        preprocessRecord_parser.add_argument("record_definition")
+        preprocessRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
+
+        processRedoRecord_parser = self.subparsers.add_parser("processRedoRecord", usage=argparse.SUPPRESS)
         processRedoRecord_parser.add_argument("redo_record")
-        processRedoRecord_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        processRedoRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        reevaluateEntity_parser = self.subparsers.add_parser(
-            "reevaluateEntity", usage=argparse.SUPPRESS
-        )
+        reevaluateEntity_parser = self.subparsers.add_parser("reevaluateEntity", usage=argparse.SUPPRESS)
         reevaluateEntity_parser.add_argument("entity_id", type=int)
         reevaluateEntity_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        reevaluateRecord_parser = self.subparsers.add_parser(
-            "reevaluateRecord", usage=argparse.SUPPRESS
-        )
+        reevaluateRecord_parser = self.subparsers.add_parser("reevaluateRecord", usage=argparse.SUPPRESS)
         reevaluateRecord_parser.add_argument("data_source_code")
         reevaluateRecord_parser.add_argument("record_id")
         reevaluateRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        searchByAttributes_parser = self.subparsers.add_parser(
-            "searchByAttributes", usage=argparse.SUPPRESS
-        )
+        searchByAttributes_parser = self.subparsers.add_parser("searchByAttributes", usage=argparse.SUPPRESS)
         searchByAttributes_parser.add_argument("attributes")
-        searchByAttributes_parser.add_argument(
-            "search_profile", default="SEARCH", nargs="?"
-        )
-        searchByAttributes_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        searchByAttributes_parser.add_argument("search_profile", default="SEARCH", nargs="?")
+        searchByAttributes_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        whyEntities_parser = self.subparsers.add_parser(
-            "whyEntities", usage=argparse.SUPPRESS
-        )
+        whyEntities_parser = self.subparsers.add_parser("whyEntities", usage=argparse.SUPPRESS)
         whyEntities_parser.add_argument("entity_id1", type=int)
         whyEntities_parser.add_argument("entity_id2", type=int)
         whyEntities_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        whyRecordInEntity_parser = self.subparsers.add_parser(
-            "whyRecordInEntity", usage=argparse.SUPPRESS
-        )
+        whyRecordInEntity_parser = self.subparsers.add_parser("whyRecordInEntity", usage=argparse.SUPPRESS)
         whyRecordInEntity_parser.add_argument("data_source_code")
         whyRecordInEntity_parser.add_argument("record_id")
-        whyRecordInEntity_parser.add_argument(
-            "-f", "--flags", nargs="+", required=False
-        )
+        whyRecordInEntity_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        whyRecords_parser = self.subparsers.add_parser(
-            "whyRecords", usage=argparse.SUPPRESS
-        )
+        whyRecords_parser = self.subparsers.add_parser("whyRecords", usage=argparse.SUPPRESS)
         whyRecords_parser.add_argument("data_source_code1")
         whyRecords_parser.add_argument("record_id1")
         whyRecords_parser.add_argument("data_source_code2")
@@ -642,24 +529,34 @@ class SzCmdShell(cmd.Cmd):
 
         # Utility parsers
 
-        responseToFile_parser = self.subparsers.add_parser(
-            "responseToFile", usage=argparse.SUPPRESS
-        )
+        responseToFile_parser = self.subparsers.add_parser("responseToFile", usage=argparse.SUPPRESS)
         responseToFile_parser.add_argument("file_path")
 
-        setTheme_parser = self.subparsers.add_parser(
-            "setTheme", usage=argparse.SUPPRESS
-        )
+        setTheme_parser = self.subparsers.add_parser("setTheme", usage=argparse.SUPPRESS)
         setTheme_parser.add_argument(
             "theme",
             choices=self.themes,
             nargs=1,
         )
 
+    def get_config_attrs(self) -> List[str]:
+        # TODO - Work in progress for JSON autocomplete
+        config_id = self.sz_engine.get_active_config_id()
+        config = self.sz_configmgr.get_config(config_id)
+        config_json = json.loads(config)
+        cfg_attr = config_json["G2_CONFIG"]["CFG_ATTR"]
+        attr_list = []
+        for attr in cfg_attr:
+            # print(attr["ATTR_CODE"] + "-" + attr["INTERNAL"])
+            if attr["INTERNAL"].lower() == "no":
+                attr_list.append(attr["ATTR_CODE"])
+
+        return attr_list
+
     # Call helper function to format and print command responses with
     # constant values
     def output_response(self, response: Union[int, str], color: str = "") -> str:
-        return print_response(
+        formatted_response: str = print_response(
             response,
             self.color_json,
             self.color_json_cmd,
@@ -670,6 +567,8 @@ class SzCmdShell(cmd.Cmd):
             self.scroll_output,
             color,
         )
+
+        return formatted_response
 
     # -------------------------------------------------------------------------
     # Cmd module methods
@@ -697,9 +596,7 @@ class SzCmdShell(cmd.Cmd):
     # Override function from cmd module to make command completion case-insensitive
     def completenames(self, text: str, *ignored: Any) -> List[str]:
         do_text = "do_" + text
-        return [
-            a[3:] for a in self.get_names() if a.lower().startswith(do_text.lower())
-        ]
+        return [a[3:] for a in self.get_names() if a.lower().startswith(do_text.lower())]
 
     @staticmethod
     def do_EOF(_):  # type: ignore[no-untyped-def] # pylint: disable=invalid-name
@@ -734,19 +631,12 @@ class SzCmdShell(cmd.Cmd):
 
     # TODO Check this is this logic still needed?
     def postcmd(self, stop: bool, line: str) -> bool:
-        # print(f"postcmd: {line = }")
-        # print(f"postcmd: {self.last_response = }")
-
         # TODO
         # Try?
         if self.capture_file and self.last_response:
             self.capture_file.write(f"{self.prompt}{line}\n\n")
             self.capture_file.write(f"{self.last_response}\n\n")
             self.capture_file.flush()
-
-        # If restart has been requested, set stop value to True to restart engines in main loop
-        if self.restart:
-            return cmd.Cmd.postcmd(self, True, line)
 
         return cmd.Cmd.postcmd(self, stop, line)
 
@@ -755,7 +645,6 @@ class SzCmdShell(cmd.Cmd):
             self.capture_file.close()
 
     def precmd(self, line: str) -> str:
-        # print(f"here with: {line}")
         # TODO
         return line
         # return cmd.Cmd.precmd(self, line)
@@ -764,7 +653,7 @@ class SzCmdShell(cmd.Cmd):
         # TODO test
         if self.cli_args.captureFile:
             with suppress(IOError):
-                self.capture_file = capture_file(self.cli_args.captureFile)  # type: ignore
+                self.capture_file = capture_file(self.cli_args.captureFile)
 
         if not self.history_disable:
             history_check = history_setup()
@@ -777,20 +666,6 @@ class SzCmdShell(cmd.Cmd):
         if not self.docker_launched:
             self.read_config()
             self.write_config()
-
-        # TODO
-        config_id = self.sz_engine.get_active_config_id()
-        config = self.sz_configmgr.get_config(config_id)
-        config_json = json.loads(config)
-        cfg_attr = config_json["G2_CONFIG"]["CFG_ATTR"]
-        # print(cfg_attr)
-        attr_list = []
-        for attr in cfg_attr:
-            # print(attr["ATTR_CODE"] + "-" + attr["INTERNAL"])
-            if attr["INTERNAL"].lower() == "no":
-                attr_list.append(attr["ATTR_CODE"])
-        self.attrs = attr_list
-        # print(self.attrs)
 
         # Initially set theme to use the default colors set by the terminal
         Colors.set_theme(self.theme)
@@ -833,9 +708,7 @@ class SzCmdShell(cmd.Cmd):
                     except (ValueError, TypeError) as err:
                         print_error(f"Problem with command: {err}")
 
-    # TODO
-    # TODO Allow purge? If env var is set?
-    # TODO Move to helpers
+    # TODO Move to helpers for configtool to use too?
     # Run a single command from the CLI
     def one_cmd(self, cmd_args: List[str]) -> None:
         cmd_ = cmd_args[0]
@@ -956,9 +829,7 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator()
-    def do_getConfig(
-        self, **kwargs: Dict[str, Any]
-    ) -> None:  # pylint: disable=invalid-name
+    def do_getConfig(self, **kwargs: Dict[str, Any]) -> None:  # pylint: disable=invalid-name
         """
         Get a configuration
 
@@ -1023,14 +894,13 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].current_default_config_id,
             kwargs["parsed_args"].new_default_config_id,
         )
-        self.output_response("New default config set, restarting engines...", "success")
+        self.output_response("New default config set, reinitializing...", "success")
+        self.sz_factory.reinitialize(kwargs["parsed_args"].new_default_config_id)
+
+        # Configuration has changed, update attributes from configuration
+        self.attrs = self.get_config_attrs()
         # TODO Test this, resetting last_response in pre/-cmd
         # self.last_response = ""
-
-        if self.debug_trace:
-            self.do_restartDebug(None)
-        else:
-            self.do_restart(None)
 
     @sz_cmds_decorator()
     def do_setDefaultConfigID(self, **kwargs):  # type: ignore[no-untyped-def]
@@ -1050,14 +920,11 @@ class SzCmdShell(cmd.Cmd):
             - Retrieve a list of configurations and identifiers with getConfigList"""
 
         self.sz_configmgr.set_default_config_id(kwargs["parsed_args"].config_id)
-        self.output_response("Default config set, restarting engines...", "success")
+        self.output_response("Default config set, reinitializing...", "success")
+        # Configuration has changed, update attributes from configuration
+        self.attrs = self.get_config_attrs()
         # TODO Test this, resetting last_response in pre/-cmd
         # self.last_response = ""
-
-        if self.debug_trace:
-            self.do_restartDebug(None)
-        else:
-            self.do_restart(None)
 
     # -----------------------------------------------------------------------------
     # szdiagnostic commands
@@ -1075,9 +942,7 @@ class SzCmdShell(cmd.Cmd):
         Arguments:
             SECONDS = Time in seconds to run check, default is 3"""
 
-        response = self.sz_diagnostic.check_datastore_performance(
-            kwargs["parsed_args"].secondsToRun
-        )
+        response = self.sz_diagnostic.check_datastore_performance(kwargs["parsed_args"].secondsToRun)
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
@@ -1136,19 +1001,20 @@ class SzCmdShell(cmd.Cmd):
 
                 ********** WARNING **********
 
-                Are you sure you want to purge the senzing database? (y/n) """
+                Are you sure you want to purge the senzing database? Type YESPURGESENZING to purge: """
             ),
             "warning",
         )
 
         if not kwargs["parsed_args"].force_purge:
-            if input(purge_msg) not in ["y", "Y", "yes", "YES"]:
-                print()
+            if input(purge_msg) != "YESPURGESENZING":
+                print("\nSenzing repository not purged\n")
                 return
 
         self.sz_diagnostic.purge_repository()
         # TODO Test this, resetting last_response in pre/-cmd
         # self.last_response = ""
+        print("\nSenzing repository purged\n")
 
     # -----------------------------------------------------------------------------
     # szengine commands
@@ -1226,9 +1092,7 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].record_id,
         )
 
-        response = (
-            delete_record(kwargs["flags"]) if "flags" in kwargs else delete_record()
-        )
+        response = delete_record(kwargs["flags"]) if "flags" in kwargs else delete_record()
 
         if response == "{}":
             self.last_response = self.output_response("Record deleted.", "success")
@@ -1276,13 +1140,9 @@ class SzCmdShell(cmd.Cmd):
         )
 
         try:
-            export_handle = (
-                export_csv(kwargs["flags"]) if "flags" in kwargs else export_csv()
-            )
+            export_handle = export_csv(kwargs["flags"]) if "flags" in kwargs else export_csv()
 
-            with open(
-                kwargs["parsed_args"].output_file, "w", encoding="utf-8"
-            ) as csv_out:
+            with open(kwargs["parsed_args"].output_file, "w", encoding="utf-8") as csv_out:
 
                 while True:
                     export_record = self.sz_engine.fetch_next(export_handle)
@@ -1334,13 +1194,9 @@ class SzCmdShell(cmd.Cmd):
         )
 
         try:
-            export_handle = (
-                export_json(kwargs["flags"]) if "flags" in kwargs else export_json()
-            )
+            export_handle = export_json(kwargs["flags"]) if "flags" in kwargs else export_json()
 
-            with open(
-                kwargs["parsed_args"].output_file, "w", encoding="utf-8"
-            ) as data_out:
+            with open(kwargs["parsed_args"].output_file, "w", encoding="utf-8") as data_out:
                 while True:
                     export_record = self.sz_engine.fetch_next(export_handle)
                     if not export_record:
@@ -1384,9 +1240,7 @@ class SzCmdShell(cmd.Cmd):
                 kwargs["parsed_args"].entity_id, kwargs["flags"]
             )
         else:
-            response = self.sz_engine.find_interesting_entities_by_entity_id(
-                kwargs["parsed_args"].entity_id
-            )
+            response = self.sz_engine.find_interesting_entities_by_entity_id(kwargs["parsed_args"].entity_id)
 
         # TODO
         # Was here
@@ -1780,7 +1634,7 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_primeEngine(self) -> None:  # type: ignore[no-untyped-def]
+    def do_primeEngine(self) -> None:
         """
         Prime the Senzing engine
 
@@ -1813,9 +1667,32 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].redo_record,
         )
 
-        response = (
-            process_redo(kwargs["flags"]) if "flags" in kwargs else process_redo()
+        response = process_redo(kwargs["flags"]) if "flags" in kwargs else process_redo()
+        self.last_response = self.output_response(response)
+
+    @sz_cmds_decorator(cmd_has_args=True)
+    def do_preprocessRecord(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        """
+        Pre-process a record
+
+        Syntax:
+            preprocessRecord RECORD_DEFINITION [-f FLAG ...]
+
+        Examples:
+            preprocessRecord '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}'
+            preprocessRecord '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}' -f SZ_RECORD_DEFAULT_FLAGS
+
+        Arguments:
+            RECORD_DEFINITION = Senzing mapped JSON representation of a record
+            FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
+        """
+
+        preprocess_record = functools.partial(
+            self.sz_engine.preprocess_record,
+            kwargs["parsed_args"].record_definition,
         )
+
+        response = preprocess_record(kwargs["flags"]) if "flags" in kwargs else preprocess_record()
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
@@ -1946,9 +1823,7 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].entity_id2,
         )
 
-        response = (
-            why_entities(kwargs["flags"]) if "flags" in kwargs else why_entities()
-        )
+        response = why_entities(kwargs["flags"]) if "flags" in kwargs else why_entities()
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
@@ -2018,7 +1893,7 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getLicense(self) -> None:  # type: ignore[no-untyped-def]
+    def do_getLicense(self) -> None:
         """
         Get license information
 
@@ -2029,7 +1904,7 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getVersion(self) -> None:  # type: ignore[no-untyped-def]
+    def do_getVersion(self) -> None:
         """
         Get version information
 
@@ -2069,9 +1944,7 @@ class SzCmdShell(cmd.Cmd):
             json_color
         """
         self.color_json = not self.color_json
-        print_info(
-            f'Coloring of JSON responses {"enabled" if self.color_json else "disabled"}'
-        )
+        print_info(f'Coloring of JSON responses {"enabled" if self.color_json else "disabled"}')
 
         self.write_config()
 
@@ -2085,9 +1958,7 @@ class SzCmdShell(cmd.Cmd):
             json_format
         """
         self.format_json = not self.format_json
-        print_info(
-            f'Formatting of JSON responses {"enabled" if self.format_json else "disabled"}'
-        )
+        print_info(f'Formatting of JSON responses {"enabled" if self.format_json else "disabled"}')
 
         self.write_config()
 
@@ -2101,34 +1972,11 @@ class SzCmdShell(cmd.Cmd):
         # TODO Change to response_to_file in helpers? And other similar functions
         response_to_file(kwargs["parsed_args"].file_path, self.last_response)
 
+    # TODO - Ant - If called again it doesn't reformat to original, should it?
     # TODO Some are arg, others args
     def do_responseReformatJson(self, _) -> None:  # type: ignore[no-untyped-def]
         """# TODO"""
         response_reformat_json(self.last_response, self.color_json, self.format_json)
-
-    # TODO Add msg
-    # TODO Doesn't write history
-    def do_restart(self, _) -> bool:  # type: ignore[no-untyped-def]
-        """
-        Restart this instance and Senzing engines
-
-        Syntax:
-            restart
-        """
-        self.restart = True
-        self.restart_debug = False
-        return True
-
-    def do_restartDebug(self, _) -> bool:  # type: ignore[no-untyped-def]
-        """
-        Restart this instance and Senzing engines, with verbose logging enabled
-
-        Syntax:
-            restartDebug
-        """
-        self.restart_debug = True
-        self.restart = False
-        return True
 
     def do_scroll_output(self, _: None) -> None:
         # TODO Add to help
@@ -2139,9 +1987,7 @@ class SzCmdShell(cmd.Cmd):
             scroll_output
         """
         self.scroll_output = not self.scroll_output
-        print_info(
-            f'Paging of JSON responses {"enabled" if self.scroll_output else "disabled"}'
-        )
+        print_info(f'Paging of JSON responses {"enabled" if self.scroll_output else "disabled"}')
 
         self.write_config()
 
@@ -2293,19 +2139,14 @@ class SzCmdShell(cmd.Cmd):
     # Auto complete engine flags from self.szengineflags
     # TODO Change to search from end
     def flags_completes(self, text: str, line: str) -> List[str]:
+        flags = []
         if re.match(".* -f +", line):
-            flags = [
-                flag
-                for flag in self.engine_flags_list
-                if flag.lower().startswith(text.lower())
-            ]
+            flags = [flag for flag in self.engine_flags_list if flag.lower().startswith(text.lower())]
         return flags
 
     # TODO Expand to autocomplete as: "NAME_FULL": "", ?
     # Auto complete engine flags and JSON key/value syntax
-    def json_and_flags_completes(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def json_and_flags_completes(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         # Do not change the order of these matches!
 
         # comp_cmd = re.match(r"\w+ +", line)
@@ -2316,11 +2157,7 @@ class SzCmdShell(cmd.Cmd):
 
         re_flags = re.search(" -f +.*$", line)
         if re_flags and re_flags.end() == endidx:
-            flags = [
-                flag
-                for flag in self.engine_flags_list
-                if flag.lower().startswith(text.lower())
-            ]
+            flags = [flag for flag in self.engine_flags_list if flag.lower().startswith(text.lower())]
             return flags
 
         # re_j_start = re.search("'{{1}", line)
@@ -2346,9 +2183,7 @@ class SzCmdShell(cmd.Cmd):
                 return []
 
             if attr_check == '":' or re.match(r"\w", attr_check):
-                attrs = [
-                    attr for attr in self.attrs if attr.lower().startswith(text.lower())
-                ]
+                attrs = [attr for attr in self.attrs if attr.lower().startswith(text.lower())]
                 return attrs
 
             if not text and line[begidx - 1 :] == '"':
@@ -2390,153 +2225,96 @@ class SzCmdShell(cmd.Cmd):
         path_comp = line[len(calling_cmd) + 1 : endidx]
         fixed = line[len(calling_cmd) + 1 : begidx]
         for path in glob.glob(f"{path_comp}*"):
-            path = (
-                path + os.sep
-                if path and os.path.isdir(path) and path[-1] != os.sep
-                else path
-            )
+            path = path + os.sep if path and os.path.isdir(path) and path[-1] != os.sep else path
             completes.append(path.replace(fixed, "", 1))
 
         return completes
 
-    def complete_addRecord(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_addRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.json_and_flags_completes(text, line, begidx, endidx)
 
-    def complete_deleteRecord(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_deleteRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_exportCSVEntityReport(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
-        if re.match("exportCSVEntityReport +", line) and not re.match(
-            "exportCSVEntityReport +.* +", line
-        ):
-            return self.path_completes(
-                text, line, begidx, endidx, "exportCSVEntityReport"
-            )
+    def complete_exportCSVEntityReport(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        if re.match("exportCSVEntityReport +", line) and not re.match("exportCSVEntityReport +.* +", line):
+            return self.path_completes(text, line, begidx, endidx, "exportCSVEntityReport")
 
         if re.match(".* -f +", line):
             return self.flags_completes(text, line)
         return []
 
-    def complete_exportJSONEntityReport(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
-        if re.match("exportJSONEntityReport +", line) and not re.match(
-            "exportJSONEntityReport +.* +", line
-        ):
-            return self.path_completes(
-                text, line, begidx, endidx, "exportJSONEntityReport"
-            )
+    def complete_exportJSONEntityReport(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        if re.match("exportJSONEntityReport +", line) and not re.match("exportJSONEntityReport +.* +", line):
+            return self.path_completes(text, line, begidx, endidx, "exportJSONEntityReport")
 
         if re.match(".* -f +", line):
             return self.flags_completes(text, line)
         return []
 
-    def complete_findInterestingEntitiesByEntityID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_findInterestingEntitiesByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findInterestingEntitiesByRecordID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_findInterestingEntitiesByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findNetworkByEntityID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_findNetworkByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findNetworkByRecordID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_findNetworkByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findPathByEntityID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_findPathByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findPathByRecordID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_findPathByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_getEntityByEntityID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_getEntityByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_getEntityByRecordID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_getEntityByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_getRecord(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_getRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_getVirtualEntityByRecordID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_getVirtualEntityByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_howEntityByEntityID(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_howEntityByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_processRedoRecord(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_preprocessRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        return self.json_and_flags_completes(text, line, begidx, endidx)
+
+    def complete_processRedoRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_reevaluateEntity(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_reevaluateEntity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_reevaluateRecord(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_reevaluateRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_searchByAttributes(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_searchByAttributes(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         # return self.flags_completes(text, line)
         return self.json_and_flags_completes(text, line, begidx, endidx)
 
-    def complete_whyRecordInEntity(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_whyRecordInEntity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_whyEntities(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_whyEntities(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_responseToFile(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_responseToFile(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if re.match("responseToFile +", line):
             return self.path_completes(text, line, begidx, endidx, "responseToFile")
         return []
 
-    def complete_setTheme(
-        self, text: str, line: str, begidx: int, endidx: int
-    ) -> List[str]:
+    def complete_setTheme(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if re.match("setTheme +", line):
-            return [
-                theme for theme in self.themes if theme.lower().startswith(text.lower())
-            ]
+            return [theme for theme in self.themes if theme.lower().startswith(text.lower())]
         return []
 
 
@@ -2559,41 +2337,34 @@ def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
 
 def main() -> None:
     """main"""
-    first_loop = True
-    restart = False
 
     cli_args = parse_cli_args()
 
     # Check an engine configuration can be located
     engine_config = get_engine_config(cli_args.iniFile)
 
+    try:
+        sz_abstract_factory = SzAbstractFactory("sz_command", engine_config, verbose_logging=cli_args.debugTrace)
+    except SzError as err:
+        print(err)
+        sys.exit(1)
+
+    # TODO - Ant - Wny not just send cli_args?
+    cmd_obj = SzCmdShell(engine_config, cli_args.debugTrace, cli_args, sz_abstract_factory)
     # TODO - Ant - Clean up using both cli_args.xxx and cli_args together
+    # TODO - Ant -Add to config_tool?
     # Execute a single command
     if cli_args.command:
-        cmd_obj = SzCmdShell(engine_config, cli_args.debugTrace, cli_args)
         cmd_obj.one_cmd(cli_args.command)
         return
 
     # Execute a file of commands
     if cli_args.fileToProcess:
-        cmd_obj = SzCmdShell(engine_config, cli_args.debugTrace, cli_args)
         cmd_obj.file_loop(cli_args.fileToProcess)
         return
 
-    # Start command shell
-    # Don't use args.debugTrace here, may need to restart
-    debug_trace = cli_args.debugTrace
-
-    while first_loop or restart:
-        cmd_obj = SzCmdShell(engine_config, debug_trace, cli_args)
-        cmd_obj.cmdloop()
-        restart = True if cmd_obj.restart or cmd_obj.restart_debug else False
-        debug_trace = True if cmd_obj.restart_debug else False
-        first_loop = False
-        # Remove reference to cmd_obj and garbage collect immediately
-        del cmd_obj
-        # TODO Move to engines destructor
-        gc.collect()
+    # Interactive session
+    cmd_obj.cmdloop()
 
 
 if __name__ == "__main__":

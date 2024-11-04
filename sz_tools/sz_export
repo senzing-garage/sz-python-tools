@@ -12,8 +12,8 @@ import textwrap
 import time
 from datetime import datetime
 
-from _tool_helpers import get_engine_config
-from senzing import SzEngine, SzEngineFlags, SzError
+from _tool_helpers import get_engine_config, print_warning
+from senzing import SzAbstractFactory, SzEngineFlags, SzError
 
 
 def print_error_msg(msg, error1, error2="", exit=False):
@@ -52,11 +52,7 @@ def csv_fetch_next(handle, csv_header=None):
         print(
             f"    Increased CSV field limit size to: {csv.field_size_limit()}",
         )
-    export_record_dict = (
-        next(csv.DictReader([export_record], fieldnames=csv_header))
-        if export_record
-        else None
-    )
+    export_record_dict = next(csv.DictReader([export_record], fieldnames=csv_header)) if export_record else None
 
     return export_record, export_record_dict
 
@@ -78,12 +74,10 @@ def do_stats_output(total_entity_count, start_time, batch_row_count):
     if args.outputFrequency != -1 and total_entity_count % args.outputFrequency == 0:
         time_now = datetime.now().strftime("%I:%M:%S %p").lower()
         rows_per_sec = int(
-            float(batch_row_count)
-            / (float(time.time() - start_time if time.time() - start_time != 0 else 1))
+            float(batch_row_count) / (float(time.time() - start_time if time.time() - start_time != 0 else 1))
         )
         ents_per_sec = int(
-            float(args.outputFrequency)
-            / (float(time.time() - start_time if time.time() - start_time != 0 else 1))
+            float(args.outputFrequency) / (float(time.time() - start_time if time.time() - start_time != 0 else 1))
         )
         print(
             f"{total_entity_count:,} entities processed at {time_now} ({ents_per_sec:,} per second), {rows_per_sec:,} rows per second",
@@ -119,9 +113,7 @@ def csv_export():
         )
         writer.writeheader()
     except csv.Error as err:
-        print_error_msg(
-            "Could not create CSV writer for output or write CSF header", err, exit=True
-        )
+        print_error_msg("Could not create CSV writer for output or write CSF header", err, exit=True)
 
     start_time = time.time()
 
@@ -141,9 +133,7 @@ def csv_export():
                 export_record.strip(),
                 export_record_dict,
             )
-            (export_record, export_record_dict) = csv_fetch_next(
-                export_handle, csv_header
-            )
+            (export_record, export_record_dict) = csv_fetch_next(export_handle, csv_header)
             bad_count_outer += 1
             fetched_rec_count += 1
             continue
@@ -151,10 +141,7 @@ def csv_export():
         resolved_entity_id = export_record_dict["RESOLVED_ENTITY_ID"]
 
         # Keep fetching all export rows for the current RES_ENT
-        while (
-            export_record_dict
-            and export_record_dict["RESOLVED_ENTITY_ID"] == resolved_entity_id
-        ):
+        while export_record_dict and export_record_dict["RESOLVED_ENTITY_ID"] == resolved_entity_id:
 
             # Bypass bad rows
             if "RECORD_ID" not in export_record_dict:
@@ -163,31 +150,21 @@ def csv_export():
                     export_record.strip(),
                     export_record_dict,
                 )
-                (export_record, export_record_dict) = csv_fetch_next(
-                    export_handle, csv_header
-                )
+                (export_record, export_record_dict) = csv_fetch_next(export_handle, csv_header)
                 bad_count_inner += 1
                 fetched_rec_count += 1
                 continue
 
             # Strip leading symbols on match_key
-            if export_record_dict["MATCH_KEY"] and export_record_dict["MATCH_KEY"][
-                0:1
-            ] in ("+", "-"):
+            if export_record_dict["MATCH_KEY"] and export_record_dict["MATCH_KEY"][0:1] in ("+", "-"):
                 export_record_dict["MATCH_KEY"] = export_record_dict["MATCH_KEY"][1:]
 
             # For CSV output with extended don't include JSON_DATA (unless -xcr is used)
-            if (
-                args.extended
-                and not args.extendCSVRelates
-                and export_record_dict["RELATED_ENTITY_ID"] != "0"
-            ):
+            if args.extended and not args.extendCSVRelates and export_record_dict["RELATED_ENTITY_ID"] != "0":
                 export_record_dict.pop("JSON_DATA", None)
 
             row_list.append(export_record_dict)
-            (export_record, export_record_dict) = csv_fetch_next(
-                export_handle, csv_header
-            )
+            (export_record, export_record_dict) = csv_fetch_next(export_handle, csv_header)
             fetched_rec_count += 1
             batch_row_count += 1
 
@@ -202,9 +179,7 @@ def csv_export():
             return total_row_count, (bad_count_outer + bad_count_inner), 1
         total_row_count += len(row_list)
 
-        (start_time, batch_row_count) = do_stats_output(
-            total_entity_count, start_time, batch_row_count
-        )
+        (start_time, batch_row_count) = do_stats_output(total_entity_count, start_time, batch_row_count)
 
     return total_row_count, (bad_count_outer + bad_count_inner), 0
 
@@ -228,9 +203,7 @@ def json_export():
             print_error_msg("Writing to JSON file", ex)
             return row_count, 0, 1
 
-        start_time, batch_row_count = do_stats_output(
-            row_count, start_time, batch_row_count
-        )
+        start_time, batch_row_count = do_stats_output(row_count, start_time, batch_row_count)
 
         export_record = json_fetch_next(export_handle)
 
@@ -240,11 +213,10 @@ def json_export():
 @contextlib.contextmanager
 def open_file(file_name):
     """Use with open context to open either a file or compressed file"""
-
     handle = (
         gzip.open(file_name, "wt", compresslevel=args.compressFile)
         if args.compressFile
-        else open(file_name, "w")
+        else open(file_name, "w", encoding="utf-8")
     )
 
     try:
@@ -254,22 +226,51 @@ def open_file(file_name):
 
 
 if __name__ == "__main__":
+    SZ_VALID_FLAGS = [
+        "SZ_ENTITY_BRIEF_DEFAULT_FLAGS",
+        "SZ_ENTITY_DEFAULT_FLAGS",
+        "SZ_ENTITY_INCLUDE_ALL_FEATURES",
+        "SZ_ENTITY_INCLUDE_ALL_RELATIONS",
+        "SZ_ENTITY_INCLUDE_DISCLOSED_RELATIONS",
+        "SZ_ENTITY_INCLUDE_ENTITY_NAME",
+        "SZ_ENTITY_INCLUDE_INTERNAL_FEATURES",
+        "SZ_ENTITY_INCLUDE_FEATURE_STATS",
+        "SZ_ENTITY_INCLUDE_NAME_ONLY_RELATIONS",
+        "SZ_ENTITY_INCLUDE_POSSIBLY_RELATED_RELATIONS",
+        "SZ_ENTITY_INCLUDE_POSSIBLY_SAME_RELATIONS",
+        "SZ_ENTITY_INCLUDE_RECORD_DATA",
+        "SZ_ENTITY_INCLUDE_RECORD_FEATURE_DETAILS",
+        "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+        "SZ_ENTITY_INCLUDE_RECORD_FEATURE_STATS",
+        "SZ_ENTITY_INCLUDE_RECORD_JSON_DATA",
+        "SZ_ENTITY_INCLUDE_RECORD_MATCHING_INFO",
+        "SZ_ENTITY_INCLUDE_RECORD_SUMMARY",
+        "SZ_ENTITY_INCLUDE_RECORD_TYPES",
+        "SZ_ENTITY_INCLUDE_RECORD_UNMAPPED_DATA",
+        "SZ_ENTITY_INCLUDE_RELATED_ENTITY_NAME",
+        "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
+        "SZ_ENTITY_INCLUDE_RELATED_RECORD_DATA",
+        "SZ_ENTITY_INCLUDE_RELATED_RECORD_SUMMARY",
+        "SZ_ENTITY_INCLUDE_RELATED_RECORD_TYPES",
+        "SZ_ENTITY_INCLUDE_REPRESENTATIVE_FEATURES",
+        "SZ_ENTITY_INCLUDE_RECORD_UNMAPPED_DATA",
+        "SZ_EXPORT_DEFAULT_FLAGS",
+        "SZ_EXPORT_INCLUDE_ALL_ENTITIES",
+        "SZ_EXPORT_INCLUDE_ALL_HAVING_RELATIONSHIPS",
+        "SZ_EXPORT_INCLUDE_NAME_ONLY",
+        "SZ_EXPORT_INCLUDE_DISCLOSED",
+        "SZ_EXPORT_INCLUDE_MULTI_RECORD_ENTITIES",
+        "SZ_EXPORT_INCLUDE_POSSIBLY_RELATED",
+        "SZ_EXPORT_INCLUDE_POSSIBLY_SAME",
+        "SZ_EXPORT_INCLUDE_SINGLE_RECORD_ENTITIES",
+    ]
 
-    # Filter options used in arg parse help for output filter and in final output information
-    filter_levels = {
-        0: "All resolved records & all relationship levels",
-        1: "All entities, without any relationships",
-        2: "All entities, also include possible matches for each entity",
-        3: "All entities, also include relationships for each entity",
-        4: "All entities, also include name-only relationships for each entity",
-        5: "All entities, also include disclosed relationships for each entity",
-    }
-
-    cli_args = argparse.ArgumentParser(
-        formatter_class=argparse.RawTextHelpFormatter, allow_abbrev=False
-    )
+    cli_args = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter, allow_abbrev=False)
     cli_args.add_argument(
-        "output_file",
+        "-o",
+        "--output_file",
+        required=True,
+        nargs="?",
         help=textwrap.dedent(
             """\
 
@@ -278,6 +279,7 @@ if __name__ == "__main__":
                                                                                         """
         ),
     )
+
     cli_args.add_argument(
         "-c",
         "--iniFile",
@@ -293,35 +295,30 @@ if __name__ == "__main__":
         ),
     )
 
+    # TODO - Ant - Add valid flags to help
     cli_args.add_argument(
         "-f",
-        "--outputFilter",
-        default=0,
-        type=int,
-        choices=range(0, 6),
+        "--flags",
+        default=["SZ_ENTITY_BRIEF_DEFAULT_FLAGS", "SZ_EXPORT_INCLUDE_ALL_ENTITIES"],
+        nargs="+",
+        # TODO - Ant -
+        # choices=SZ_VALID_FLAGS,
         help=textwrap.dedent(
-            f"""\
+            """\
 
-                                                                                                            Specify only one value for the output filter - 0 through 5.
+                                                                                                            Space separated list of export flags to apply to the export.
 
-                                                                                                            Filter 0 requests all the match levels (1 through 5).
+                                                                                                            Valid flags:
 
-                                                                                                            Filters 2 through 5 include the prior filter values. For example, 3 would
-                                                                                                            output all entities & possible matches & relationships.
-
-                                                                                                                1 = {filter_levels[1]}
-                                                                                                                2 = {filter_levels[2]}
-                                                                                                                3 = {filter_levels[3]}
-                                                                                                                4 = {filter_levels[4]}
-                                                                                                                5 = {filter_levels[5]}
-
-                                                                                                                Note: Filter 4 for name-only is for Senzing internal use.
+                                                                                                                ...
+                                                                                                                ...
 
                                                                                                             Default: %(default)s
 
                                                                                                             """
         ),
     )
+
     cli_args.add_argument(
         "-F",
         "--outputFormat",
@@ -338,6 +335,7 @@ if __name__ == "__main__":
                                                                                                                         """
         ),
     )
+
     cli_args.add_argument(
         "-x",
         "--extended",
@@ -362,6 +360,7 @@ if __name__ == "__main__":
                                                                                                 """
         ),
     )
+
     cli_args.add_argument(
         "-of",
         "--outputFrequency",
@@ -377,6 +376,7 @@ if __name__ == "__main__":
                                                                                             """
         ),
     )
+
     cli_args.add_argument(
         "-cf",
         "--compressFile",
@@ -398,6 +398,7 @@ if __name__ == "__main__":
                                                                                                                                     """
         ),
     )
+
     cli_args.add_argument(
         "-xcr",
         "--extendCSVRelates",
@@ -473,9 +474,6 @@ if __name__ == "__main__":
     # Some CSV exports can be large especially with extended data. Is checked and increased in csv_fetch_next()
     csv.field_size_limit(300000)
 
-    # Extended format (with ERRULE_CODE) hard coded to false for now. Applies to CSV output
-    extendedFormat = False
-
     # Fields to use with CSV output, list of fields to request data
     # For CSV these are unioned with the data returned by the flags to give final output
     csvFields = [
@@ -489,61 +487,30 @@ if __name__ == "__main__":
     if args.extended:
         csvFields.insert(2, "RESOLVED_ENTITY_NAME")
         csvFields.insert(6, "JSON_DATA")
-    if extendedFormat:  # Hard coded to false for now
-        csvFields.append("ERRULE_CODE")
 
-    # Check we can locate an engine configuration
+    # Check can locate an engine configuration
     engine_config = get_engine_config(args.ini_file_name)
 
-    # Initialise an engine
     try:
-        print("\nStarting Senzing engine...")
-        sz_engine = SzEngine("pySzExport", engine_config, False)
+        sz_factory = SzAbstractFactory("sz_export", engine_config)
+        sz_engine = sz_factory.create_sz_engine()
     except SzError as err:
         print_error_msg("Error: ", err, exit=True)
+        sys.exit(1)
 
-    # Determine data requested with engine flags
-    exportFlags = SzEngineFlags.SZ_EXPORT_INCLUDE_ALL_ENTITIES
-    if args.outputFilter == 1:
-        pass
-    elif args.outputFilter == 2:
-        exportFlags = (
-            exportFlags
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_SAME
-            | SzEngineFlags.SZ_ENTITY_INCLUDE_POSSIBLY_SAME_RELATIONS
-        )
-    elif args.outputFilter == 3:
-        exportFlags = (
-            exportFlags
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_SAME
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_RELATED
-            | SzEngineFlags.SZ_ENTITY_INCLUDE_POSSIBLY_SAME_RELATIONS
-            | SzEngineFlags.SZ_ENTITY_INCLUDE_POSSIBLY_RELATED_RELATIONS
-        )
-    elif args.outputFilter == 4:
-        exportFlags = (
-            exportFlags
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_SAME
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_RELATED
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_NAME_ONLY
-            | SzEngineFlags.SZ_ENTITY_INCLUDE_POSSIBLY_SAME_RELATIONS
-            | SzEngineFlags.SZ_ENTITY_INCLUDE_POSSIBLY_RELATED_RELATIONS
-            | SzEngineFlags.SZ_ENTITY_INCLUDE_NAME_ONLY_RELATIONS
-        )
-    elif args.outputFilter >= 5:
-        exportFlags = (
-            exportFlags
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_SAME
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_POSSIBLY_RELATED
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_NAME_ONLY
-            | SzEngineFlags.SZ_EXPORT_INCLUDE_DISCLOSED
-            | SzEngineFlags.SZ_ENTITY_INCLUDE_ALL_RELATIONS
-        )
-    else:
-        exportFlags = exportFlags | SzEngineFlags.SZ_ENTITY_INCLUDE_ALL_RELATIONS
+    # Convert strings to upper and if integers supplied convert from string to int
+    flags = [int(flag) if flag.isdigit() else flag.upper() for flag in args.flags]
 
-    # if not extended:
-    #  exportFlags |= g2_engine.G2_ENTITY_MINIMAL_FORMAT
+    # Get only the string flags to check against accepted flags
+    string_flags = [flag for flag in flags if isinstance(flag, str)]
+    invalid_string_flags = set(string_flags).difference(SZ_VALID_FLAGS)
+    if invalid_string_flags:
+        print_warning("Ignoring invalid flag(s): ", end_str=" ")
+        print(", ".join(invalid_string_flags))
+
+    valid_flags = [flag for flag in flags if flag not in invalid_string_flags]
+
+    final_flags = SzEngineFlags.combine_flags(valid_flags)
 
     # Initialize the export
     export_output = args.output_file
@@ -556,36 +523,15 @@ if __name__ == "__main__":
         try:
             if args.outputFormat == "CSV":
                 CSV_FIELDS_STR = ", ".join(csvFields)
-                export_handle = sz_engine.export_csv_entity_report(
-                    CSV_FIELDS_STR, exportFlags
-                )
+                export_handle = sz_engine.export_csv_entity_report(CSV_FIELDS_STR, final_flags)
             else:
-                # For JSON output amend the engine flags to obtain additional data
-                # JSON output to match similar CSV output will include additional items, CSV unions flags & csvFields to determine output
-                exportFlags = (
-                    exportFlags
-                    | SzEngineFlags.SZ_ENTITY_INCLUDE_RECORD_DATA
-                    | SzEngineFlags.SZ_ENTITY_INCLUDE_RELATED_RECORD_DATA
-                    | SzEngineFlags.SZ_ENTITY_INCLUDE_RECORD_MATCHING_INFO
-                    | SzEngineFlags.SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO
-                )
-                if args.extended:
-                    # Note: There is no flag for JSON export to get the related JSON_DATA details to fully mimic CSV output
-                    #       Would need to getRecord() and inject the JSON_DATA
-                    exportFlags = (
-                        exportFlags
-                        | SzEngineFlags.SZ_ENTITY_INCLUDE_ENTITY_NAME
-                        | SzEngineFlags.SZ_ENTITY_INCLUDE_RECORD_JSON_DATA
-                    )
-                export_handle = sz_engine.export_json_entity_report(exportFlags)
+                export_handle = sz_engine.export_json_entity_report(final_flags)
         except SzError as err:
             print_error_msg("Could not initialize export", err, exit=True)
 
         export_start = time.time()
 
-        row_count, bad_rec_count, exit_code = (
-            csv_export() if args.outputFormat == "CSV" else json_export()
-        )
+        row_count, bad_rec_count, exit_code = csv_export() if args.outputFormat == "CSV" else json_export()
 
         if exit_code:
             print("ERROR: Export did not complete successfully!")
@@ -599,7 +545,6 @@ if __name__ == "__main__":
             f"""
             Export output file:          {export_output}
             Export output format:        {args.outputFormat}
-            Export filter level:         {args.outputFilter} - {filter_levels[args.outputFilter]}
             Exported rows:               {row_count:,}
             Bad rows skipped:            {bad_rec_count}
             Execution time:              {round((export_finish - export_start) / 60, 1)} mins

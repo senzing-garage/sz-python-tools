@@ -2,7 +2,6 @@
 
 import json
 import os
-import sys
 import urllib.parse
 from importlib import import_module
 
@@ -11,25 +10,25 @@ from importlib import import_module
 class SzDatabase:
 
     # ----------------------------------------
-    def __init__(self, param_str):
+    def __init__(self, connection_settings):
         self.success = False
         self.imports = []
-        if not param_str.startswith("{"):  # for backwards compatibility
-            param_data = {"SQL": {"CONNECTION": param_str}}
+        if not connection_settings.startswith("{"):  # for backwards compatibility
+            connection_settings = {"SQL": {"CONNECTION": connection_settings}}
         else:
-            param_data = json.loads(param_str)
+            connection_settings = json.loads(connection_settings)
 
         self.connections = {"MAIN": {}}
         self.tables_by_connection = {}
         self.statement_cache = {}
 
-        self.Connect("MAIN", param_data["SQL"]["CONNECTION"])
+        self.Connect("MAIN", connection_settings["SQL"]["CONNECTION"])
 
-        for table_name in param_data.get("HYBRID", {}).keys():
-            node = param_data["HYBRID"][table_name]
+        for table_name in connection_settings.get("HYBRID", {}).keys():
+            node = conn_settings["HYBRID"][table_name]
             if node not in self.connections:
                 self.connections[node] = {}
-                self.Connect(node, param_data[node]["DB_1"])
+                self.Connect(node, conn_settings[node]["DB_1"])
             self.tables_by_connection[table_name] = node
 
         self.success = True
@@ -103,10 +102,7 @@ class SzDatabase:
                 )
             elif self.connections[node]["dbtype"] == "SQLITE3":
                 if not os.path.isfile(self.connections[node]["dsn"]):
-                    raise Exception(
-                        "ERROR: sqlite3 database file not found "
-                        + self.connections[node]["dsn"]
-                    )
+                    raise Exception("ERROR: sqlite3 database file not found " + self.connections[node]["dsn"])
                 self.connections[node]["dbo"] = self.sqlite3.connect(
                     self.connections[node]["dsn"], isolation_level=None
                 )
@@ -142,13 +138,9 @@ class SzDatabase:
                         user=self.connections[node]["userid"],
                         password=self.connections[node]["password"],
                     )
-                    self.connections[node]["dbo"].set_session(
-                        autocommit=True, isolation_level="READ UNCOMMITTED"
-                    )
+                    self.connections[node]["dbo"].set_session(autocommit=True, isolation_level="READ UNCOMMITTED")
                 else:
-                    self.connections[node]["dbo"] = self.pyodbc.connect(
-                        conn_str, autocommit=True
-                    )
+                    self.connections[node]["dbo"] = self.pyodbc.connect(conn_str, autocommit=True)
             elif self.connections[node]["dbtype"] == "MSSQL":
                 self.connections[node]["dbo"] = self.pyodbc.connect(
                     "DSN="
@@ -167,34 +159,23 @@ class SzDatabase:
                     encoding="UTF-8",
                 )
             else:
-                raise Exception(
-                    "Unsupported DB Type: " + self.connections[node]["dbtype"]
-                )
+                raise Exception("Unsupported DB Type: " + self.connections[node]["dbtype"])
         except Exception as err:
             raise Exception(err)  # self.TranslateException(err)
         except self.sqlite3.DatabaseError as err:
             raise Exception(err)  # self.TranslateException(err)
 
-        if (
-            self.connections[node]["schema"] is not None
-            and len(self.connections[node]["schema"]) != 0
-        ):
+        if self.connections[node]["schema"] is not None and len(self.connections[node]["schema"]) != 0:
             if self.connections[node]["dbtype"] == "SQLITE3":
-                raise Exception(
-                    """WARNING: SQLITE3 doesn't support schema URI argument"""
-                )
+                raise Exception("""WARNING: SQLITE3 doesn't support schema URI argument""")
             try:
                 if self.connections[node]["dbtype"] == "MYSQL":
                     self.sqlExec("use " + self.connections[node]["schema"])
                 elif self.connections[node]["dbtype"] == "DB2":
-                    self.sqlExec(
-                        "set current schema " + self.connections[node]["schema"]
-                    )
+                    self.sqlExec("set current schema " + self.connections[node]["schema"])
                     # --note: for some reason pyodbc not throwing error with set to invalid schema!
                 elif self.connections[node]["dbtype"] == "POSTGRESQL":
-                    self.sqlExec(
-                        "SET search_path TO " + self.connections[node]["schema"]
-                    )
+                    self.sqlExec("SET search_path TO " + self.connections[node]["schema"])
             except Exception as err:
                 raise Exception(err)
 
@@ -305,9 +286,7 @@ class SzDatabase:
             cursorData["CURSOR"] = exec_cursor
             cursorData["ROWS_AFFECTED"] = exec_cursor.rowcount
             if exec_cursor.description:
-                cursorData["COLUMN_HEADERS"] = [
-                    columnData[0].upper() for columnData in exec_cursor.description
-                ]
+                cursorData["COLUMN_HEADERS"] = [columnData[0].upper() for columnData in exec_cursor.description]
         return cursorData
 
     # ----------------------------------------
@@ -316,12 +295,7 @@ class SzDatabase:
         if "COLUMN_HEADERS" in cursorData:
             rowValues = cursorData["CURSOR"].fetchone()
             if rowValues:
-                type_fixed_row = tuple(
-                    [
-                        el.decode("utf-8") if type(el) is bytearray else el
-                        for el in rowValues
-                    ]
-                )
+                type_fixed_row = tuple([el.decode("utf-8") if type(el) is bytearray else el for el in rowValues])
                 rowData = dict(list(zip(cursorData["COLUMN_HEADERS"], type_fixed_row)))
             else:
                 rowData = None
@@ -350,12 +324,7 @@ class SzDatabase:
         """fetch all the rows with column names"""
         rowList = []
         for rowValues in cursorData["CURSOR"].fetchall():
-            type_fixed_row = tuple(
-                [
-                    el.decode("utf-8") if type(el) is bytearray else el
-                    for el in rowValues
-                ]
-            )
+            type_fixed_row = tuple([el.decode("utf-8") if type(el) is bytearray else el for el in rowValues])
             rowData = dict(list(zip(cursorData["COLUMN_HEADERS"], type_fixed_row)))
             rowList.append(rowData)
 
@@ -371,12 +340,7 @@ class SzDatabase:
         """fetch all the rows with column names"""
         rowList = []
         for rowValues in cursorData["CURSOR"].fetchmany(rowCount):
-            type_fixed_row = tuple(
-                [
-                    el.decode("utf-8") if type(el) is bytearray else el
-                    for el in rowValues
-                ]
-            )
+            type_fixed_row = tuple([el.decode("utf-8") if type(el) is bytearray else el for el in rowValues])
             rowData = dict(list(zip(cursorData["COLUMN_HEADERS"], type_fixed_row)))
             rowList.append(rowData)
 
@@ -403,11 +367,9 @@ class SzDatabase:
 
     def dburi_parse(self, node, dburi):
         """Parse the database uri string"""
-
         uri_dict = {}
 
         try:
-
             # Pull off the table parameter if supplied
             uri_dict["TABLE"] = uri_dict["SCHEMA"] = uri_dict["PORT"] = None
 
@@ -415,23 +377,15 @@ class SzDatabase:
                 (dburi, parm) = tuple(dburi.split("/?"))
                 for item in parm.split("&"):
                     (parmType, parmValue) = tuple(item.split("="))
-                    uri_dict["TABLE"] = (
-                        parmValue if parmType.upper() == "TABLE" else None
-                    )
-                    uri_dict["SCHEMA"] = (
-                        parmValue if parmType.upper() == "SCHEMA" else None
-                    )
+                    uri_dict["TABLE"] = parmValue if parmType.upper() == "TABLE" else None
+                    uri_dict["SCHEMA"] = parmValue if parmType.upper() == "SCHEMA" else None
 
             # Get database type
-            (uri_dict["DBTYPE"], dburiData) = (
-                dburi.split("://") if "://" in dburi else ("UNKNOWN", dburi)
-            )
+            (uri_dict["DBTYPE"], dburiData) = dburi.split("://") if "://" in dburi else ("UNKNOWN", dburi)
             uri_dict["DBTYPE"] = uri_dict["DBTYPE"].upper()
 
             # Separate login and dsn info
-            (justUidPwd, justDsnSch) = (
-                dburiData.split("@") if "@" in dburiData else (":", dburiData)
-            )
+            (justUidPwd, justDsnSch) = dburiData.split("@") if "@" in dburiData else (":", dburiData)
             justDsnSch = justDsnSch.rstrip("/")
 
             # Separate uid and password
@@ -454,9 +408,7 @@ class SzDatabase:
                 # oracle syntax is port/database or sid (placing in schema field)
                 # e.g. CONNECTION=oci://userid:password@//192.168.1.111:1521/G2PDB
                 elif uri_dict["DBTYPE"] == "OCI":
-                    uri_dict["HOST"] = uri_dict["DSN"].replace(
-                        "/", ""
-                    )  # --get rid of the // if they used it
+                    uri_dict["HOST"] = uri_dict["DSN"].replace("/", "")  # --get rid of the // if they used it
                     items = uri_dict["PORT"].split("/")
                     uri_dict["PORT"] = items[0]
                     uri_dict["SCHEMA"] = items[1]
@@ -470,34 +422,18 @@ class SzDatabase:
             ) from None
 
         if not uri_dict["DSN"]:
-            raise Exception(
-                f"Missing database DSN. \n{self.show_connection(uri_dict, False, False)}"
-            )
+            raise Exception(f"Missing database DSN. \n{self.show_connection(uri_dict, False, False)}")
 
-        self.connections[node]["dbtype"] = (
-            uri_dict["DBTYPE"] if "DBTYPE" in uri_dict else None
-        )
+        self.connections[node]["dbtype"] = uri_dict["DBTYPE"] if "DBTYPE" in uri_dict else None
         self.connections[node]["dsn"] = uri_dict["DSN"] if "DSN" in uri_dict else None
-        self.connections[node]["host"] = (
-            uri_dict["HOST"] if "HOST" in uri_dict else None
-        )
-        self.connections[node]["port"] = (
-            uri_dict["PORT"] if "PORT" in uri_dict else None
-        )
-        self.connections[node]["userid"] = (
-            urllib.parse.unquote(uri_dict["USERID"]) if "USERID" in uri_dict else None
-        )
+        self.connections[node]["host"] = uri_dict["HOST"] if "HOST" in uri_dict else None
+        self.connections[node]["port"] = uri_dict["PORT"] if "PORT" in uri_dict else None
+        self.connections[node]["userid"] = urllib.parse.unquote(uri_dict["USERID"]) if "USERID" in uri_dict else None
         self.connections[node]["password"] = (
-            urllib.parse.unquote(uri_dict["PASSWORD"])
-            if "PASSWORD" in uri_dict
-            else None
+            urllib.parse.unquote(uri_dict["PASSWORD"]) if "PASSWORD" in uri_dict else None
         )
-        self.connections[node]["table"] = (
-            uri_dict["TABLE"] if "TABLE" in uri_dict else None
-        )
-        self.connections[node]["schema"] = (
-            uri_dict["SCHEMA"] if "SCHEMA" in uri_dict else None
-        )
+        self.connections[node]["table"] = uri_dict["TABLE"] if "TABLE" in uri_dict else None
+        self.connections[node]["schema"] = uri_dict["SCHEMA"] if "SCHEMA" in uri_dict else None
 
         if self.connections[node]["dbtype"] not in (
             "DB2",
@@ -507,52 +443,50 @@ class SzDatabase:
             "MSSQL",
             "OCI",
         ):
-            raise Exception(
-                self.connections[node]["dbtype"] + " is an unsupported database type"
-            )
+            raise Exception(self.connections[node]["dbtype"] + " is an unsupported database type")
 
         return uri_dict
 
 
-# ----------------------------------------
-if __name__ == "__main__":
+# # ----------------------------------------
+# if __name__ == "__main__":
 
-    if os.getenv("SENZING_ENGINE_CONFIGURATION_JSON"):
-        g2module_params = os.getenv("SENZING_ENGINE_CONFIGURATION_JSON")
-    else:
-        import G2Paths
-        from G2IniParams import G2IniParams
+#     if os.getenv("SENZING_ENGINE_CONFIGURATION_JSON"):
+#         g2module_params = os.getenv("SENZING_ENGINE_CONFIGURATION_JSON")
+#     else:
+#         import G2Paths
+#         from G2IniParams import G2IniParams
 
-        ini_file_name = G2Paths.get_G2Module_ini_path()
-        ini_param_creator = G2IniParams()
-        g2module_params = ini_param_creator.getJsonINIParams(ini_file_name)
+#         ini_file_name = G2Paths.get_G2Module_ini_path()
+#         ini_param_creator = G2IniParams()
+#         g2module_params = ini_param_creator.getJsonINIParams(ini_file_name)
 
-    try:
-        g2dbo = SzDatabase(g2module_params)
-    except Exception as err:
-        print(err)
-        sys.exit(1)
+#     try:
+#         g2dbo = SzDatabase(g2module_params)
+#     except Exception as err:
+#         print(err)
+#         sys.exit(1)
 
-    # --create an instance
-    print("\nConnection successful!\n")
+#     # --create an instance
+#     print("\nConnection successful!\n")
 
-    # --running in debug mode - no parameters
-    if len(sys.argv) > 1:
-        sql = " ".join(sys.argv[1:])
+#     # --running in debug mode - no parameters
+#     if len(sys.argv) > 1:
+#         sql = " ".join(sys.argv[1:])
 
-        try:
-            cursor = g2dbo.sqlExec(sql)
-        except Exception as err:
-            print(err)
-            sys.exit(1)
+#         try:
+#             cursor = g2dbo.sqlExec(sql)
+#         except Exception as err:
+#             print(err)
+#             sys.exit(1)
 
-        if cursor.get("COLUMN_HEADERS"):
-            print(",".join(cursor.get("COLUMN_HEADERS")))
-            for row in cursor["CURSOR"]:
-                print(",".join(row))
-            print()
-    if cursor.get("ROWS_AFFECTED", 0) > 0:
-        print(cursor.get("ROWS_AFFECTED"), "rows affected")
-        print()
+#         if cursor.get("COLUMN_HEADERS"):
+#             print(",".join(cursor.get("COLUMN_HEADERS")))
+#             for row in cursor["CURSOR"]:
+#                 print(",".join(row))
+#             print()
+#     if cursor.get("ROWS_AFFECTED", 0) > 0:
+#         print(cursor.get("ROWS_AFFECTED"), "rows affected")
+#         print()
 
-    sys.exit(0)
+#     sys.exit(0)

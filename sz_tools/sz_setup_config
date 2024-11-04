@@ -1,10 +1,11 @@
 #! /usr/bin/env python3
+"""# TODO """
 
 import argparse
 import sys
 
 from _tool_helpers import get_engine_config
-from senzing import SzConfig, SzConfigManager, SzError
+from senzing import SzAbstractFactory, SzError
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -27,11 +28,14 @@ def parse_cli_args() -> argparse.Namespace:
 def main() -> None:
     """# TODO"""
     cli_args = parse_cli_args()
-    engine_settings = get_engine_config(cli_args.ini_file_name)
+
+    # Check an engine configuration can be located
+    engine_config = get_engine_config(cli_args.ini_file_name)
 
     # Determine if a default/initial Senzing configuration exists
     try:
-        sz_config_mgr = SzConfigManager("SzConfigMgr", engine_settings, False)
+        sz_abstract_factory = SzAbstractFactory("sz_setup_config", engine_config)
+        sz_config_mgr = sz_abstract_factory.create_sz_configmanager()
         default_config_id = sz_config_mgr.get_default_config_id()
     except SzError as err:
         print(
@@ -55,7 +59,7 @@ def main() -> None:
 
     # Apply a default configuration
     try:
-        sz_config = SzConfig("SzConfig", engine_settings, False)
+        sz_config = sz_abstract_factory.create_sz_config()
         config_handle = sz_config.create_config()
         new_config = sz_config.export_config(config_handle)
         sz_config.close_config(config_handle)
@@ -82,7 +86,7 @@ def main() -> None:
         print(f"ERROR: {err}\n")
         sys.exit(1)
 
-    print(f"\nConfiguration successfully added, id: {new_config_id}")
+    print("\nConfiguration successfully added")
 
 
 if __name__ == "__main__":

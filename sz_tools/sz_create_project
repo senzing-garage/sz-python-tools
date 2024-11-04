@@ -136,8 +136,8 @@ def main() -> None:
     # sz_path on normal rpm/deb install = /opt/senzing/g2
     # sz_install_root would then = /opt/senzing
     # TODO Put back when in API package
-    # sz_path = Path(__file__).resolve().parents[1]
-    sz_path = Path("/opt/senzing/er").resolve()
+    sz_path = Path(__file__).resolve().parents[1]
+    # sz_path = Path("/opt/senzing/er").resolve()
     sz_path_root = Path(__file__).resolve().parents[2]
     project_path = Path(cli_args.path).expanduser().resolve()
 
@@ -162,8 +162,8 @@ def main() -> None:
     version_details = get_version_details(sz_path)
     print(f"\nSenzing version:  {version_details[0]}\n")
 
-    # TODO Change names when tools updated
-    ignore_files = ["sz_create_project.py", "G2UpdateProject.py"]
+    # TODO Remove sz_upgrade?
+    ignore_files = ["sz_create_project", "sz_configupgrade"]
     # Example: ignore_paths = [sz_path.joinpath('python')]
     ignore_paths: List[str] = []
     excludes = ignore_files + ignore_paths
@@ -192,7 +192,7 @@ def main() -> None:
         var_path.joinpath("sqlite", "G2C.db"),
     )
 
-    # Soft link data
+    # Copy data
     copytree(
         sz_path_root.joinpath("data"),
         data_path,
@@ -225,7 +225,7 @@ def main() -> None:
     set_file_permissions(project_path, 0o660)
     project_path.joinpath("setupEnv").chmod(0o770)
 
-    # TODO - Ant - Might need adjustmant on some files when helpers are finalised and in place
+    # TODO - Ant - Might need adjustment on some files when helpers are finalized and in place
     # bin
     set_file_permissions(bin_path, 0o770, recursive=True)
 
