@@ -11,7 +11,6 @@ import textwrap
 import time
 from datetime import datetime
 
-# TODO Ant - Move to helpers when re-structured
 from _sz_database import SzDatabase
 from _tool_helpers import get_engine_config, get_max_futures_workers
 from senzing import SzAbstractFactory, SzEngine, SzEngineFlags, SzError
@@ -20,7 +19,7 @@ try:
     import orjson
 
     USE_ORJSON = True
-except:
+except ImportError:
     USE_ORJSON = False
 
 import concurrent.futures
@@ -93,10 +92,7 @@ def open_csv_file(export_csv, file_path):
             handle = open(file_path, "a", encoding="utf-8")
             handle.write(f'{",".join(column_headers)}\n')
         except IOError as err:
-            # TODO - Ant -
-            # print("\nERROR: cannot write to %s \n%s\n" % (file_path, err))
             print(f"\nERROR: cannot write to {file_path}: {err}\n")
-            # TODO - Ant -This doesn't look correct?
             with shut_down.get_lock():
                 shut_down.value = 1
             return
@@ -152,8 +148,6 @@ def get_resume_db(local_dbo, resolved_id):
     # abandoned hack to only count the ambiguous entity
     # ambiguousCount = 0
     if resume_rows and relationship_filter in (2, 3):
-        # TODO - Ant - Not used
-        # queryStartTime = time.time()
         cursor1 = local_dbo.sqlExec(
             SQL_RELATIONS,
             [
@@ -680,8 +674,6 @@ def process_entities(thread_count):
 
     new_stat_pack = True
 
-    # TODO - Ant - sz_diagnostic no longer reports logical/physical cores and it was broken in recent V3 builds
-    # TODO - Investigate adding a scale factor to test_workers, I think I did before, notes?
     max_workers = thread_count if thread_count else get_max_futures_workers()
 
     if os.path.exists(stats_file_path):
@@ -758,21 +750,14 @@ def process_entities(thread_count):
 
     sql0 = g2Dbo.sqlPrep(sql0)
 
-    # TODO - Ant -
-    # entity_queue = Queue(thread_count * 10)
-    # resume_queue = Queue(thread_count * 10)
     entity_queue = Queue(max_workers * 10)
     resume_queue = Queue(max_workers * 10)
 
-    # TODO - Ant -
-    # print(f"Starting {thread_count} threads...")
     print(f"Starting {max_workers} threads...")
     process_list = []
 
     process_list.append(Process(target=setup_resume_queue, args=(stat_pack, 99, thread_stop, resume_queue)))
 
-    # TODO - Ant -
-    # for thread_id in range(thread_count - 1):
     for thread_id in range(max_workers - 1):
         process_list.append(
             Process(
@@ -811,11 +796,8 @@ def process_entities(thread_count):
                 for process in process_list:
                     if process.is_alive():
                         threads_running += 1
-                # TODO - Ant - Not used
-                # qdepth = entity_queue.qsize() + resume_queue.qsize()
                 now = datetime.now().strftime("%I:%M%p").lower()
                 elapsed_mins = round((time.time() - proc_start_time) / 60, 1)
-                # TODO - Ant - Used in multiple places, make func
                 eps = int(
                     float(entity_count)
                     / (float(time.time() - proc_start_time if time.time() - proc_start_time != 0 else 1))
@@ -910,10 +892,7 @@ def get_entity_features(sz_engine, esb_data):
             esb_data[2],
             SzEngineFlags.SZ_ENTITY_INCLUDE_REPRESENTATIVE_FEATURES,
         )
-        # TODO Ant - This works with V4? What do we return if not found?
-        # response = response.decode() if response else ""
     except SzError:
-        # TODO - Ant - We return {} anyway?
         return {}
 
     json_data = orjson.loads(response) if USE_ORJSON else json.loads(response)
@@ -988,7 +967,6 @@ def write_stat_pack(stat_pack, stat_data):
     seconds = seconds % 60
     stat_pack["PROCESS"]["RUN_TIME"] = f"{hours}:{minutes}:{seconds}"
 
-    # TODO - Ant - Make func?
     if stat_pack["TOTAL_RECORD_COUNT"]:
         stat_pack["TOTAL_COMPRESSION"] = (
             str(
@@ -1030,7 +1008,6 @@ def write_stat_pack(stat_pack, stat_data):
     return stat_pack
 
 
-# TODO - Ant - Iterator?
 # -------------------------------------
 def next_export_record(export_handle, export_headers=None):
     """# TODO"""
@@ -1041,7 +1018,6 @@ def next_export_record(export_handle, export_headers=None):
     try:
         row_data = next(csv.reader([row_string[0:-1]]))
     except:
-        # TODO - Ant - Standarise all errors!
         print(" err: " + row_string)
         return None
 
@@ -1059,7 +1035,6 @@ def process_entities_api_only():
 
     export_flags = SzEngineFlags.SZ_EXPORT_INCLUDE_ALL_ENTITIES
 
-    # TODO - Ant - Why checking for 1?
     if relationship_filter == 1:
         pass  # --don't include any relationships
     elif relationship_filter == 2:
@@ -1083,12 +1058,10 @@ def process_entities_api_only():
         export_handle = sz_engine.export_csv_entity_report(",".join(export_fields), export_flags)
         export_headers = next_export_record(export_handle)
     except SzError as err:
-        # TODO - Ant - Color these?
         print(f"\n{err}\n")
         return 1
 
     stat_pack = initialize_stat_pack()
-    # TODO - Ant - Convert path to pathlib
     if os.path.exists(csv_file_path):
         os.remove(csv_file_path)
     csv_file_handle = open_csv_file(exportCsv, csv_file_path)
@@ -1152,15 +1125,6 @@ def calculate_esb_stats(sz_engine: SzEngine):
 
     print(f"Reviewing {len(esb_entities)} entities...")
 
-    # TODO - Ant -
-    # try:
-    #     sz_engine = SzEngine("pySzSnapshotEsb", engine_config, False)
-    # except SzError as err:
-    #     print(f"\nSzError: {err}\n")
-    #     with shut_down.get_lock():
-    #         shut_down.value = 1
-    #     return
-
     cnt = 0
     test_type = 2
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -1206,9 +1170,6 @@ def calculate_esb_stats(sz_engine: SzEngine):
 
     with open(stats_file_path, "w", encoding="utf-8") as outfile:
         json.dump(stat_pack, outfile, indent=4)
-
-    # TODO - Ant
-    # sz_engine.destroy()
 
 
 # --------------------------------------
@@ -1264,7 +1225,6 @@ if __name__ == "__main__":
         default=None,
         help="Path and name of optional G2Module.ini file to use.",
     )
-    # TODO - Ant - Make this positional arg as it's always needed
     argParser.add_argument(
         "-o",
         "--output_file_root",
@@ -1281,7 +1241,7 @@ if __name__ == "__main__":
     argParser.add_argument(
         "-d",
         "--datasource_filter",
-        help="data source code to analayze, defaults to all",
+        help="data source code to analyze, defaults to all",
     )
     argParser.add_argument(
         "-f",
@@ -1347,7 +1307,6 @@ if __name__ == "__main__":
     # Check we can locate an engine configuration
     engine_config = get_engine_config(args.config_file_name)
 
-    # TODO Ant - move sanity checks like this into helpers code
     if not json.loads(engine_config)["SQL"]["CONNECTION"]:
         print("\nCONNECTION parameter not found in [SQL] section of the ini file\n")
         sys.exit(1)
@@ -1372,7 +1331,6 @@ if __name__ == "__main__":
 
         dsrc_lookup = {}
         dsrc_lookup_by_code = {}
-        # TODO - Ant - SZ_CONFIG? Jira
         for cfg_record in config_data["G2_CONFIG"]["CFG_DSRC"]:
             dsrc_lookup[cfg_record["DSRC_ID"]] = cfg_record
             dsrc_lookup_by_code[cfg_record["DSRC_CODE"]] = cfg_record
@@ -1393,9 +1351,7 @@ if __name__ == "__main__":
     except SzError as err:
         print(f"\n{err}\n")
         sys.exit(1)
-    # TODO Ant - Finally, deconstruct?
 
-    # TODO - Ant - Convert to pathlib
     if os.path.splitext(output_file_root)[1] == ".json":
         output_file_root = os.path.splitext(output_file_root)[0]
     # else:
@@ -1413,7 +1369,6 @@ if __name__ == "__main__":
         print(f"\nCannot write to stats file: {err}\n")
         sys.exit(1)
 
-    # TODO - Ant - ?
     if not STATS_FILE_EXISTED:
         os.remove(stats_file_path)
 
@@ -1442,8 +1397,6 @@ if __name__ == "__main__":
 
     # validate data source filter if supplied
     if datasource_filter:
-        # TODO - Ant engine isn't storing addDatasource as upper in sz_configtool? Check...
-        # if datasourceFilter.upper() not in dsrcLookupByCode:
         if (datasource_filter or datasource_filter.upper()) not in dsrc_lookup_by_code:
             print(f"\nData source code {datasource_filter} is not valid\n")
             sys.exit(1)
@@ -1451,8 +1404,6 @@ if __name__ == "__main__":
             print("\nSpecifying a data source filter requires database access\n")
             sys.exit(1)
         else:
-            # TODO - Ant engine isn't storing addDatasource as upper in sz_configtool?
-            # datasourceFilterID = dsrcLookupByCode[datasourceFilter.upper()]["DSRC_ID"]
             datasourceFilterID = dsrc_lookup_by_code[datasource_filter]["DSRC_ID"]
 
     # process the entities

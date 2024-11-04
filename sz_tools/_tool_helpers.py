@@ -2,8 +2,6 @@
 # TODO
 """
 
-# TODO Split into separate modules
-
 from __future__ import annotations
 
 import cmd
@@ -110,7 +108,6 @@ class Colors:
             cls.POSSIBLE = cls.SZ_ORANGE
             cls.RELATED = cls.SZ_GREEN
             cls.DISCLOSED = cls.SZ_PURPLE
-            # TODO
             cls.JSONKEYCOLOR = cls.FG_BLUE
             cls.JSONVALUECOLOR = cls.FG_YELLOW
         elif theme.upper() == "LIGHT":
@@ -129,7 +126,6 @@ class Colors:
             cls.AMBIGUOUS = cls.FG_LIGHTYELLOW
             cls.RELATED = cls.FG_LIGHTGREEN
             cls.DISCLOSED = cls.FG_LIGHTMAGENTA
-            # TODO
             cls.JSONKEYCOLOR = cls.FG_LIGHTBLUE
             cls.JSONVALUECOLOR = cls.FG_LIGHTYELLOW
         elif theme.upper() == "DARK":
@@ -149,10 +145,8 @@ class Colors:
             cls.POSSIBLE = cls.FG_RED
             cls.RELATED = cls.FG_GREEN
             cls.DISCLOSED = cls.FG_MAGENTA
-            # TODO
             cls.JSONKEYCOLOR = cls.SZ_BLUE
             cls.JSONVALUECOLOR = cls.SZ_YELLOW
-        # TODO
         # This class is mostly for sz_explorer as it has many color requirements
         # Other tools need to do basic coloring of text, setting this theme uses
         # the colors set by the terminal preferences so a user will see the colors
@@ -256,7 +250,6 @@ class Colors:
     SZ_RED = "\033[38;5;160m"
     SZ_YELLOW = "\033[38;5;178m"
 
-    # TODO
     # Set the default theme colors initially
     TABLE_TITLE = FG_GREY42
     ROW_TITLE = FG_GREY42
@@ -274,12 +267,10 @@ class Colors:
     POSSIBLE = SZ_ORANGE
     RELATED = SZ_GREEN
     DISCLOSED = SZ_PURPLE
-    # TODO Added
     JSONKEYCOLOR = FG_BLUE
     JSONVALUECOLOR = FG_YELLOW
 
 
-# TODO Fully test
 # -------------------------------------------------------------------------
 # Engine configuration helper functions
 # -------------------------------------------------------------------------
@@ -293,7 +284,7 @@ def check_environment() -> None:
         # Check if set or not and that it's not set to null
         secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
         if not secj or (secj and len(secj) == 0):
-            # TODO V4 doc links?
+            # TODO V4 doc links
             print(
                 textwrap.dedent(
                     """\n\
@@ -312,7 +303,6 @@ def check_environment() -> None:
             sys.exit(1)
 
 
-# TODO Change to sz when changed in builds
 def get_g2module_path() -> Path:
     """# TODO"""
     file_paths = []
@@ -363,7 +353,6 @@ def print_config_locations(locations: List[Path]) -> None:
     print()
 
 
-# TODO - Ant - try/except ?
 def get_ini_as_json_str(ini_file: Path) -> str:
     """Return a JSON string representation of an INI file."""
     # configparser doesn't throw an exception if file doesn't exist, test first
@@ -376,7 +365,6 @@ def get_ini_as_json_str(ini_file: Path) -> str:
 
     ini_parser = configparser.ConfigParser(empty_lines_in_values=False, interpolation=None)
     ini_parser.read(ini_file)
-    # TODO - Ant - Fix this typing
     config_dict: Dict[Any, Any] = {}
 
     for group_name in ini_parser.sections():
@@ -394,7 +382,6 @@ def get_ini_as_json_str(ini_file: Path) -> str:
     return orjson.dumps(config_dict).decode() if ORJSON_AVAIL else json.dumps(config_dict)
 
 
-# TODO - Ant - Message to inform where config came from?
 def get_engine_config(ini_file_name: Union[str, None] = None) -> str:
     """# TODO"""
 
@@ -431,7 +418,6 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
     return True
 
 
-# TODO Is this one needed still?s
 # def check_file_readable(file_name: Union[Path, str]) -> bool:
 #     """# TODO"""
 
@@ -451,7 +437,6 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
 # -------------------------------------------------------------------------
 
 
-# TODO Is this needed with colorize_output?
 # TODO colors_list is a string with multiple entries separated by ,
 def colorize_str(string: str, colors_list: str = "") -> str:
     """# TODO"""
@@ -510,20 +495,16 @@ def colorize_output(
 # -------------------------------------------------------------------------
 
 
-# TODO - Ant - Change other print_info* to color only ERROR/INFO/etc
-# TODO msg str can contain err in f-string
 def print_error(msg: Union[Exception, str], end_str: str = "\n") -> None:
     """# TODO"""
     print(f"\n{colorize_output('ERROR:', 'error')} {msg}", end=end_str)
 
 
-# TODO msg str can contain err in f-string
 def print_info(msg: Union[Exception, str], end_str: str = "\n") -> None:
     """# TODO"""
     print(colorize_output(f"\n{msg}", "info"), end=end_str)
 
 
-# TODO msg str can contain err in f-string
 def print_warning(msg: Union[Exception, str], end_str: str = "\n") -> None:
     """# TODO"""
     print(colorize_output(f"\nWARNING: {msg}", "warning"), end=end_str)
@@ -537,9 +518,6 @@ def print_response(
     format_json_cmd: bool,
     cmd_color: bool,
     cmd_format: bool,
-    # TODO - Ant - Need to check tools calling this send scroll_output when appropriate
-    # TODO - Ant - For example sz_command calls do_responseReformatJson here which calls this but doesn't send scroll_output
-    # TODO - Ant - but ir does have a scroll setting, setting to False for now
     scroll_output: bool = False,
     color: str = "",
 ) -> str:
@@ -602,14 +580,9 @@ def print_response(
     return output
 
 
-# TODO Organize
-# TODO Black formatting is off as it separates into multiple lines and the
-# TODO pylint disable is ignored
-# fmt: off
 def do_shell(self: Union[SzCmdShell, SzCfgShell], line: str) -> None:  # pylint: disable=unused-argument
     """# TODO"""
     print(os.popen(line).read())
-# fmt: on
 
 
 def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
@@ -624,12 +597,7 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
 
     if help_topic not in self.get_names(include_hidden=True):
         help_topic = "do_" + help_topic
-        # print(help_topic)
-        # print(help_topic[3:])
-        # print(self.get_names(include_hidden=True))
         if help_topic not in self.get_names(include_hidden=True):
-            # cmd.Cmd.do_help(self, help_topic[3:])
-            # do_help(self, help_topic[3:])
             print_warning(f"Command or help topic '{help_topic[3:]}' doesn't exist")
             return
 
@@ -678,25 +646,16 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
     print(help_text)
 
 
-# def do_history(self: Union[SzCmdShell, SzCfgShell], arg) -> None:
-# def do_history(self: SzCmdShell, _: None) -> None:
 def do_history() -> None:
     """# TODO"""
-
-    # if self.hist_avail:
     print()
     for i in range(readline.get_current_history_length()):
         print(readline.get_history_item(i + 1))
     print()
-    # else:
-    #     print_warning("History isn't available in this session")
-    #     # TODO Add report for hist_file_error
 
 
-# def history_setup(self: Union[SzCmdShell, SzCfgShell]) -> str:
 def history_setup() -> str:
     """Attempt to setup history file"""
-    # # TODO
     hist_error = ""
     hist_size = 2000
 
@@ -723,7 +682,6 @@ def history_setup() -> str:
     return hist_error
 
 
-# TODO
 def capture_file(file_path: str) -> TextIO:
     """# TODO"""
     try:

@@ -18,29 +18,14 @@ __updated__ = "2024-06-13"
 
 def parse_cli_args() -> argparse.Namespace:
     """# TODO"""
-    # TODO - Ant -
-    # settings: dict[str, Union[bool, int, list[str], None, str]] = {}
 
     arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description="Utility to create a new instance of a Senzing project in a path",
-        # epilog=textwrap.dedent(
-        #     """\
-        #     Arguments can be specified with either CLI arguments or environment variables, some arguments have
-        #     default values.
-        #     The order of precedence for selecting which value to use is:
-        #     1) CLI Argument
-        #     2) Environment variable
-        #     3) Default value if available
-        #     For additional help and information: https://github.com/Senzing/file-loader/blob/main/README.md
-        #     """
-        # ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
     arg_parser.add_argument(
         "path",
-        # default="~/senzing",
-        # help="path to create new Senzing project in, it must not already exist (Default: %(default)s)",
         help="path to create new Senzing project in, it must not already exist",
         metavar="PATH",
     )
@@ -55,12 +40,8 @@ def get_version_details(sz_root_path: Path) -> List[str]:
         with open(sz_root_path, encoding="utf-8") as file_version:
             version_details = json.load(file_version)
     except IOError as err:
-        # TODO print_error() when have helpers?
-        print(
-            f"\nERROR: Unable to read {sz_root_path} to retrieve version details - {err}"
-        )
+        print(f"\nERROR: Unable to read {sz_root_path} to retrieve version details - {err}")
         sys.exit(1)
-    # TODO test with dodgy input file
     except json.JSONDecodeError as err:
         print(f"\nERROR: {err}")
 
@@ -69,10 +50,7 @@ def get_version_details(sz_root_path: Path) -> List[str]:
     details.append(version_details.get("DATA_VERSION", ""))
 
     if not all(details):
-        # TODO print_error() or warning when have helpers?
-        print(
-            f"\nERROR: Problem reading values from version details, missing value(s) - {details}"
-        )
+        print(f"\nERROR: Problem reading values from version details, missing value(s) - {details}")
         sys.exit(1)
 
     return details
@@ -90,20 +68,14 @@ def replace_in_file(filename: Path, old_string: str, new_string: str) -> None:
         raise err
 
 
-def set_folder_permissions(
-    path: Path, permissions: int, folders_to_ignore: Union[List[str], None] = None
-) -> None:
+def set_folder_permissions(path: Path, permissions: int, folders_to_ignore: Union[List[str], None] = None) -> None:
     """Set permissions recursively on a folder, optionally ignore specific folders"""
     if folders_to_ignore is None:
         folders_to_ignore = []
 
     path.chmod(permissions)
 
-    dirs: List[Path] = [
-        d
-        for d in path.rglob("*")
-        if d.is_dir() and not d.is_symlink() and d not in folders_to_ignore
-    ]
+    dirs: List[Path] = [d for d in path.rglob("*") if d.is_dir() and not d.is_symlink() and d not in folders_to_ignore]
     for dir_ in dirs:
         dir_.chmod(permissions)
 
@@ -150,9 +122,7 @@ def main() -> None:
     var_path = project_path.joinpath("var")
 
     if project_path.exists() and project_path.samefile(sz_path_root):
-        print(
-            f"\nProject cannot be created in {sz_path_root}. Please specify a different path."
-        )
+        print(f"\nProject cannot be created in {sz_path_root}. Please specify a different path.")
         sys.exit(1)
 
     if project_path.exists():
@@ -162,8 +132,7 @@ def main() -> None:
     version_details = get_version_details(sz_path)
     print(f"\nSenzing version:  {version_details[0]}\n")
 
-    # TODO Remove sz_upgrade?
-    ignore_files = ["sz_create_project", "sz_configupgrade"]
+    ignore_files = ["sz_create_project"]
     # Example: ignore_paths = [sz_path.joinpath('python')]
     ignore_paths: List[str] = []
     excludes = ignore_files + ignore_paths
@@ -225,7 +194,6 @@ def main() -> None:
     set_file_permissions(project_path, 0o660)
     project_path.joinpath("setupEnv").chmod(0o770)
 
-    # TODO - Ant - Might need adjustment on some files when helpers are finalized and in place
     # bin
     set_file_permissions(bin_path, 0o770, recursive=True)
 

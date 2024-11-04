@@ -1,23 +1,5 @@
 #! /usr/bin/env python3
 
-# TODO Which cli args from G2Command?
-# TODO Test all CLI / env var args
-# TODO CSVs
-# TODO Output paths for with info and errors at the start so don't need to wait until file is processed to see where they are
-# TODO Make with_info and errors files redirectable, -w or -w <path/file>
-# TODO Format args and env vars better on start
-# TODO     - Need to collect env vars once decided on all cli args used
-# TODO Check if input looks like JSON or not, don't try and load a CSV or other
-# TODO Check for % of errors in first x records, quit if too high
-# TODO Add env vars like here for all tools?
-# TODO Warning message this is PoC tool like G2Loader?
-# TODO Check memory and warning message - Jira to add psutil to V4, now added, update to newer V4 and stage
-# TODO Runtime args at start or end and to errors/info file add complete input line + env vars if start with SENZING_
-# TODO ./file-loader_v4.py -f /home/ant/senzprojs/3.9.1.24107/python/demo/truth/*.json -sdsp
-#      - Failed to stop processing on the first file when dsrc didn't exist
-# TODO Test in container
-# TODO Things for help:
-# TODO     - Can glob files, ./file-loader_v4.py -f /home/ant/senzprojs/3.9.1.24107/python/demo/truth/*.json
 
 import argparse
 import concurrent.futures
@@ -62,8 +44,6 @@ __version__ = "1.3.0"  # See https://www.python.org/dev/peps/pep-0396/
 __date__ = "2022-11-29"
 __updated__ = "2023-12-19"
 
-# TODO - Ant - Which version? Need name in demonstrable tools? Likely not
-# LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s:  %(message)s"
 LOG_FORMAT = "%(asctime)s - %(levelname)s:  %(message)s"
 LONG_RECORD = 300
 MODULE_NAME = pathlib.Path(__file__).stem
@@ -84,7 +64,6 @@ if os.getenv("SENZING_DOCKER_LAUNCHED"):
     errors_file = f"/data/{errors_file}"
     with_info_file = f"/data/{with_info_file}"
 
-# TODO - Ant - Move to helpers for other tools?
 try:
     logger = logging.getLogger(pathlib.Path(sys.argv[0]).stem)
     console_handle = logging.StreamHandler(stream=sys.stdout)
@@ -124,10 +103,6 @@ class CustomArgAction(argparse.Action):
         setattr(namespace, self.dest + "_specified", True)
 
 
-# TODO - Ant - Organize these
-# TODO - Ant - Env vars for all
-# TODO - Ant - Check help visually looks good and help is accurate
-# def parse_cli_args() -> argparse.Namespace:
 def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     """# TODO"""
     # TODO - Ant -
@@ -155,8 +130,6 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
-    # TODO - Ant -  Should support globing
-    # TODO - Ant - Improve -f to use a list of inputs as well as globing
     arg_parser.add_argument(
         "-f",
         "--file",
@@ -187,26 +160,6 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
             """
         ),
     )
-    # # TODO - Ant - Help should say will look for G2/SzModule?
-    # arg_parser.add_argument(
-    #     "-cj",
-    #     "--configJson",
-    #     action=CustomArgAction,
-    #     default=None,
-    #     metavar="config",
-    #     nargs="?",
-    #     # TODO - Ant - Dont need, str default
-    #     type=str,
-    #     help=textwrap.dedent(
-    #         """\
-    #         JSON string of the Senzing engine configuration.
-
-    #         Default: None
-    #         Env Var: SENZING_ENGINE_CONFIGURATION_JSON
-
-    #         """
-    #     ),
-    # )
     arg_parser.add_argument(
         "-w",
         "--withinfo",
@@ -239,7 +192,7 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
             """
         ),
     )
-    # TODO - Ant - SENZING_THREADS_PER_PROCESS -> SENZING_NUMBER_OF_THREADS
+    # TODO SENZING_THREADS_PER_PROCESS -> SENZING_NUMBER_OF_THREADS
     arg_parser.add_argument(
         "-nt",
         "--numThreads",
@@ -252,26 +205,24 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
             Total number of worker threads performing load.
 
             Default: Calculated
-            Env Var: SENZING_THREADS_PER_PROCESS
+            Env Var: SENZING_NUMBER_OF_THREADS
 
             """
         ),
     )
-    # TODO - Ant - Make available
     arg_parser.add_argument(
         "-n",
         "--noRedo",
         action=CustomArgActionStoreTrue,
         default=False,
         nargs=0,
-        # TODO - Ant - Env var?
         help=textwrap.dedent(
             f"""\
             Disable redo processing.
             Another instance of {MODULE_NAME} can be run in redo only mode or redo can be processed after ingestion.
 
             Default: False
-            Env Var: SENZING_????
+            Env Var: SENZING_NO_REDO
 
             """
         ),
@@ -330,7 +281,7 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
             """
         ),
     )
-    # TODO - Ant - Env var?
+    # TODO Env vars?
     # Args for Senzing team testing
     # Disable DS Perf
     arg_parser.add_argument(
@@ -362,8 +313,6 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
 
     # If a CLI arg was specified use it, else try the env var, if no env var use the default for the CLI arg
     # Sets the priority to: 1) CLI arg, 2) Env Var 3) Default value
-    # TODO - Ant - Add new env vars to Git document
-    # TODO - Ant - Move this to parse_cli_args and rename it?
     settings["debug_trace"] = (
         cli_args.debugTrace
         if cli_args.__dict__.get("debugTrace_specified")
@@ -371,11 +320,6 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     )
 
     settings["engine_settings"] = cli_args.iniFile
-    # settings["engine_settings"] = (
-    #     cli_args.configJson
-    #     if cli_args.__dict__.get("configJson_specified")
-    #     else os.getenv("SENZING_ENGINE_CONFIGURATION_JSON", cli_args.configJson)
-    # )
 
     settings["ingest_files"] = (
         cli_args.file if cli_args.__dict__.get("file_specified") else os.getenv("SENZING_INPUT_FILES")
@@ -397,7 +341,7 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
         cli_args.numThreads
         if cli_args.__dict__.get("numThreads_specified")
         # TODO - Ant - Does this need the os.getenv?
-        else int(os.getenv("SENZING_THREADS_PER_PROCESS", cli_args.numThreads))
+        else int(os.getenv("SENZING_NUMBER_OF_THREADS", cli_args.numThreads))
     )
 
     settings["shuffle_files_ignore"] = (
@@ -463,8 +407,6 @@ def check_ingest_file(in_file: pathlib.Path) -> bool:
     lines = []
     try:
         with open(in_file, "r", encoding="utf-8-sig") as file_:
-            # TODO - Ant - Get first 100 lines and see if they pass here?
-            # TODO - Ant - What if don't get line1 but no error?
             for _ in range(1, 101):
                 read_line = file_.readline().strip()
                 if read_line:
@@ -474,14 +416,13 @@ def check_ingest_file(in_file: pathlib.Path) -> bool:
                 try:
                     _ = json.loads(line)
                     json_good += 1
-                # TODO - Ant - orjson too
                 except json.JSONDecodeError:
                     json_errors += 1
+                    # TODO Work in progress...
                     # try:
                     #     csv_sample = file_.read(5000)
                     #     csv_header = csv.Sniffer().has_header(csv_sample)
                     #     csv_dialect = csv.Sniffer().sniff(csv_sample)
-                    #     # TODO - Ant -
                     #     print(f"\n{csv_header = }")
                     #     print(f"\n{csv_dialect.__dict__ = }")
                     #     reader = csv.reader(file_, csv_dialect)
@@ -495,13 +436,6 @@ def check_ingest_file(in_file: pathlib.Path) -> bool:
         logger.error("Problem reading file %s: ", err)
         return False
 
-    # print(f"\n{json_good = }")
-    # print(f"\n{json_errors = }")
-    # print(f"\n{len(lines) = }")
-
-    # TODO - Ant - No JSON lines at all, CSV?
-    # TODO - Ant - Check the % of good v bad when hit a bad one?
-    # TODO - Ant - Improve this check
     if (json_errors > json_good) and json_good == 0:
         logger.error("File to ingest doesn't appear to be JSON. CSV files are not currently supported")
         sys.exit(1)
@@ -599,7 +533,7 @@ def shuffle_ingest_file(
     logger.info("Shuffling to: %s", shuff_file)
     shuf_cmd = "gshuf" if sys.platform == "darwin" else "shuf"
     cmd = f"{shuf_cmd} {ingest_file} > {shuff_file}"
-    # TODO - Ant - Add back when supporting CSV
+    # TODO Add back if/when supporting CSV
     # if sourceDict["FILE_FORMAT"] not in ("JSON", "UMF"):
     #     cmd = f"head -n1 {file_path} > {shuf_file_path} && tail -n+2 {file_path} | shuf >> {shuf_file_path}"
 
@@ -720,7 +654,6 @@ def startup_info(
     # Skip perf check if specified on CLI args or container env var
     if not skip_ds_perf:
         max_time_per_insert = 0.5
-        # TODO - Ant - Check is in V4 docs
         db_tune_article = "https://senzing.zendesk.com/hc/en-us/articles/360016288254-Tuning-Your-Database"
 
         logger.info("")
@@ -756,9 +689,8 @@ def startup_info(
 def add_record(engine: SzEngine, rec_to_add: str, with_info: bool) -> str:
     """Add a single record, returning with info details if --info or SENZING_WITHINFO was specified"""
     record_dict = json.loads(rec_to_add)
-    # TODO - Ant - None or "" ? What happens in the SDK?
-    data_source = record_dict.get("DATA_SOURCE", None)
-    record_id = record_dict.get("RECORD_ID", None)
+    data_source = record_dict.get("DATA_SOURCE", "")
+    record_id = record_dict.get("RECORD_ID", "")
 
     if with_info:
         response = engine.add_record(data_source, record_id, rec_to_add, SzEngineFlags.SZ_WITH_INFO)
@@ -895,7 +827,6 @@ def load_and_redo(
                     with_info,
                 )
             ] = (record, time.time())
-            # TODO - Ant - Reverse this True / False
             return True
         else:
             return False
@@ -918,7 +849,6 @@ def load_and_redo(
     # Test the max number of workers ThreadPoolExecutor allocates to use in sizing actual workers to request
     max_workers = num_workers if num_workers else get_max_futures_workers()
 
-    # TODO - Ant - Move outside of function?
     # Text to substitute in output depending on the mode
     mode_text = {
         "add_record": {
@@ -937,7 +867,6 @@ def load_and_redo(
         },
     }
 
-    # TODO - Ant - Does this still work correctly if there is no file_to_process?
     modes = [add_record] if no_redo else [add_record, process_redo_record]
     main_start_time = time.time()
 
@@ -998,7 +927,6 @@ def load_and_redo(
                         json.JSONDecodeError,
                     ) as err:
                         error_recs += 1
-                        # TODO - Ant - cli arg to hide record? And in errors file
                         logger.info("")
                         logger.error(
                             "%s - Operation: %s - Record: %s",
@@ -1035,11 +963,9 @@ def load_and_redo(
                     finally:
                         del futures[f]
 
-                # # TODO Keep?
                 # Early errors check to catch mis-mapping, missing dsrc_code, etc
                 if error_recs == max_workers:
                     logger.info("")
-                    # TODO Does this show the errors file?
                     logger.error(
                         "All initial %s records failed! Stopping processing, please review the errors file.",
                         f"{max_workers:,}",
@@ -1071,7 +997,6 @@ def load_and_redo(
         if not shutdown.is_set():
             workload_stats(sz_engine)
 
-        # TODO Add same for redo so don't get 100 error on redo when first 100 load fail
         # Store loading stats for overall results stats
         if mode.__name__ == "add_record":
             load_time = round(((time.time() - main_start_time) / 60), 1)
@@ -1089,15 +1014,11 @@ def load_and_redo(
             redo_errors = error_recs
             redo_success = success_recs
 
-    # TODO - Ant - What if redo only - test scenarios without file name
-    # TODO - Ant - Repeating logic from above, reduce...
-    # TODO - Ant - Remove the pathlib.Path
     results = {
         "source_file": str(ingest_file) if ingest_file else None,
         "persisted_shuff_file": (ingest_file_shuff if shuffle_no_delete else None),
         "did_shuff": True if not no_shuffle else False,
         "errors_file": (str(pathlib.Path(errors_file).resolve()) if (load_errors + error_recs) > 0 else None),
-        # TODO - Ant - with_info_file like errors above
         "with_info": (str(pathlib.Path(with_info_file).resolve()) if with_info else None),
         "elapsed_time_total": load_time + redo_time,
         "load_stats": {
@@ -1122,16 +1043,6 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
 
     no_redo = settings["no_redo"]
     shuffle_no_delete = settings["shuffle_no_delete"]
-    # {
-    #     "source_file": "/home/ant/senzprojs/3.9.1.24107/python/demo/truth/watchlist.json",
-    #     "persisted_shuff_file": None,
-    #     "did_shuff": True,
-    #     "errors_file": "No errors",
-    #     "with_info": "Not requested",
-    #     "elapsed_time_total": 0.0,
-    #     "load_stats": {"success_recs": 17, "error_recs": 0, "elapsed_time": 0.0},
-    #     "redo_stats": {"success_recs": 0, "error_recs": 0, "elapsed_time": 0.0},
-    # }
 
     logger.info("")
     logger.info("Results")
@@ -1145,18 +1056,13 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
         if shuffle_no_delete and result["persisted_shuff_file"]:
             logger.info("Persisted shuffled file:    %s", result["persisted_shuff_file"])
         else:
-            # TODO - Ant - Need to fix this
             did_shuf = "Yes" if result["did_shuff"] else "No"
             logger.info("Source file shuffled:       %s", did_shuf)
-    # TODO - Ant - Only display if requested?
-    # TODO - Ant - Make this pathlib earlier
     logger.info(
         "With info file:             %s",
         result["with_info"] if result["with_info"] else "Not requested",
     )
     # f"{pathlib.Path(with_info_file).resolve() if with_info else 'Not requested'}",
-    # TODO - Ant - Only display if there are errors?
-    # TODO - Ant - Make this pathlib earlier
     logger.info(
         "Errors file:                %s",
         result["errors_file"] if result["errors_file"] else "No errors",
@@ -1166,8 +1072,8 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
     logger.info("")
     if result["source_file"]:
         # TODO Language?
-        logger.info("Successful loaded records:  %s", result["load_stats"]["success_recs"])
-        logger.info("Error loaded records:       %s", result["load_stats"]["error_recs"])
+        logger.info("Successful load records:  %s", result["load_stats"]["success_recs"])
+        logger.info("Error load records:       %s", result["load_stats"]["error_recs"])
         logger.info("Loading elapsed time (s):   %s", result["load_stats"]["elapsed_time"])
 
     logger.info("")
@@ -1176,10 +1082,8 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
         # f"Successful redo records:    {f'{redo_success:,}' if not no_redo else no_redo_msg}"
         logger.info("Successful redo records:    %s", result["redo_stats"]["success_recs"])
         # f"{redo_success:,}" if not no_redo else "Redo disabled",
-        # TODO - Ant - No need for this, set to 0, is that default?
         logger.info("Error redo records:         %s", result["redo_stats"]["error_recs"])
         # f"{redo_errors:,}" if not no_redo else "",
-        # TODO - Ant - No need for this, is that default?
         logger.info(
             "Redo elapsed time (s):      %s", result["redo_stats"]["elapsed_time"]
         )  # redo_time if not no_redo else "")
@@ -1205,41 +1109,6 @@ def summary_results(
     no_redo = settings["no_redo"]
     shuffle_no_delete = settings["shuffle_no_delete"]
 
-    # TODO - Ant - Move did_shuff, errors_file, with_info out of dict?
-    # _ = {
-    #     "1": {
-    #         "source_file": "/home/ant/senzprojs/3.9.1.24107/python/demo/truth/customers.json",
-    #         "persisted_shuff_file": None,
-    #         "did_shuff": True,
-    #         "errors_file": None,
-    #         "with_info": None,
-    #         "elapsed_time_total": 0.0,
-    #         "load_stats": {"success_recs": 120, "error_recs": 0, "elapsed_time": 0.0},
-    #         "redo_stats": {"success_recs": 0, "error_recs": 0, "elapsed_time": 0.0},
-    #     },
-    #     "2": {
-    #         "source_file": "/home/ant/senzprojs/3.9.1.24107/python/demo/truth/reference.json",
-    #         "persisted_shuff_file": None,
-    #         "did_shuff": True,
-    #         "errors_file": None,
-    #         "with_info": None,
-    #         "elapsed_time_total": 0.0,
-    #         "load_stats": {"success_recs": 22, "error_recs": 0, "elapsed_time": 0.0},
-    #         "redo_stats": {"success_recs": 0, "error_recs": 0, "elapsed_time": 0.0},
-    #     },
-    #     "3": {
-    #         "source_file": "/home/ant/senzprojs/3.9.1.24107/python/demo/truth/watchlist.json",
-    #         "persisted_shuff_file": None,
-    #         "did_shuff": True,
-    #         "errors_file": None,
-    #         "with_info": None,
-    #         "elapsed_time_total": 0.0,
-    #         "load_stats": {"success_recs": 17, "error_recs": 0, "elapsed_time": 0.0},
-    #         "redo_stats": {"success_recs": 0, "error_recs": 0, "elapsed_time": 0.0},
-    #     },
-    # }
-
-    # TODO - Ant -  Rename
     elapsed_time_total = 0
     load_error_total = 0
     load_success_total = 0
@@ -1257,28 +1126,21 @@ def summary_results(
         redo_time_total += result["redo_stats"]["elapsed_time"]
         elapsed_time_total += result["elapsed_time_total"]
 
-    # TODO - Ant - Sync language here and in per results
     logger.info("")
     logger.info("Overall Results")
     logger.info("---------------")
     logger.info("")
     logger.info("Files processed:  %s", len(overall_results))
 
-    # TODO - Ant - Need to fix this -snd and check for did we do a shuffle - did_shuff
     if shuffle_no_delete:
         logger.info(
             "Files shuffled:   %s",
-            # TODO - Ant - Need to check this correct when file size is small or -ns specified
             "Yes" if overall_results["1"]["did_shuff"] else "No",
         )
-    # TODO - Ant - Only display if requested?
-    # TODO - Ant - Make this pathlib earlier
     logger.info(
         "With info file:   %s",
         (overall_results["1"]["with_info"] if overall_results["1"]["with_info"] else "Not requested"),
     )
-    # TODO - Ant - Only display if there are errors?
-    # TODO - Ant - Make this pathlib earlier
     logger.info(
         "Errors file:      %s",
         (overall_results["1"]["errors_file"] if overall_results["1"]["errors_file"] else "No errors"),
@@ -1303,7 +1165,6 @@ def summary_results(
 def main() -> None:
     """# TODO"""
 
-    # TODO - Ant - Move to later so can pass cli args and file names to perform cleanup
     signal.signal(signal.SIGINT, signal_int)
 
     errors_total = 0
@@ -1348,18 +1209,13 @@ def main() -> None:
                 logger.info("-" * 100)
                 logger.info("Processing: %s", ingest_file)
 
-                # TODO - Ant - If there is an issue, stop all processing?
                 check_ingest_file(ingest_file)
 
-                # TODO - Ant - Needs check for env var too when added
-                # TODO - Ant - Put this in load_and_redo?
                 # Don't shuffle small files
-                # TODO - Ant - Can't pass cli_args as doesn't take into account env vars!
                 # if not cli_args.noShuffle:
                 if not cli_args["no_shuffle"]:
                     if ingest_file_size > 50_000:
                         # if ingest_file_size > 0:
-                        # TODO - Ant - Can't pass cli_args as doesn't take into account env vars!
                         ingest_file_shuff = shuffle_ingest_file(
                             # cli_args, shuff_files_ignore, ingest_file
                             cli_args,
@@ -1373,7 +1229,6 @@ def main() -> None:
 
                 with open(ingest_or_shuff_file, "r", encoding="utf-8-sig") as file_to_process:
                     results = load_and_redo(
-                        # TODO - Ant - Can't pass cli_args as doesn't take into account env vars!
                         # cli_args,
                         cli_args,
                         sz_engine,
@@ -1386,51 +1241,37 @@ def main() -> None:
                         ingest_file_shuff,
                     )
 
-                # TODO - Ant - Can't pass cli_args as doesn't take into account env vars!
                 # per_result(cli_args, results)
                 per_result(cli_args, results)
                 overall_results[str(idx)] = results
 
-                # TODO - Ant -
                 # If shutdown is set stop processing further files
                 if shutdown.is_set():
                     break
 
-            # TODO - Ant - Put this in load_and_redo?
             # Remove shuffled file if ingest file was shuffled, don't want to keep it
             # and shuffle wasn't disabled
-            if (
-                ingest_file_shuff
-                # TODO - Ant - Can't pass cli_args as doesn't take into account env vars!
-                # and not cli_args.shuffleNoDelete
-                and not cli_args["shuffle_no_delete"]
-                # and not cli_args.noShuffle
-                and not cli_args["no_shuffle"]
-            ):
+            if ingest_file_shuff and not cli_args["shuffle_no_delete"] and not cli_args["no_shuffle"]:
                 with suppress(IOError):
                     pathlib.Path.unlink(ingest_file_shuff)
         # Redo only
         else:
             results = load_and_redo(
-                # TODO - Ant - Can't pass cli_args as doesn't take into account env vars!
                 # cli_args,
                 cli_args,
                 sz_engine,
                 # num_threads,
-                # TODO - Ant - Remove no_redo from this call
                 # no_redo,
                 # with_info,
                 with_info_out,
             )
 
             print(f"\nREDO results: {results = }")
-            # TODO - Ant - Can't pass cli_args as doesn't take into account env vars!
             per_result(cli_args, results)
             overall_results["redo_only"] = results
 
     # If processed >1 files show overall stats
     if len(overall_results) > 1:
-        # TODO - Ant - Can't pass cli_args as doesn't take into account env vars!
         summary_results(cli_args, overall_results)
 
     # Check if there were any errors for load or redo to determine if errors file
@@ -1442,17 +1283,10 @@ def main() -> None:
     if not errors_total:
         pathlib.Path(errors_file).unlink(missing_ok=True)
 
-    # TODO - Ant - Can't pass cli_args as doesn't take into account env vars!
     # if not cli_args.withinfo and not os.getenv("SENZING_WITHINFO"):
     if not cli_args["with_info"]:
         pathlib.Path(with_info_file).unlink(missing_ok=True)
 
-    # TODO - Ant - If not redo message to run redo
-
 
 if __name__ == "__main__":
     main()
-
-# TODO - Ant -
-# if __name__ == "__main__":
-#     sys.exit(main(sys.argv))

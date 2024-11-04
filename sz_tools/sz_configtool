@@ -165,26 +165,11 @@ class Colors:
     FG_ORANGERED1 = "\033[38;5;202m"
 
 
-# TODO - Ant - Organize these
-# TODO - Ant - Env vars for all
-# TODO - Ant - Check help visually looks good and help is accurate
-# def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
 def parse_cli_args() -> argparse.Namespace:
     """# TODO"""
     arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description="Utility to view and manipulate the Senzing configuration",
-        # epilog=textwrap.dedent(
-        #     """\
-        #     Arguments can be specified with either CLI arguments or environment variables, some arguments have
-        #     default values.
-        #     The order of precedence for selecting which value to use is:
-        #     1) CLI Argument
-        #     2) Environment variable
-        #     3) Default value if available
-        #     For additional help and information: https://github.com/Senzing/file-loader/blob/main/README.md
-        #     """
-        # ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
     arg_parser.add_argument("file_to_process", default=None, nargs="?")
@@ -259,7 +244,6 @@ class SzCfgShell(cmd.Cmd, object):
     ):
         cmd.Cmd.__init__(self)
 
-        # TODO - Ant - Try/Except
         # Create Senzing engines
         self.sz_factory = sz_abstract_factory
         self.sz_config = self.sz_factory.create_sz_config()
@@ -343,7 +327,6 @@ class SzCfgShell(cmd.Cmd, object):
             "NONE",
         ]
 
-        # TODO Have these changed?
         self.json_attr_types = {
             "ID": "integer",
             "EXECORDER": "integer",
@@ -363,7 +346,6 @@ class SzCfgShell(cmd.Cmd, object):
 
         # Setup for pretty printing
         Colors.set_theme("DEFAULT")
-        # TODO Set this during import
         self.pygments_installed = True if "pygments" in sys.modules else False
         # self.current_output_format = 'table' if prettytable else 'jsonl'
         self.current_output_format_list = "table" if prettytable else "jsonl"
@@ -804,7 +786,6 @@ class SzCfgShell(cmd.Cmd, object):
                 # self.sz_configmgr.setDefaultConfigID(addconfig_id)
                 self.sz_configmgr.set_default_config_id(config_id)
             except SzError:
-                # TODO How does this look with SzError json string?
                 raise
 
             colorize_msg("Default config added!", "success")
@@ -849,7 +830,6 @@ class SzCfgShell(cmd.Cmd, object):
         return
 
     def default(self, line):
-        # TODO szcommand uses self.print_error
         colorize_msg("Unknown command, type help or ?", "warning")
         return
 
@@ -921,7 +901,6 @@ class SzCfgShell(cmd.Cmd, object):
                 self.config_updated = False
                 colorize_msg("Configuration changes saved", "success")
             except SzError as err:
-                # TODO szcommand print_error
                 colorize_msg(err, "error")
         else:
             colorize_msg("There are no changes to save", "warning")
@@ -2629,7 +2608,6 @@ class SzCfgShell(cmd.Cmd, object):
         self.config_updated = True
 
     def do_listAttributes(self, arg):
-        # TODO Add Examples to all help, what is a filter_expression?
         """
         Returns the list of registered attributes
 
@@ -3662,7 +3640,6 @@ class SzCfgShell(cmd.Cmd, object):
             return
         self.addCallElement(add_attributes_to_arg(arg, add={"callType": "expression"}))
 
-    # TODO Test this, didn't seem to work
     def do_deleteExpressionCallElement(self, arg):
         """
         Delete a feature/element from an existing expression call
@@ -3815,7 +3792,6 @@ class SzCfgShell(cmd.Cmd, object):
         for cfcall_record in sorted(
             self.get_record_list("CFG_CFCALL"),
             # key=lambda k: (k["FTYPE_ID"], k["EXEC_ORDER"]),
-            # TODO Check order
             key=lambda k: (k["FTYPE_ID"], k["CFCALL_ID"]),
         ):
             cfcall_json = self.format_comparison_calls_json(cfcall_record)
@@ -4034,7 +4010,6 @@ class SzCfgShell(cmd.Cmd, object):
         for dfcall_record in sorted(
             self.get_record_list("CFG_DFCALL"),
             # key=lambda k: (k["FTYPE_ID"], k["EXEC_ORDER"]),
-            # TODO Order ok?
             key=lambda k: (k["FTYPE_ID"], k["DFCALL_ID"]),
         ):
             dfcallJson = self.format_distinct_call_json(dfcall_record)
@@ -4100,7 +4075,6 @@ class SzCfgShell(cmd.Cmd, object):
             return
         self.addCallElement(add_attributes_to_arg(arg, add={"callType": "distinct"}))
 
-    # TODO - Ant - This blows up if you send in just an int on add_attributes_to_arg, others too? Need a JSON check?
     def do_deleteDistinctCallElement(self, arg):
         """
         Delete a feature/element from an existing distinct call
@@ -4148,7 +4122,6 @@ class SzCfgShell(cmd.Cmd, object):
         parm_data["ID"] = call_id
         self.addCallElement(json.dumps(parm_data))
 
-    # TODO Check this
     def do_deleteFromNamehash(self, arg):
         """
         Delete a feature element from the list composite name keys
@@ -4589,7 +4562,6 @@ class SzCfgShell(cmd.Cmd, object):
         colorize_msg("Generic threshold successfully updated!", "success")
         self.config_updated = True
 
-    # TODO Chexk this
     def do_deleteGenericThreshold(self, arg):
         """
         Deletes a generic threshold record
@@ -5615,14 +5587,11 @@ class SzCfgShell(cmd.Cmd, object):
             key=lambda k: (k["CFUNC_ID"], k["CFRTN_ID"]),
         ):
             cfrtnJson = self.format_comparison_threshold_json(cfrtn_record)
-            # TODO - Ant - Turn this into a function for all filter checks to use to avoid a filter such as if being a key in the dict
             if arg:
                 json_values = [str(v).lower() for v in cfrtnJson.values()]
                 str_values = " ".join(json_values)
                 if arg.lower() not in str_values:
                     continue
-            # if arg and arg.lower() not in str(cfrtnJson).lower():
-            # continue
             json_lines.append(cfrtnJson)
         if json_lines:
             self.print_json_lines(json_lines)
@@ -5816,7 +5785,6 @@ class SzCfgShell(cmd.Cmd, object):
     # ===== config sections =====
 
     def do_getConfigSection(self, arg):
-        # TODO Says json but can be others too
         """
         Returns the json configuration for a specific configuration table
 
@@ -6145,7 +6113,6 @@ class SzCfgShell(cmd.Cmd, object):
             json_doc = json_doc[0:-2] + "]"
             render_string = colorize_json(json.dumps(json.loads(json_doc), indent=4))
 
-        # TODO Fetch terminal height snd determine if scroll is needed?
         self.print_scrolling(render_string)
 
     def print_json_as_table(self, json_lines):

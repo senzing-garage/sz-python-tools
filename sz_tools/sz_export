@@ -1,7 +1,5 @@
 #! /usr/bin/env python3
 
-# TODO - Ant - JSON_DATA coming back double quoted
-
 
 import argparse
 import contextlib
@@ -295,14 +293,11 @@ if __name__ == "__main__":
         ),
     )
 
-    # TODO - Ant - Add valid flags to help
     cli_args.add_argument(
         "-f",
         "--flags",
         default=["SZ_ENTITY_BRIEF_DEFAULT_FLAGS", "SZ_EXPORT_INCLUDE_ALL_ENTITIES"],
         nargs="+",
-        # TODO - Ant -
-        # choices=SZ_VALID_FLAGS,
         help=textwrap.dedent(
             """\
 

@@ -16,7 +16,6 @@ def parse_cli_args() -> argparse.Namespace:
         "--iniFile",
         dest="ini_file_name",
         default=None,
-        # TODO - Ant - SZModule.ini?
         help="Path and file name of optional G2Module.ini to use",
     )
     # Run in non-interactive mode for Senzing team testing
@@ -38,9 +37,7 @@ def main() -> None:
         sz_config_mgr = sz_abstract_factory.create_sz_configmanager()
         default_config_id = sz_config_mgr.get_default_config_id()
     except SzError as err:
-        print(
-            "\nERROR: Could not initialize SzConfigManager or get default configuration ID"
-        )
+        print("\nERROR: Could not initialize SzConfigManager or get default configuration ID")
         print(f"ERROR: {err}\n")
         sys.exit(1)
 
@@ -70,9 +67,7 @@ def main() -> None:
 
     # Save configuration JSON into Senzing database.
     try:
-        new_config_id = sz_config_mgr.add_config(
-            new_config, "Configuration added from sz_setup_config"
-        )
+        new_config_id = sz_config_mgr.add_config(new_config, "Configuration added from sz_setup_config")
     except SzError as err:
         print("\nERROR: Failed to add configuration to the datastore")
         print(f"ERROR: {err}\n")

@@ -1,8 +1,5 @@
 #! /usr/bin/env python3
 
-# TODO why
-# TODO quickLook
-
 import argparse
 import atexit
 import cmd
@@ -38,35 +35,19 @@ except ImportError:
     print("\nPlease install the Python prettytable module (e.g. pip install prettytable)")
     sys.exit(1)
 
-# TODO - Ant - Move to helpers
 DATABASE_ACCESS = False
 with suppress(ImportError):
     from _sz_database import SzDatabase
 
     DATABASE_ACCESS = True
 
-# TODO - Ant - Metadata?
-
 
 def parse_cli_args() -> argparse.Namespace:
     """# TODO"""
-    # TODO - Ant -
-    # settings: dict[str, Union[bool, int, list[str], None, str]] = {}
 
     arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description="Utility to explore Senzing outcomes",
-        # epilog=textwrap.dedent(
-        #     """\
-        #     Arguments can be specified with either CLI arguments or environment variables, some arguments have
-        #     default values.
-        #     The order of precedence for selecting which value to use is:
-        #     1) CLI Argument
-        #     2) Environment variable
-        #     3) Default value if available
-        #     For additional help and information: https://github.com/Senzing/file-loader/blob/main/README.md
-        #     """
-        # ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
     arg_parser.add_argument(
@@ -131,7 +112,6 @@ def parse_cli_args() -> argparse.Namespace:
 # ) -> Dict[str, Any]:
 #     """# TODO"""
 #     parms = parms if isinstance(parms, list) else [parms]
-#     # TODO - Ant - Replace others too
 #     caller = inspect.stack()[1].function
 
 #     try:
@@ -140,7 +120,6 @@ def parse_cli_args() -> argparse.Namespace:
 #     except SzError as err:
 #         raise SzError(f"{caller}: {api_name} - {err}") from None
 
-#     # TODO - Ant -
 #     # api_called = f"{api_name}({', '.join(str(x) for x in parm_list)})"
 
 #     try:
@@ -295,7 +274,6 @@ class Node(object):
             parents[-1]["next_child"] += 1
 
             prefix = ""
-            # TODO - Ant - Use enumerate not range(len())
             for i in range(len(parents)):
                 if i < len(parents) - 1:  # prior level
                     prefix += "    " if parents[i]["next_child"] == len(parents[i]["node"].children) else "\u2502   "
@@ -345,8 +323,6 @@ class Node(object):
 
 class SzCmdShell(cmd.Cmd):
 
-    # ---------------------------
-    # TODO - Ant -
     def __init__(self, cli_args, sz_abstract_factory: SzAbstractFactory, engine_settings):
         cmd.Cmd.__init__(self)
         readline.set_completer_delims(" ")
@@ -368,16 +344,13 @@ class SzCmdShell(cmd.Cmd):
             print_message(err, "error")
             sys.exit(1)
 
-        # TODO - Ant -
         if DATABASE_ACCESS:
             try:
                 connection_settings: str = json.loads(engine_settings)["SQL"]["CONNECTION"]
                 self.sz_dbo = SzDatabase(connection_settings)
-            # TODO - Ant - What exceptions would we expect? KeyError from above
             except Exception as err:
                 print_message(f"Database access is available but there was an error connecting: {err}", "error")
                 print_message("The quickLook command will not be available", "error")
-                print(print(err.__dict__))
 
         self.intro = "\nType help or ? to list commands.\n"
         self.prompt = "(g2) "
@@ -414,7 +387,6 @@ class SzCmdShell(cmd.Cmd):
                 self.ftype_attr_lookup[cfg_record["FTYPE_CODE"]] = {}
             self.ftype_attr_lookup[cfg_record["FTYPE_CODE"]][cfg_record["FELEM_CODE"]] = cfg_record
 
-        # TODO - Ant
         # Build additional dictionary to easily reference ATTR_CLASS for FTYPE_CODE
         self.ftype_lookup_attr_class = {}
         for ftype_code, felem_codes_dicts in self.ftype_attr_lookup.items():
@@ -596,7 +568,6 @@ class SzCmdShell(cmd.Cmd):
     ) -> Dict[str, Any]:
         """# TODO"""
         parms = parms if isinstance(parms, list) else [parms]
-        # TODO - Ant - Replace others too
         caller = inspect.stack()[1].function
 
         try:
@@ -604,9 +575,6 @@ class SzCmdShell(cmd.Cmd):
             parms.append(flags_int)
         except SzError as err:
             raise SzError(f"{caller}: {api_name} - {err}") from None
-
-        # TODO - Ant -
-        # api_called = f"{api_name}({', '.join(str(x) for x in parm_list)})"
 
         try:
             api_call = getattr(self.sz_engine, api_name)
@@ -638,7 +606,6 @@ class SzCmdShell(cmd.Cmd):
                 f.write(f"- {call} -\n")
                 f.write(f"{output}\n\n")
         except IOError as err:
-            # TODO - Ant - Color
             print(f"cannot write to {self.debugOutput}: {err}")
 
     def get_names(self):
@@ -751,7 +718,6 @@ class SzCmdShell(cmd.Cmd):
         )
 
     # ---------------------------
-    # TODO - Ant - Use from helpers
     def histCheck(self):
 
         self.histFileName = None
@@ -791,7 +757,6 @@ class SzCmdShell(cmd.Cmd):
                 self.histAvail = True
 
     # ---------------------------
-    # TODO - Ant - Use from helpers
     def do_history(self, arg):
 
         if self.histAvail:
@@ -803,7 +768,6 @@ class SzCmdShell(cmd.Cmd):
             print_message("History isn't available in this session", "warning")
 
     # ---------------------------
-    # TODO - Ant - Use from helpers
     def do_shell(self, line):
         """\nRun OS shell commands: !<command>\n"""
         if line:
@@ -910,7 +874,7 @@ class SzCmdShell(cmd.Cmd):
             print_message(err, "error")
             return
 
-        # TODO - Ant - G2Snapshot?
+        # TODO - G2Snapshot?
         if "SOURCE" in json_data and json_data["SOURCE"] in ("G2Snapshot"):  # 'pocSnapshot',
             self.current_settings["snapshotFile"] = statpack_file_name
             self.snapshot_file = statpack_file_name
@@ -981,8 +945,6 @@ class SzCmdShell(cmd.Cmd):
             )
         self.render_table(tblTitle, tblColumns, tblRows)
 
-    # def do_quickLook(self, arg):
-    # # TODO - Ant
     # print("\nNot currently implemented in V4 beta\n")
 
     # try:
@@ -1444,7 +1406,7 @@ class SzCmdShell(cmd.Cmd):
                 json_data = self.execute_sz_api("get_entity_by_entity_id", get_flag_list, int(entity_id))
             except SzError as err:
                 print_message(err, "error")
-                # TODO - Ant -  calledDirect not defined
+                # TODO calledDirect not defined
                 return -1 if calledDirect else 0
 
             # get the list of features for the entity
@@ -1856,7 +1818,6 @@ class SzCmdShell(cmd.Cmd):
         return [i for i in possibles if i.lower().startswith(arg.lower())]
 
     # ---------------------------
-    # TODO - Ant - Auto complete doesn't work for data source
     def do_multiSourceSummary(self, arg):
         if not self.snapshot_data or not self.snapshot_data.get("MULTI_SOURCE"):
             print_message(
@@ -2042,9 +2003,6 @@ class SzCmdShell(cmd.Cmd):
             #    filter_str = None
 
     # ---------------------------
-    # TODO - Ant - Fix help for 100/principle name
-    # TODO - Ant - If rule code/name used and not found improve help to say not found, it's
-    # TODO confusing to say invalid
     def help_principlesUsed(self):
         print(
             textwrap.dedent(
@@ -2063,7 +2021,6 @@ class SzCmdShell(cmd.Cmd):
         )
 
     # ---------------------------
-    # TODO - Ant - Fix
     def complete_principlesUsed(self, text, line, begidx, endidx):
         before_arg = line.rfind(" ", 0, begidx)
         # if before_arg == -1:
@@ -2074,7 +2031,7 @@ class SzCmdShell(cmd.Cmd):
         possibles = list(self.category_sort_order.keys())
         possibles.append("PRINCIPLES")
         if hasattr(self, "statsByPrinciple"):
-            # TODO - Ant - statsByPrinciples not defined
+            # TODO statsByPrinciples not defined
             possibles.extend(list(statsByPrinciple.keys()))
 
         return [i for i in possibles if i.lower().startswith(arg.lower())]
@@ -2085,9 +2042,8 @@ class SzCmdShell(cmd.Cmd):
         arg_upper = arg.upper().strip() if arg else arg
 
         if not self.snapshot_data or not self.snapshot_data.get("PRINCIPLES_USED"):
-            # TODO - Ant - sz_snapshot for V4
             print_message(
-                "Please create a new snapshot with the latest G2Snapshot.py to access this report",
+                "Please create a new snapshot with the latest sz_snapshot to access this report",
                 "error",
             )
             return
@@ -2106,7 +2062,6 @@ class SzCmdShell(cmd.Cmd):
         stats_by_principle = {}
 
         # , key=lambda k: self.categorySortOrder[k]):
-        # TODO - Ant - Why doing this happen every time called?
         for category in self.snapshot_data["PRINCIPLES_USED"].keys():
             if category not in stats_by_category:
                 stats_by_category[category] = {"COUNT": 0}
@@ -2167,7 +2122,6 @@ class SzCmdShell(cmd.Cmd):
                 )
             self.render_table(tbl_title, tbl_columns, tbl_rows)
 
-        # TODO - Ant - Autocomplete categories?
         elif arg_upper in stats_by_category:
             category = arg_upper
             header = f"Principles used for {category} across all data sources"
@@ -2260,12 +2214,10 @@ class SzCmdShell(cmd.Cmd):
                             return_code = self.do_compare(",".join(current_records))
 
                     if return_code != 0:
-                        # TODO - Ant - Which entity?
                         print_message("This entity no longer exists", "error")
 
                     while True:
                         if matchlevel_code in ("SINGLE_SAMPLE", "DUPLICATE_SAMPLE"):
-                            # TODO - Ant - Doesn't get color?
                             reply = input(
                                 colorize_prompt(
                                     "Select (P)revious, (N)ext, (G)oto, (D)etail, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
@@ -2290,11 +2242,9 @@ class SzCmdShell(cmd.Cmd):
                             break
                         elif reply_upper == "S":
                             self.do_scroll("")
-                        # TODO - Ant - Does this work?!
                         elif reply_upper[0] in "PNG":  # previous, next, goto
                             current_sample = self.move_pointer(reply, current_sample, len(sample_records))
                             break
-                        # TODO - Ant - Does this work?!
                         elif reply_upper[0] in special_actions:
                             if reply_upper.startswith("D"):
                                 self.do_get("detail " + ",".join(current_records))
@@ -2611,7 +2561,6 @@ class SzCmdShell(cmd.Cmd):
         return [i for i in possibles if i.lower().startswith(arg.lower())]
 
     # ---------------------------
-    # TODO - Ant - Auto complete doesn't work for data source
     def do_crossSourceSummary(self, arg):
 
         if not self.snapshot_data or "DATA_SOURCES" not in self.snapshot_data:
@@ -3126,7 +3075,6 @@ class SzCmdShell(cmd.Cmd):
         entity_name = resolved_json["RESOLVED_ENTITY"]["ENTITY_NAME"]
         entity_features = resolved_json["RESOLVED_ENTITY"]["FEATURES"]
 
-        # TODO - Ant
         # Build a dict with lib_feat_id as key for all the entity features
         features_by_id = {}
         for feat_cat in entity_features:
@@ -3358,13 +3306,11 @@ class SzCmdShell(cmd.Cmd):
                     record_id_data += "\n" + colorize_match_data(match_data)
             record_id_list.append(record_id_data)
 
-            # TODO - Ant
             # Loop through the features on each record
             for feat in record["FEATURES"]:
                 lf_id = feat["LIB_FEAT_ID"]
                 feature_data = features_by_id[lf_id]
 
-                # TODO - Ant - Can this be simplified now there are no separate data sections anymore?
                 if feature_data["feat_cat"] == "NAME":
                     name_type = feature_data.get("usage_type")
                     if name_type and name_type == "PRIMARY":
@@ -3386,11 +3332,10 @@ class SzCmdShell(cmd.Cmd):
                 else:
                     attribute_list.append(colorize_attr(f"{feature_data['feat_cat']}: {feature_data['feat_desc']}"))
 
-                # TODO - Ant
                 # Loop through the features on each record
                 unmapped_data = dict(sorted(record["UNMAPPED_DATA"].items()))
                 for k, v in unmapped_data.items():
-                    # TODO - Ant - Still need to implement this? Does the API give back internals?
+                    # TODO Still need to implement this? Does the V4 API give back internals?
                     #  if not self.isInternalAttribute(item) or reportType == "detail":
                     other_list.append(colorize_attr(f"{k}: {v}"))
 
@@ -3438,9 +3383,6 @@ class SzCmdShell(cmd.Cmd):
             print_message(err, "error")
             return
 
-        # TODO - Ant -
-        # sz_diagnostic_module = SzDiagnostic("pyG2Diagnostic", self.engine_settings, False)
-
         # get the features in order
         ordered_feature_list = []
         # sorted(featureArray, key=lambda k: self.featureSequence[k]):
@@ -3466,7 +3408,7 @@ class SzCmdShell(cmd.Cmd):
 
             try:
                 response = self.sz_diagnostic.get_feature(lib_feat_id)
-            # TODO - Ant - Should return?
+            # TODO Should return?
             except SzError as err:
                 print(err)
             json_data = json.loads(response)
@@ -3591,7 +3533,6 @@ class SzCmdShell(cmd.Cmd):
         else:
             entity_list = arg.split()
 
-        # TODO - Ant is this the same as for do_get?
         get_flag_list = [
             "SZ_ENTITY_INCLUDE_ENTITY_NAME",
             "SZ_ENTITY_INCLUDE_RECORD_DATA",
@@ -3628,7 +3569,6 @@ class SzCmdShell(cmd.Cmd):
             }
 
             entity_features = json_data["RESOLVED_ENTITY"]["FEATURES"]
-            # TODO - Ant
             # Build a dict with lib_feat_id as key for all the entity features
             features_by_id = {}
             for feat_code, feat_code_rows in entity_features.items():
@@ -3654,7 +3594,6 @@ class SzCmdShell(cmd.Cmd):
                 if data_source_filter and record["DATA_SOURCE"] not in data_source_filter:
                     continue
 
-                # TODO - Ant - This is same/very similar to calling format in do_get
                 # Loop through the features on each record
                 for features in record["FEATURES"]:
                     lib_id = features["LIB_FEAT_ID"]
@@ -3677,7 +3616,6 @@ class SzCmdShell(cmd.Cmd):
                         if feat_type_desc not in entity_data["phoneData"]:
                             entity_data["phoneData"].append(feat_type_desc)
 
-                    # TODO - Ant - Class == Attribute | Identifier | RELATIONSHIP ?
                     elif self.ftype_lookup_attr_class[feat_code] == "ATTRIBUTE":
                         if feat_code_desc not in entity_data["attributeData"]:
                             entity_data["attributeData"].append(feat_code_desc)
@@ -4288,8 +4226,6 @@ class SzCmdShell(cmd.Cmd):
             if "whyKey" not in entity_data[entity_id] or not entity_data[entity_id]["whyKey"]:
                 # can only happen with the old multiple entity why
                 match_key_row.append(colorize("Not found!", "bad"))
-            # TODO - Ant -
-            # elif type(entity_data[entity_id]["whyKey"]) != list:
             elif not isinstance(entity_data[entity_id]["whyKey"], list):
                 match_key_row.append(colorize_match_data(entity_data[entity_id]["whyKey"]))
             else:
@@ -4349,8 +4285,8 @@ class SzCmdShell(cmd.Cmd):
 
     # ---------------------------
     def why_entity(self, entity_list):
-        # TODO - Ant -
-        print("\nNot currently implemented in V4 beta\n")
+        # TODO
+        print("\nWhy on a single entity isn't currently implemented in V4 beta. Other why commands are implemented.\n")
 
         # why_flag_list = ["SZ_WHY_ENTITY_DEFAULT_FLAGS"]
         # try:
@@ -4529,8 +4465,6 @@ class SzCmdShell(cmd.Cmd):
                 else:  # merge the json records
                     root_attributes = {}
                     for root_attribute in record["JSON_DATA"]:
-                        # TODO - Ant -
-                        # if type(record["JSON_DATA"][root_attribute]) != list:
                         if not isinstance(record["JSON_DATA"][root_attribute], list):
                             root_attributes[root_attribute] = record["JSON_DATA"][root_attribute]
                         else:
@@ -4806,7 +4740,6 @@ class SzCmdShell(cmd.Cmd):
         best_entity = None
         best_record = None
         for resolved_entity in json_data["ENTITIES"]:
-            # TODO - Ant - What if this isn't == ?
             if resolved_entity["RESOLVED_ENTITY"]["ENTITY_ID"] == entity_id:
                 for dsrc_record in resolved_entity["RESOLVED_ENTITY"]["RECORDS"]:
                     if dsrc_record["INTERNAL_ID"] == internal_id:
@@ -5951,8 +5884,6 @@ class SzCmdShell(cmd.Cmd):
             print_message(f"Invalid json parameter: {err}", "error")
             return
 
-        # TODO - Ant -
-        # if type(json_data) != list or len(json_data) != 2:
         if not isinstance(json_data, list) or len(json_data) != 2:
             print_message("json parameter must be a list of two features to compare", "error")
             return
@@ -5975,7 +5906,6 @@ class SzCmdShell(cmd.Cmd):
             self.sz_engine.add_record("TEST", "SCORE_RECORD_1", json.dumps(record1json))
             self.sz_engine.add_record("TEST", "SCORE_RECORD_2", json.dumps(record2json))
         except SzError as err:
-            # TODO - Ant - str() ?
             print_message(err, "error")
             return
 
@@ -6096,7 +6026,6 @@ class SzCmdShell(cmd.Cmd):
 
         print("\nResulting entity ... \n")
         get_record_data = qualifying_records[0]["DATA_SOURCE"] + " " + qualifying_records[0]["RECORD_ID"]
-        # TODO - Ant - What is this doing?
         try:
             resolved_json = self.execute_sz_api("get_entity_by_record_id", [], get_record_data.split())
         except SzError as err:
@@ -6416,9 +6345,6 @@ class SzCmdShell(cmd.Cmd):
         return "\n".join(new_report)
 
     # ---------------------------
-    # TODO - Ant - Fix search compare not auto scrolling
-    # TODO search {"EMAIL_ADDRESS": "Kusha123@hmail.com"}
-    # TODO compare search
     def show_report(self, arg=None, **kwargs):
         if not self.current_render_string:
             return
@@ -6477,7 +6403,7 @@ class SzCmdShell(cmd.Cmd):
         print()
         if not self.current_render_string:
             return
-        # TODO - Ant - Not used?
+        # TODO - Not used?
         if arg == "auto":
             lessOptions = "FMXSR"
         else:
@@ -6538,7 +6464,7 @@ class SzCmdShell(cmd.Cmd):
                         print_message("Invalid search index", "error")
                         return -1 if caller else 0
                     else:
-                        # TODO - Ant - What is lastToken? Errors if entering: export search 2
+                        # TODO What is lastToken? Errors if entering: export search 2
                         entity_list.append(self.last_search_result[int(lastToken) - 1])
                         i += 1
                 else:
@@ -6611,7 +6537,6 @@ class SzCmdShell(cmd.Cmd):
             else:
                 break
 
-        # TODO - Ant - Move to finally in try above
         f.close
 
         print_message(f"{record_count} records written to {file_name}", "success")
@@ -6633,7 +6558,7 @@ class SzCmdShell(cmd.Cmd):
                 if self.cfg_data["G2_CONFIG"][table][i][field] == value:
                     record_list.append(self.cfg_data["G2_CONFIG"][table][i])
             else:
-                # TODO - Ant - Config change to SZ_CONFIG in V4?
+                # TODO Config change to SZ_CONFIG in V4?
                 record_list.append(self.cfg_data["G2_CONFIG"][table][i])
         return record_list
 
@@ -6682,7 +6607,6 @@ class SzCmdShell(cmd.Cmd):
 #             f.write(f"- {call} -\n")
 #             f.write(f"{output}\n\n")
 #     except IOError as err:
-#         # TODO - Ant - Color
 #         print(f"cannot write to {debugOutput}: {err}")
 
 

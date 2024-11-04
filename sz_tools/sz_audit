@@ -537,7 +537,7 @@ def erCompare(fileName1, fileName2, outputRoot):
             else:
                 best_score = "multiple"
         # --assign the best score (most used)
-        # TODO - Ant - This is never reached
+        # TODO This is never reached
         else:
             best_score = "none"
             best_count = 0
@@ -744,7 +744,7 @@ def erCompare(fileName1, fileName2, outputRoot):
 
 # ===== The main function =====
 if __name__ == "__main__":
-    # TODO - Ant - Event
+    # TODO - Event
     global shut_down
     shut_down = False
     signal.signal(signal.SIGINT, signal_handler)

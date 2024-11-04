@@ -1,10 +1,5 @@
 #! /usr/bin/env python3
 
-# TODO - Ant -
-# - Why write out sz_default_config.json? If you want to know config run against spit out configid ?
-# - TEST
-# -     Works with G2Module.ini and SECJ with and without orjson
-
 import argparse
 import csv
 import io
@@ -17,26 +12,25 @@ import time
 from typing import Any, Dict, List, Union
 
 from _tool_helpers import get_engine_config
-from senzing import SzConfigManager, SzError
+from senzing import SzAbstractFactory, SzError
 
 try:
     import prettytable
 except ImportError as err:
-    # TODO - Ant - What is this input?
+    # TODO What is this input for?
     input(err)
-    # TODO - Ant - Improve this
     prettytable = None
 
 
 def get_environment_config(settings: str) -> Dict[str, Any]:
     """# TODO"""
     try:
-        sz_configmgr = SzConfigManager("pySzConfigmgr", settings)
+        sz_abstract_factory = SzAbstractFactory("sz_json_analyzer", settings)
+        sz_configmgr = sz_abstract_factory.create_sz_configmanager()
         config_id = sz_configmgr.get_default_config_id()
         config_str = sz_configmgr.get_config(config_id)
         config_json: Dict[str, Any] = json.loads(config_str)
     except SzError as err:
-        # TODO - Ant - Use error msgs
         print(f"\nERROR: {err}")
         sys.exit(1)
 
@@ -50,7 +44,6 @@ def get_file_config(file: str) -> Dict[str, Any]:
             config_json: Dict[str, Any] = json.loads(config_file.read())
             return config_json
     except (OSError, json.JSONDecodeError) as err:
-        # TODO - Ant - Use error msgs
         print(f"\nERROR: {err}")
         sys.exit(1)
 
@@ -80,9 +73,7 @@ class SzJsonAnalyzer:
 
         for record in config_data["G2_CONFIG"]["CFG_ATTR"]:
             self.attribute_lookup[record["ATTR_CODE"]] = record
-            ftype_code = (
-                record["FTYPE_CODE"] if record["FTYPE_CODE"] else record["ATTR_CODE"]
-            )
+            ftype_code = record["FTYPE_CODE"] if record["FTYPE_CODE"] else record["ATTR_CODE"]
             if ftype_code not in self.required_attributes:
                 self.required_attributes[ftype_code] = []
             if record["FELEM_REQ"] != "No":
@@ -163,10 +154,7 @@ class SzJsonAnalyzer:
             }
         if value in self.feature_stats[feature]["attributes"][attribute]["values"]:
             self.feature_stats[feature]["attributes"][attribute]["values"][value] += 1
-        elif (
-            len(self.feature_stats[feature]["attributes"][attribute]["values"])
-            < self.max_values_per_attr
-        ):
+        elif len(self.feature_stats[feature]["attributes"][attribute]["values"]) < self.max_values_per_attr:
             self.feature_stats[feature]["attributes"][attribute]["values"][value] = 1
 
     def update_unmapped_stats(self, attr_name: str, attr_value: str) -> None:
@@ -177,15 +165,10 @@ class SzJsonAnalyzer:
             self.unmapped_stats[attr_name] = {"count": 1, "values": {}}
         if attr_value in self.unmapped_stats[attr_name]["values"]:
             self.unmapped_stats[attr_name]["values"][attr_value] += 1
-        elif (
-            len(self.unmapped_stats[attr_name]["values"].keys())
-            < self.max_values_per_attr
-        ):
+        elif len(self.unmapped_stats[attr_name]["values"].keys()) < self.max_values_per_attr:
             self.unmapped_stats[attr_name]["values"][attr_value] = 1
 
-    def update_message_stats(
-        self, cat: str, stat: str, row_num: Union[int, str] = "n/a"
-    ) -> None:
+    def update_message_stats(self, cat: str, stat: str, row_num: Union[int, str] = "n/a") -> None:
         """#TODO"""
         row_num = f"row {row_num}" if isinstance(row_num, int) else row_num
         if stat not in self.message_stats[cat]:
@@ -195,9 +178,7 @@ class SzJsonAnalyzer:
             if self.message_stats[cat][stat]["count"] < 100:
                 self.message_stats[cat][stat]["rows"].append(row_num)
 
-    def analyze_json(
-        self, input_data: Dict[str, Any], input_row_num: Union[int, None]
-    ) -> None:
+    def analyze_json(self, input_data: Dict[str, Any], input_row_num: Union[int, None]) -> None:
         """#TODO"""
         self.record_count += 1
 
@@ -213,9 +194,7 @@ class SzJsonAnalyzer:
 
             # its certainly a feature attribute
             if not self.mapped_attribute[attr_name].get("UNMAPPED"):
-                self.add_to_features(
-                    features, message_list, "ROOT", attr_name, input_data[attr_name]
-                )
+                self.add_to_features(features, message_list, "ROOT", attr_name, input_data[attr_name])
                 continue
 
             # its a certainly an unmapped attribute because its not a list
@@ -261,15 +240,12 @@ class SzJsonAnalyzer:
                 self.update_unmapped_stats(attr_name, str(input_data[attr_name]))
             else:
                 for unmapped_attribute in unmapped_attributes:
-                    self.update_unmapped_stats(
-                        unmapped_attribute[0], str(unmapped_attribute[1])
-                    )
+                    self.update_unmapped_stats(unmapped_attribute[0], str(unmapped_attribute[1]))
 
         #        print(json.dumps(features, indent=4))
 
         features_mapped = []
         attributes_mapped = []
-        # TODO - Ant -
         for feature_key in features:
             _, feature, label = feature_key.split("|")
             if feature in self.feature_stats:
@@ -292,9 +268,7 @@ class SzJsonAnalyzer:
             possible_complete_feature = False
             populated_attr_list = []
             populated_attr_values = []
-            for attribute_data in sorted(
-                features[feature_key], key=lambda k: k["ATTR_ID"]
-            ):
+            for attribute_data in sorted(features[feature_key], key=lambda k: k["ATTR_ID"]):
                 attribute = attribute_data["ATTR_CODE"]
                 value = attribute_data["ATTR_VALUE"]
                 if attribute_data["FELEM_CODE"] not in (
@@ -316,9 +290,7 @@ class SzJsonAnalyzer:
                 and feature in self.label_to_attribute
                 and self.label_to_attribute[feature] not in populated_attr_list
             ):
-                self.update_feature_stats(
-                    feature, self.label_to_attribute[feature], label
-                )
+                self.update_feature_stats(feature, self.label_to_attribute[feature], label)
                 populated_attr_list.append(self.label_to_attribute[feature])
 
             if populated_attr_values:  # capture the full feature
@@ -333,10 +305,7 @@ class SzJsonAnalyzer:
             if (
                 feature == "NAME"
                 and "NAME_FULL" in populated_attr_list
-                and any(
-                    x in populated_attr_list
-                    for x in ["NAME_ORG", "NAME_LAST", "NAME_FIRST"]
-                )
+                and any(x in populated_attr_list for x in ["NAME_ORG", "NAME_LAST", "NAME_FIRST"])
             ):
                 message_list.append(["INFO", "Only NAME_FULL should be mapped"])
             if (
@@ -372,9 +341,7 @@ class SzJsonAnalyzer:
                             )
                             possible_complete_feature = False
                         elif record["FELEM_REQ"] == "Desired":
-                            message_list.append(
-                                ["INFO", f"{record['ATTR_CODE']} desired"]
-                            )
+                            message_list.append(["INFO", f"{record['ATTR_CODE']} desired"])
 
             if possible_complete_feature:
                 features_mapped.append(feature)
@@ -382,9 +349,7 @@ class SzJsonAnalyzer:
         if "DATA_SOURCE" not in input_data:
             message_list.append(["ERROR", "DATA_SOURCE required"])
         elif input_data["DATA_SOURCE"].upper() not in self.data_source_lookup:
-            message_list.append(
-                ["ERROR", f"DATA_SOURCE not found: {input_data['DATA_SOURCE']}"]
-            )
+            message_list.append(["ERROR", f"DATA_SOURCE not found: {input_data['DATA_SOURCE']}"])
         if "RECORD_ID" not in input_data:
             message_list.append(["WARNING", "RECORD_ID desired"])
         if "RECORD_TYPE" not in attributes_mapped:
@@ -396,9 +361,7 @@ class SzJsonAnalyzer:
             message_list.append(["INFO", "Only NAME is mapped"])
             # this should be if F1 or FF or exclusive as well
 
-        if "NAME_ORG" in attributes_mapped and any(
-            x in attributes_mapped for x in ["NAME_LAST", "NAME_FIRST"]
-        ):
+        if "NAME_ORG" in attributes_mapped and any(x in attributes_mapped for x in ["NAME_LAST", "NAME_FIRST"]):
             message_list.append(["WARNING", "PERSON AND ORG on same record"])
 
         # is dob parseable
@@ -439,16 +402,12 @@ class SzJsonAnalyzer:
             "Top Value10",
         ]
         table_rows = [table_headers]
-        for feature in sorted(
-            self.feature_stats.keys(), key=lambda k: self.feature_stats[k]["order"]
-        ):
+        for feature in sorted(self.feature_stats.keys(), key=lambda k: self.feature_stats[k]["order"]):
             row = ["" for x in range(len(table_headers))]
             row[0] = "MAPPED"
             row[1] = feature
             row[2] = self.feature_stats[feature]["count"]
-            row[3] = round(
-                self.feature_stats[feature]["count"] / self.record_count * 100.00, 2
-            )
+            row[3] = round(self.feature_stats[feature]["count"] / self.record_count * 100.00, 2)
             row[4] = len(self.feature_stats[feature]["values"])
             row[5] = round(row[4] / row[2] * 100.00, 1)
 
@@ -458,28 +417,16 @@ class SzJsonAnalyzer:
                         "WARNING",
                         f"{feature} < {self.low_population_percent}% populated",
                     )
-                if (
-                    self.feature_lookup[feature]["FTYPE_FREQ"] in ("A1", "F1")
-                    and row[5] <= self.low_f1_unique_percent
-                ):
-                    self.update_message_stats(
-                        "WARNING", f"{feature} < {self.low_f1_unique_percent}% unique"
-                    )
-                elif (
-                    self.feature_lookup[feature]["FTYPE_FREQ"] == "FF"
-                    and row[5] <= self.low_ff_unique_percent
-                ):
-                    self.update_message_stats(
-                        "WARNING", f"{feature} < {self.low_f1_unique_percent}% unique"
-                    )
+                if self.feature_lookup[feature]["FTYPE_FREQ"] in ("A1", "F1") and row[5] <= self.low_f1_unique_percent:
+                    self.update_message_stats("WARNING", f"{feature} < {self.low_f1_unique_percent}% unique")
+                elif self.feature_lookup[feature]["FTYPE_FREQ"] == "FF" and row[5] <= self.low_ff_unique_percent:
+                    self.update_message_stats("WARNING", f"{feature} < {self.low_f1_unique_percent}% unique")
                 elif (
                     self.feature_lookup[feature]["FTYPE_FREQ"] == "FM"
                     and self.feature_lookup[feature]["FTYPE_FREQ"] == "Yes"
                     and row[5] <= self.low_fme_unique_percent
                 ):
-                    self.update_message_stats(
-                        "WARNING", f"{feature} < {self.low_f1_unique_percent}% unique"
-                    )
+                    self.update_message_stats("WARNING", f"{feature} < {self.low_f1_unique_percent}% unique")
 
             i = 5
             for value in sorted(
@@ -489,9 +436,7 @@ class SzJsonAnalyzer:
             ):
                 display_value = value[0:97] + "..." if len(value) > 100 else value
                 i += 1
-                row[i] = (
-                    f"{display_value} ({self.feature_stats[feature]['values'][value]})"
-                )
+                row[i] = f"{display_value} ({self.feature_stats[feature]['values'][value]})"
                 if i == len(row) - 1:
                     break
             table_rows.append(row)
@@ -506,30 +451,20 @@ class SzJsonAnalyzer:
                     row = ["" for x in range(len(table_headers))]
                     row[0] = "MAPPED"
                     row[1] = "  " + attribute
-                    row[2] = self.feature_stats[feature]["attributes"][attribute][
-                        "count"
-                    ]
+                    row[2] = self.feature_stats[feature]["attributes"][attribute]["count"]
                     row[3] = round(
-                        self.feature_stats[feature]["attributes"][attribute]["count"]
-                        / self.record_count
-                        * 100.00,
+                        self.feature_stats[feature]["attributes"][attribute]["count"] / self.record_count * 100.00,
                         1,
                     )
-                    row[4] = len(
-                        self.feature_stats[feature]["attributes"][attribute]["values"]
-                    )
+                    row[4] = len(self.feature_stats[feature]["attributes"][attribute]["values"])
                     row[5] = round(row[4] / row[2] * 100.00, 1)
                     i = 5
                     for value in sorted(
                         self.feature_stats[feature]["attributes"][attribute]["values"],
-                        key=lambda x: self.feature_stats[feature]["attributes"][
-                            attribute
-                        ]["values"][x],
+                        key=lambda x: self.feature_stats[feature]["attributes"][attribute]["values"][x],
                         reverse=True,
                     ):
-                        display_value = (
-                            value[0:97] + "..." if len(value) > 100 else value
-                        )
+                        display_value = value[0:97] + "..." if len(value) > 100 else value
                         i += 1
                         row[i] = (
                             f"{display_value} ({self.feature_stats[feature]['attributes'][attribute]['values'][value]})"
@@ -544,9 +479,7 @@ class SzJsonAnalyzer:
             row[0] = "UNMAPPED"
             row[1] = attribute
             row[2] = self.unmapped_stats[attribute]["count"]
-            row[3] = round(
-                self.unmapped_stats[attribute]["count"] / self.record_count * 100.00, 1
-            )
+            row[3] = round(self.unmapped_stats[attribute]["count"] / self.record_count * 100.00, 1)
             row[4] = len(self.unmapped_stats[attribute]["values"])
             row[5] = round(row[4] / row[2] * 100.00, 1)
             i = 5
@@ -557,9 +490,7 @@ class SzJsonAnalyzer:
             ):
                 display_value = value[0:97] + "..." if len(value) > 100 else value
                 i += 1
-                row[i] = (
-                    f"{display_value} ({self.unmapped_stats[attribute]['values'][value]})"
-                )
+                row[i] = f"{display_value} ({self.unmapped_stats[attribute]['values'][value]})"
                 if i == len(row) - 1:
                     break
             table_rows.append(row)
@@ -569,15 +500,10 @@ class SzJsonAnalyzer:
         new_category = "WARNING"
         reclass_message_list = []
         for message in self.message_stats.get(old_category, {}).keys():
-            if (
-                self.message_stats[old_category][message]["count"] / self.record_count
-                >= 0.25
-            ):
+            if self.message_stats[old_category][message]["count"] / self.record_count >= 0.25:
                 reclass_message_list.append(message)
         for message in reclass_message_list:
-            self.message_stats[new_category][message] = self.message_stats[
-                old_category
-            ][message]
+            self.message_stats[new_category][message] = self.message_stats[old_category][message]
             del self.message_stats[old_category][message]
 
         for category in ["ERROR", "WARNING", "INFO"]:
@@ -597,9 +523,7 @@ class SzJsonAnalyzer:
                     else:
                         row[2] = self.message_stats[category][message]["count"]
                         row[3] = round(
-                            self.message_stats[category][message]["count"]
-                            / self.record_count
-                            * 100.00,
+                            self.message_stats[category][message]["count"] / self.record_count * 100.00,
                             1,
                         )
                         row[4] = ""
@@ -662,9 +586,7 @@ def format_pretty_table(table_rows):
         elif "unique" in message:
             low_unique_features.append(message.split()[0])
 
-    table_object.field_names = [
-        f"{colors['HEADER']}{x}{colors['RESET']}" for x in table_rows[0]
-    ]
+    table_object.field_names = [f"{colors['HEADER']}{x}{colors['RESET']}" for x in table_rows[0]]
     for orig_row in table_rows[1:]:
         row = orig_row.copy()  # so outer table not changed
         if orig_row[0] == "MAPPED":
@@ -688,10 +610,7 @@ def format_pretty_table(table_rows):
                 i = 5
                 while i < len(row) - 1:
                     i += 1
-                    if any(
-                        row[i].startswith(missing_ds)
-                        for missing_ds in missing_data_sources
-                    ):
+                    if any(row[i].startswith(missing_ds) for missing_ds in missing_data_sources):
                         row[i] = f"{colors['ERROR']}{row[i]}{colors['RESET']}"
 
         elif row[0]:
@@ -741,17 +660,13 @@ if __name__ == "__main__":
     shut_down = False
     signal.signal(signal.SIGINT, signal_handler)
 
-    # TODO - Ant - Don't need to say optional?
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "input_file", help="path and name of the input Senzing JSON file to analyze"
-    )
+    parser.add_argument("input_file", help="path and name of the input Senzing JSON file to analyze")
     parser.add_argument(
         "-o",
         "--output_file",
         help="optional name of the output file",
     )
-    # TODO - Ant - Make mutually exclusive
     parser.add_argument(
         "-c",
         "--iniFile",
@@ -764,7 +679,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # TODO - Ant - Need to make this so if a config isn't returned can continue if a g2config.json file is provided, need to change helpers to support this
     # Check an engine configuration can be located
     if not args.json_config:
         print("Reading Senzing configuration from Senzing instance database\n")
@@ -773,7 +687,6 @@ if __name__ == "__main__":
     else:
         print(f"Reading Senzing configuration from file: {args.json_config}\n")
         config = get_file_config(args.json_config)
-    # TODO - Ant - Check the expected sections are in the config?
 
     analyzer = SzJsonAnalyzer(config)
 
@@ -791,7 +704,7 @@ if __name__ == "__main__":
             dialect = "pipe"
         else:
             dialect = "excel"
-        reader = csv.DictReader(input_file_handle, dialect=csv_dialect)
+        reader = csv.DictReader(input_file_handle, dialect=dialect)
     else:
         reader = JsonlReader(input_file_handle)
 
@@ -803,22 +716,14 @@ if __name__ == "__main__":
         if input_row_count % 10000 == 0:
             eps = int(
                 float(input_row_count)
-                / (
-                    float(
-                        time.time() - proc_start_time
-                        if time.time() - proc_start_time != 0
-                        else 0
-                    )
-                )
+                / (float(time.time() - proc_start_time if time.time() - proc_start_time != 0 else 0))
             )
             print(f"{input_row_count:,} rows processed at {eps:,} per second")
         if shut_down:
             break
 
     elapsed_mins = round((time.time() - proc_start_time) / 60, 1)
-    run_status = (
-        "completed in" if not shut_down else "aborted after"
-    ) + " %s minutes" % elapsed_mins
+    run_status = ("completed in" if not shut_down else "aborted after") + " %s minutes" % elapsed_mins
     print(f"{input_row_count:,} rows processed, {run_status}\n")
     input_file_handle.close()
 
