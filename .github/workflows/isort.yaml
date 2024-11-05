@@ -10,10 +10,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: isort/isort-action@v1
+      - name: Install dependencies
+        run: |
+          python -m venv ./venv
+          source ./venv/bin/activate
+          echo "PATH=${PATH}" >> "${GITHUB_ENV}"
+          python -m pip install --upgrade pip
+          python -m pip install --requirement requirements.txt
+
+      - name: Run isort
+        uses: isort/isort-action@v1
         with:
           configuration:
           requirements-files: requirements.txt
-          sort-paths: "src"
+          sort-paths: "sz_tools"
