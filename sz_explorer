@@ -102,8 +102,9 @@ def colorize_attr(attr_str, attr_color="attr_color"):
     return colorize(attr_str, attr_color)
 
 def colorize_match_key(match_key):
-    good_segments = []
-    bad_segments = []
+    plus_keys = []
+    minus_keys = []
+    rel_keys = []
     prior_key = ""
     for key in re.split(r"(\+|\-)", match_key):
         if key in ("+", ""):
@@ -111,14 +112,20 @@ def colorize_match_key(match_key):
         elif key == "-":
             prior_key = "-"
         elif prior_key == "-":
-            bad_segments.append(key)
+            minus_keys.append(key)
         else:
-            good_segments.append(key)
+            if "(" in key:
+                rel_keys.append(key)
+            else:
+                plus_keys.append(key)
     colored_key = ""
-    if good_segments:
-        colored_key += colorize("+".join(good_segments), "good")
-    if bad_segments:
-        colored_key += colorize("-" + "-".join(bad_segments), "bad")
+    if plus_keys:
+        colored_key += colorize("+".join(plus_keys), "good")
+    if minus_keys:
+        colored_key += colorize("-" + "-".join(minus_keys), "bad")
+    if rel_keys:
+        colored_key += colorize("+" + "+".join(rel_keys), "disclosed")
+
     return colored_key
 
 
@@ -253,12 +260,19 @@ class G2CmdShell(cmd.Cmd):
             "POSSIBLY": "POSSIBLY_RELATED_SAMPLE",
             "RELATED": "POSSIBLY_RELATED_SAMPLE",
         }
-        self.category_sort_order = {
+        self.match_category_sort = {
             "MATCH": 1,
             "AMBIGUOUS_MATCH": 2,
             "POSSIBLE_MATCH": 3,
             "POSSIBLY_RELATED": 4,
             "DISCLOSED_RELATION": 5,
+        }
+        self.match_category_desc = {
+            "MATCH": "Resolved match",
+            "AMBIGUOUS_MATCH": "Ambiguous match",
+            "POSSIBLE_MATCH": "Possible match",
+            "POSSIBLY_RELATED": "Possibly related",
+            "DISCLOSED_RELATION": "Disclosed relation",
         }
         self.settings_file_name = f"{os.path.expanduser("~")}{os.path.sep}.sz_explorer_settings"
         if self.settings_file_name:
@@ -431,37 +445,46 @@ class G2CmdShell(cmd.Cmd):
         for related_entity in related_entities:
             if related_entity["IS_DISCLOSED"] != 0:
                 match_category = "DISCLOSED_RELATION"
-                match_category_sort = 4
             elif related_entity["IS_AMBIGUOUS"] != 0:
                 match_category = "AMBIGUOUS_MATCH"
-                match_category_sort = 1
             elif related_entity["MATCH_LEVEL_CODE"] == 'POSSIBLY_SAME':
                 match_category = "POSSIBLE_MATCH"
-                match_category_sort = 2
             else:
                 match_category = "POSSIBLY_RELATED"
-                match_category_sort = 3
             related_id = related_entity["ENTITY_ID"]
             relation = {
                 "ENTITY_ID": related_id,
                 "ENTITY_NAME": related_entity.get("ENTITY_NAME", "unknown"),
                 "MATCH_LEVEL_CODE": related_entity["MATCH_LEVEL_CODE"],
                 "MATCH_CATEGORY": match_category,
-                "MATCH_CATEGORY_SORT": match_category_sort,
+                "MATCH_CATEGORY_SORT": self.match_category_sort[match_category],
                 "MATCH_KEY": related_entity["MATCH_KEY"],
                 "ERRULE_CODE": related_entity["ERRULE_CODE"],
                 "ERRULE_ID": self.errule_code_lookup[related_entity["ERRULE_CODE"]]['ERRULE_ID'],
-                "RECORD_SUMMARY": related_entity["RECORD_SUMMARY"]
+                "RECORD_SUMMARY": related_entity.get("RECORD_SUMMARY", []) # wont have on getNetwork
             }
             relation_list.append(relation)
             relations_by_id[related_id] = relation
         return {"LIST": relation_list, "BY_ID": relations_by_id}
   
+    def get_resolved_entities(self, entity_list):
+        entities = {}
+        for entity in entity_list:
+            entity_id = entity["RESOLVED_ENTITY"]["ENTITY_ID"]
+            entities[entity_id] = {
+                "ENTITY_ID": entity_id,
+                "ENTITY_NAME": entity["RESOLVED_ENTITY"]["ENTITY_NAME"],
+                "RECORD_SUMMARY": entity["RESOLVED_ENTITY"]["RECORD_SUMMARY"],
+                "RELATIONSHIPS": self.get_related_entities(entity["RELATED_ENTITIES"])["LIST"]
+            }
+        return entities
+
     #-------------------
     # display formatters
     #-------------------
 
-    def fmt_record_summary(self, record_summary):
+    def fmt_record_summary(self, record_summary, **kwargs):
+        sep = kwargs.get("sep", "\n")
         dsrc_counts = {}
         for record in record_summary:
             count = record.get('RECORD_COUNT', 1)
@@ -469,7 +492,7 @@ class G2CmdShell(cmd.Cmd):
                 dsrc_counts[record['DATA_SOURCE']] = count
             else:
                 dsrc_counts[record['DATA_SOURCE']] += count
-        return '\n'.join([f"{colorize_dsrc(k)} ({v})" for k, v in dsrc_counts.items()])
+        return sep.join([f"{colorize_dsrc(k)} ({v})" for k, v in dsrc_counts.items()])
  
     def fmt_record_list(self, record_list, attr_limit, attr_width):
         source_data = {}
@@ -570,7 +593,8 @@ class G2CmdShell(cmd.Cmd):
 
         return '\n'.join(display_list)
 
-    def fmt_match_key(self, match_data):
+    def fmt_match_key(self, match_data, **kwargs):
+        sep = kwargs.get("sep", "\n")
         colored_key = ""
         if match_data.get('MATCH_KEY'):
             colored_key = colorize_match_key(match_data["MATCH_KEY"])
@@ -581,13 +605,69 @@ class G2CmdShell(cmd.Cmd):
             if not colored_key:
                 colored_key = colored_rule
             else:
-                colored_key += f"\n {colored_rule}"
+                colored_key += f"{sep} {colored_rule}"
         return colored_key
+
+    # ---------------------------
+    def fmt_match_group(self, match_category, match_key, **kwargs):
+        match_key = match_key.replace(" (Ambiguous)", "")
+        rel_keys = []
+        plus_keys = []
+        minus_keys = []
+        key_list = re.split(r"(\+|\-)", match_key)
+        i = 1
+        while i < len(key_list):
+            if key_list[i] in ("-"):
+                i += 1
+                this_key = key_list[i]
+                minus_keys.append(this_key)
+
+            elif key_list[i] in ("+"):
+                i += 1
+                this_key = key_list[i]
+                if "(" not in this_key:
+                    plus_keys.append(this_key)
+                elif 'REL_POINTER(' in this_key: #kwargs.get("from_database"):
+                    # format: REL_POINTER(DOMAIN:|MIN:|MAX:PRINCIPAL)
+                    try:
+                        l1 = this_key.find("DOMAIN:")
+                        l2 = this_key.find("MIN:")
+                        l3 = this_key.find("MAX:")
+                        domain = this_key[l1 + 7 : l2 - 1]
+                        role1 = this_key[l2 + 4 : l3 - 1]
+                        role2 = this_key[l3 + 4 : -1]
+                        rel_keys.append(f"{domain}({role1}:{role2})")
+                    except:
+                        print(f"Could not parse: {this_key}")
+                else:
+                    # format: DOMAIN(ROLE:ROLE) left role is from this entity's point of view
+                    roles = this_key[this_key.find("(")+1:this_key.find(")")].split(":")
+                    if roles[0]:
+                        role = roles[0] + " -->"
+                    else:
+                        role = "<-- " + roles[1]
+                    rel_keys.append(role)
+            i += 1
+
+        if rel_keys:
+            match_group = colorize("+".join(sorted(rel_keys)), "disclosed")
+        else:
+            match_group = colorize("+".join(plus_keys), "good") if plus_keys else ""
+            if match_category == 'POSSIBLE_MATCH':
+                match_group += colorize("-" + "-".join(minus_keys), "bad") if minus_keys else ""
+
+        return match_group
 
     def fmt_relation(self, relation):
         colored_key = self.fmt_match_key(relation)
         colored_key += f'\n to {colorize_entity(relation.get("ENTITY_ID"))} {relation.get("ENTITY_NAME")}'
         return colored_key
+
+    def fmt_entity_desc(self, entity):
+        entity_desc = f'{colorize_entity(entity["ENTITY_ID"])}: {entity["ENTITY_NAME"]}'
+        if entity.get("RECORD_SUMMARY"):
+            entity_desc += ' ' + self.fmt_record_summary(entity["RECORD_SUMMARY"], sep=' | ')
+        return entity_desc
 
     #--------------------
     # general commands
@@ -1726,7 +1806,7 @@ class G2CmdShell(cmd.Cmd):
 
         arg = line[before_arg + 1 : endidx]
 
-        possibles = list(self.category_sort_order.keys())
+        possibles = list(self.match_category_sort.keys())
         possibles.append("PRINCIPLES")
         if hasattr(self, "statsByPrinciple"):
             # TODO - Ant - statsByPrinciples not defined
@@ -1752,7 +1832,7 @@ class G2CmdShell(cmd.Cmd):
             "POSSIBLE_MATCH": "POSSIBLE",
             "AMBIGUOUS_MATCH": "AMBIGUOUS",
             "POSSIBLY_RELATED": "RELATED",
-            "DISCLOSED_RELATION": "DISCLOSED, DIM",
+            "DISCLOSED_RELATION": "DISCLOSED",
         }
 
         principles_by_id = {}
@@ -1798,7 +1878,7 @@ class G2CmdShell(cmd.Cmd):
             tbl_columns.append({"name": "Category", "width": 25, "align": "left"})
             tbl_columns.append({"name": "Count", "width": 25, "align": "right"})
             for category in sorted(
-                stats_by_category.keys(), key=lambda k: self.category_sort_order[k]
+                stats_by_category.keys(), key=lambda k: self.match_category_sort[k]
             ):
                 tbl_rows.append(
                     [
@@ -1874,7 +1954,7 @@ class G2CmdShell(cmd.Cmd):
             for matchkey in report_data[principle]:
                 count = report_data[principle][matchkey]["COUNT"]
                 sample = report_data[principle][matchkey]["SAMPLE"]
-                disclosures, plus_keys, minus_keys = self.categorize_match_key(
+                disclosures, plus_keys, minus_keys = self.fmt_match_group(
                     matchkey, from_database=True
                 )
                 for disclosure in disclosures:
@@ -2841,7 +2921,6 @@ class G2CmdShell(cmd.Cmd):
             return
 
         attr_width = 80
-
         report_type = "detail" if show_detail else "summary"
         tbl_title = f"Entity {report_type} for entity {colorize_entity(entity_id)}: {entity_name}"
         if args.webapp_url:
@@ -2911,7 +2990,7 @@ class G2CmdShell(cmd.Cmd):
                     colorize_entity(relationship["ENTITY_ID"]),
                     relationship["ENTITY_NAME"], 
                     self.fmt_record_summary(relationship["RECORD_SUMMARY"]),
-                    relationship["MATCH_CATEGORY"],
+                    self.match_category_desc[relationship["MATCH_CATEGORY"]],
                     self.fmt_match_key(relationship)
                 ])
             report += self.render_table2(tbl_title, tbl_columns, tbl_rows)
@@ -3036,7 +3115,7 @@ class G2CmdShell(cmd.Cmd):
 
         attr_width = 80
         tbl_title = "Comparison of listed entities"
-        tbl_columns = [{"name": "Entity ID", "width": 15, "align": "left"}]
+        tbl_columns = [{"name": "Entity", "width": 15, "align": "left"}]
         tbl_rows = []
         entity_list = sorted(entity_list)
         ftype_codes = []
@@ -3049,9 +3128,7 @@ class G2CmdShell(cmd.Cmd):
                 print_message(err, "error")
                 return -1 if called_direct else 0
 
-            column_header = colorize_entity(entity_id)
-            tbl_columns.append({"name": column_header, "width": attr_width, "align": "left"})
-
+            entity_name = json_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
             records = json_data["RESOLVED_ENTITY"]["RECORDS"]
             features = self.get_entity_features(json_data["RESOLVED_ENTITY"]['FEATURES'])["BY_TYPE"]
             relations = self.get_related_entities(json_data["RELATED_ENTITIES"])["BY_ID"]
@@ -3061,6 +3138,8 @@ class G2CmdShell(cmd.Cmd):
                 "FEATURES": features,
                 "RELATIONS": relations
             }
+            column_header = f"{colorize_entity(entity_id)}: {entity_name}"
+            tbl_columns.append({"name": column_header, "width": attr_width, "align": "left"})
             ftype_codes.extend(list(features.keys()))
 
         cross_row = ["cross_relation"]
@@ -3143,30 +3222,22 @@ class G2CmdShell(cmd.Cmd):
 
         root_entity_id = None
         build_out_degree = 1
-        max_children_display = 25
+        max_children = 25
         arg_list = arg.split()
         if arg_list[-1].upper() == "ALL":
-            max_children_display = 999999
+            max_children = 10000
             arg_list.pop(-1)
-        if len(arg_list) in (1, 3, 4):
+        if len(arg_list) in (1, 3):
             if arg_list[0].isdigit():
                 root_entity_id = int(arg_list[0])
-            if (
-                len(arg_list) == 3
-                and arg_list[1].upper() == "DEGREE"
-                and arg_list[2].isdigit()
-            ):
+            if len(arg_list) == 3 and arg_list[1].upper() == "DEGREE" and arg_list[2].isdigit():
                 build_out_degree = int(arg_list[2])
         if not root_entity_id:
             print_message("Invalid parameter: expected a numeric entity ID", "warning")
             return
 
-        entity_parameter = json.dumps({"ENTITIES": [{"ENTITY_ID": root_entity_id}]})
-
-        # these are default thresholds
         max_degree = 0  # really only used for entity paths
         max_entities = 10000  # for safety
-
         get_flag_list = [
             "SZ_ENTITY_INCLUDE_ENTITY_NAME",
             "SZ_ENTITY_INCLUDE_RECORD_SUMMARY",
@@ -3174,333 +3245,129 @@ class G2CmdShell(cmd.Cmd):
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
         ]
         try:
-            json_data = execute_sz_api(
-                "find_network_by_entity_id",
-                get_flag_list,
-                [[root_entity_id], max_degree, build_out_degree, max_entities],
-            )
+            extra_parms = [[root_entity_id], max_degree, build_out_degree, max_entities]
+            json_data = execute_sz_api("find_network_by_entity_id", get_flag_list, extra_parms)
         except SzError as err:
             print_message(err, "error")
             return
 
-        nodes = {}
-        missing_entities = []
-        current_parent_list = [
-            {
-                "NEXT_RELATED_ENTITY_I": 0,
-                "RELATED_ENTITY_LIST": [root_entity_id],
-                "PRIOR_ENTITY_LIST": [root_entity_id],
-            }
-        ]
+        entities = self.get_resolved_entities(json_data["ENTITIES"])
 
-        while current_parent_list:
-            # decrement degree if done with this list
-            current_parent_data = current_parent_list[-1]
-            if current_parent_data["NEXT_RELATED_ENTITY_I"] == len(
-                current_parent_data["RELATED_ENTITY_LIST"]
-            ):
-                current_parent_list.pop()
-                continue
-
-            # get next related entity
-            entity_id = current_parent_data["RELATED_ENTITY_LIST"][
-                current_parent_data["NEXT_RELATED_ENTITY_I"]
-            ]
-            current_parent_list[-1]["NEXT_RELATED_ENTITY_I"] += 1
-            nodes[entity_id] = {}
-            nodes[entity_id]["RELATED_ENTITY_LIST"] = []
-
-            # entity_data = self.getEntityFromEntities(json_data["ENTITIES"], entity_id)
-            entity_data = self.get_entity_from_entities(
-                json_data["ENTITIES"], entity_id
-            )
-            if not entity_data:
-                missing_entities.append(entity_id)
-                nodes[entity_id]["ENTITY_NAME"] = "not found!"
-                continue
-
-            nodes[entity_id]["ENTITY_NAME"] = entity_data["RESOLVED_ENTITY"][
-                "ENTITY_NAME"
-            ]
-            nodes[entity_id]["RECORD_SUMMARY"] = entity_data["RESOLVED_ENTITY"][
-                "RECORD_SUMMARY"
-            ]
-            nodes[entity_id]["RELATED_ENTITY_COUNT"] = 0
-
-            rel_class_list = [
-                ["Ambiguous matches", "AM_COUNT", "AM_CATEGORIES"],
-                ["Possible matches", "PM_COUNT", "PM_CATEGORIES"],
-                ["Possible relationships", "PR_COUNT", "PR_CATEGORIES"],
-                ["Disclosed relationships", "DR_COUNT", "DR_CATEGORIES"],
-            ]
-
-            for rel_class_fields in rel_class_list:
-                nodes[entity_id][rel_class_fields[1]] = 0
-                nodes[entity_id][rel_class_fields[2]] = {}
-
-            # categorize relationships
-            for relationship in entity_data.get("RELATED_ENTITIES", []):
-                related_id = relationship["ENTITY_ID"]
-
-                # bypass nodes already rendered at prior levels
-                if related_id in current_parent_list[-1]["PRIOR_ENTITY_LIST"]:
-                    continue
-
-                nodes[entity_id]["RELATED_ENTITY_COUNT"] += 1
-                nodes[entity_id]["RELATED_ENTITY_LIST"].append(related_id)
-
-                # disclosed_keys, plus_keys, minus_keys = self.categorizeMatchkey(
-                disclosed_keys, plus_keys, minus_keys = self.categorize_match_key(
-                    relationship["MATCH_KEY"]
-                )
-
-                if relationship["IS_DISCLOSED"]:
-                    rel_class_index = 3
-                    key = colorize("+".join(sorted(disclosed_keys)), "highlight2")
-                elif relationship["IS_AMBIGUOUS"]:
-                    rel_class_index = 0
-                    key = colorize("+".join(sorted(plus_keys)), "good") + (
-                        colorize("-" + "-".join(minus_keys), "bad")
-                        if minus_keys
-                        else ""
-                    )
-                # elif relationship["MATCH_LEVEL"] < 3:
-                elif relationship["MATCH_LEVEL_CODE"] in ("RESOLVED", "POSSIBLY_SAME"):
-                    rel_class_index = 1
-                    key = colorize("+".join(sorted(plus_keys)), "good") + (
-                        colorize("-" + "-".join(minus_keys), "bad")
-                        if minus_keys
-                        else ""
-                    )
+        if build_out_degree == 1: # categorize and group
+            category_counts = {}
+            categories = {}
+            related_entities = entities[root_entity_id]['RELATIONSHIPS']
+            for relation in sorted(related_entities, key=lambda k: (k["MATCH_CATEGORY_SORT"], k["ERRULE_ID"], k["ENTITY_ID"])):
+                match_category = relation["MATCH_CATEGORY"]
+                match_key = relation["MATCH_KEY"]
+                if match_category not in categories:
+                    categories[match_category] = {}
+                    category_counts[match_category] = 1
                 else:
-                    rel_class_index = 2
-                    key = colorize("+".join(sorted(plus_keys)), "good")
+                    category_counts[match_category] = 1
+                match_group = self.fmt_match_group(match_category, match_key)
+                if match_group not in categories[match_category]:
+                    categories[match_category][match_group] = [relation]
+                else:
+                    categories[match_category][match_group].append(relation)
 
-                nodes[entity_id][rel_class_list[rel_class_index][1]] += 1
-                if key not in nodes[entity_id][rel_class_list[rel_class_index][2]]:
-                    nodes[entity_id][rel_class_list[rel_class_index][2]][key] = []
-                nodes[entity_id][rel_class_list[rel_class_index][2]][key].append(
-                    related_id
-                )
+            root_node = Node(root_entity_id)
+            root_node.node_desc = self.fmt_entity_desc(entities[root_entity_id])
+            for category in categories:
+                category_node = Node(category)
+                category_desc = f"{self.match_category_desc[category]} ({category_counts[category]})"
+                category_node.node_desc = category_desc
+                root_node.add_child(category_node)
+                for group in categories[category]:
+                    group_node = Node(group)
+                    group_desc = f"{group} ({len(categories[category][group])})"
+                    group_node.node_desc = group_desc
+                    category_node.add_child(group_node)
+                    for relation in categories[category][group]:
+                        related_id = relation['ENTITY_ID']
+                        rel_node = Node(related_id)
+                        rel_desc = self.fmt_entity_desc(entities[related_id]) 
+                        rel_desc += " " + self.fmt_match_key({"MATCH_KEY": relation["MATCH_KEY"]})
+                        rel_node.node_desc = rel_desc
+                        group_node.add_child(rel_node)
+        else:
+            tree_nodes = {}
+            for entity_id in entities:
+                if entity_id not in tree_nodes:
+                    tree_nodes[entity_id] = Node(entity_id)
+                    tree_nodes[entity_id].node_desc = self.fmt_entity_desc(entities[entity_id]) 
+                related_entities = entities[entity_id]["RELATIONSHIPS"]
+                for relation in sorted(related_entities, key=lambda k: (k["MATCH_CATEGORY_SORT"], k["ERRULE_ID"], k["ENTITY_ID"])):
+                    related_id = relation["ENTITY_ID"]
+                    if related_id not in entities:
+                        continue
+                    if related_id not in tree_nodes:
+                        tree_nodes[related_id] = Node(related_id)
+                        node_desc = self.fmt_entity_desc(entities[related_id])
+                        node_desc += " " + self.fmt_match_key({"MATCH_KEY": relation["MATCH_KEY"]})
+                        tree_nodes[related_id].node_desc = node_desc
 
-            # remove related entities at prior level
-            related_entity_list = []
-            if nodes[entity_id]["RELATED_ENTITY_LIST"]:
-                for related_id in nodes[entity_id]["RELATED_ENTITY_LIST"]:
-                    if related_id not in current_parent_list[-1]["PRIOR_ENTITY_LIST"]:
-                        related_entity_list.append(related_id)
-                nodes[entity_id]["RELATED_ENTITY_LIST"] = related_entity_list
+                    if related_id not in tree_nodes[entity_id].children:
+                        tree_nodes[entity_id].add_child(tree_nodes[related_id])
+                    else:
+                        print('Tell Jeff: related_id was already added to child list!!!!!')
 
-            # start a new parent if any children left
-            if related_entity_list:
-                current_parent_list.append(
-                    {
-                        "ENTITY_ID": entity_id,
-                        "NEXT_RELATED_ENTITY_I": 0,
-                        "RELATED_ENTITY_LIST": related_entity_list,
-                        "PRIOR_ENTITY_LIST": current_parent_list[-1][
-                            "PRIOR_ENTITY_LIST"
-                        ]
-                        + related_entity_list,
-                    }
-                )
+            root_node = tree_nodes[root_entity_id]
 
-        # create the tree view
-        tree_nodes = {}
+        if False:  # candidate to replace both above
+                   # problem is category and group nodes displayed for prior tree entities
+            tree_nodes = {}
+            for entity_id in entities:
+                if entity_id not in tree_nodes:
+                    tree_nodes[entity_id] = Node(entity_id)
+                    tree_nodes[entity_id].node_desc = self.fmt_entity_desc(entities[entity_id]) 
 
-        root_node = Node(root_entity_id)
-        root_node.node_desc = self.entity_node_desc(nodes, root_entity_id)
-        tree_nodes[root_entity_id] = root_node
+                category_counts = {}
+                categories = {}
+                related_entities = entities[entity_id]["RELATIONSHIPS"]
+                for relation in sorted(related_entities, key=lambda k: (k["MATCH_CATEGORY_SORT"], k["ERRULE_ID"], k["ENTITY_ID"])):
+                    match_category = relation["MATCH_CATEGORY"]
+                    match_key = relation["MATCH_KEY"]
+                    if match_category not in categories:
+                        categories[match_category] = {}
+                        category_counts[match_category] = 1
+                    else:
+                        category_counts[match_category] = 1
+                    match_group = self.fmt_match_group(match_category, match_key)
+                    if match_group not in categories[match_category]:
+                        categories[match_category][match_group] = [relation]
+                    else:
+                        categories[match_category][match_group].append(relation)
 
-        current_degree_list = [
-            {"node": root_node, "entity_id": root_entity_id, "next_child": 0}
-        ]
-
-        while current_degree_list:
-            # determine what relationships to build under a relationship class/category tree
-            if current_degree_list[-1]["next_child"] == 0:
-                # print('\t' * (len(current_degree_list) - 1), 'entity:', current_degree_list[-1]['entity_id'])
-                entity_id = current_degree_list[-1]["entity_id"]
-                related_ids_to_build = []
-
-                for rel_class_fields in rel_class_list:
-                    class_name = rel_class_fields[0]
-                    count_key = rel_class_fields[1]
-                    category_key = rel_class_fields[2]
-
-                    if nodes[entity_id][count_key] > 0:
-                        class_node = Node(f"{nodes[entity_id]}-{class_name}")
-                        # colorized_class_name = colorize(class_name, 'highlight1')
-                        # class_node.node_desc = f'{colorized_class_name} ({nodes[entity_id][count_key]})'
-                        class_node.node_desc = (
-                            f"{class_name} ({nodes[entity_id][count_key]})"
-                        )
-
-                        for category in sorted(nodes[entity_id][category_key].keys()):
-                            category_node = Node(f"{nodes[entity_id]}-{category}")
-                            category_node.node_desc = f"{category} ({len(nodes[entity_id][category_key][category])})"
-                            cnt = 0
-                            for related_id in sorted(
-                                nodes[entity_id][category_key][category]
-                            ):
-                                entity_node = Node(related_id)
-                                # entity_node.node_desc = self.entityNodeDesc(
-                                entity_node.node_desc = self.entity_node_desc(
-                                    nodes, related_id
-                                )
-                                tree_nodes[related_id] = entity_node
-                                category_node.add_child(entity_node)
-
-                                related_ids_to_build.append(related_id)
-                                cnt += 1
-                                if cnt == max_children_display:
-                                    if (
-                                        len(nodes[entity_id][category_key][category])
-                                        > cnt
-                                    ):
-                                        additional_node = Node(
-                                            f"{nodes[entity_id]}-{category}-additional"
-                                        )
-                                        additional_node.node_desc = f"+{len(nodes[entity_id][category_key][category])-cnt} more!"
-                                        category_node.add_child(additional_node)
-                                    break
-
-                            class_node.add_child(category_node)
-                        current_degree_list[-1]["node"].add_child(class_node)
-                current_degree_list[-1]["children"] = related_ids_to_build
-
-            if current_degree_list[-1]["next_child"] >= len(
-                current_degree_list[-1]["children"]
-            ):
-                current_degree_list.pop()
-                continue
-
-            related_id = current_degree_list[-1]["children"][
-                current_degree_list[-1]["next_child"]
-            ]
-            current_degree_list[-1]["next_child"] += 1
-
-            # print('\t' * len(current_degree_list), 'related:', related_id, current_degree_list[-1]['prior_level_nodes'])
-
-            # start a new list of children if any
-            if (
-                len(current_degree_list) < build_out_degree
-                and nodes[related_id]["RELATED_ENTITY_COUNT"] > 0
-            ):
-                current_degree_list.append(
-                    {
-                        "node": tree_nodes[related_id],
-                        "entity_id": related_id,
-                        "next_child": 0,
-                    }
-                )
+                for category in categories:
+                    category_node = Node(f"{entity_id}-{category}")
+                    category_desc = f"{self.match_category_desc[category]} ({category_counts[category]})"
+                    category_node.node_desc = category_desc
+                    tree_nodes[entity_id].add_child(category_node)
+                    for group in categories[category]:
+                        group_node = Node(f"{entity_id}-{category}-{group}")
+                        group_desc = f"{group} ({len(categories[category][group])})"
+                        group_node.node_desc = group_desc
+                        category_node.add_child(group_node)
+                        for relation in categories[category][group]:
+                            related_id = relation['ENTITY_ID']
+                            if related_id not in entities:
+                                continue
+                            if related_id not in tree_nodes:
+                                rel_desc = self.fmt_entity_desc(entities[related_id]) 
+                                rel_desc += " " + self.fmt_match_key({"MATCH_KEY": relation["MATCH_KEY"]})
+                                tree_nodes[related_id] = Node(related_id)
+                                tree_nodes[related_id].node_desc = rel_desc
+                            group_node.add_child(tree_nodes[related_id])
+            root_node = tree_nodes[root_entity_id]
 
         if caller:
-            tree_str = root_node.render_tree()
-            return tree_str
-            #self.current_report = (
-            #    self.current_report + tree_str[tree_str.find("\n") + 1 :]
-            #)
-            #self.show_report("auto")
+            return root_node.render_tree()
         else:
-            print()
-            print(root_node.render_tree())
-            print()
+            self.show_report2(root_node.render_tree())
         return
 
     # ---------------------------
-    def entity_node_desc(self, nodes, node_id):
-        if node_id not in nodes:
-            return f"{node_id} not found!"
-
-        node_desc = colorize_entity(node_id) + " "
-
-        if "RECORD_SUMMARY" in nodes[node_id]:
-            node_desc += (
-                " | ".join(
-                    colorize_dsrc(f"{ds['DATA_SOURCE']} ({ds['RECORD_COUNT']})")
-                    for ds in nodes[node_id]["RECORD_SUMMARY"]
-                )
-                + " "
-            )
-
-        if "ENTITY_NAME" in nodes[node_id]:
-            node_desc += nodes[node_id]["ENTITY_NAME"]
-        else:
-            node_desc += "no name"
-
-        return node_desc
-
-    # ---------------------------
-    def get_entity_from_entities(self, _entity_list, _entity_id):
-        # print(json.dumps(_entity_list[0:100]))
-        item_list = [
-            item
-            for item in _entity_list
-            if item["RESOLVED_ENTITY"]["ENTITY_ID"] == _entity_id
-        ]
-        if item_list:
-            return item_list[0]
-        return None
-
-    # ---------------------------
-    def categorize_match_key(self, match_key, **kwargs):
-        # match_key example:
-        #  'SOME_REL_DOMAIN(FATHER,SPOUSE:SON,SPOUSE)+ADDRESS+PHONE-DOB (Ambiguous)'
-        match_key = match_key.replace(" (Ambiguous)", "")
-        disclosed_keys = []
-        plus_keys = []
-        minus_keys = []
-        key_list = re.split(r"(\+|\-)", match_key)
-        all_disclosures = []
-
-        i = 1
-        while i < len(key_list):
-            if key_list[i] in ("+"):
-                i += 1
-                this_key = key_list[i]
-                # derived
-                if "(" not in this_key:
-                    plus_keys.append(this_key)
-                # disclosed
-                else:
-                    if kwargs.get("from_database") is True:
-                        # format: REL_POINTER(DOMAIN:|MIN:|MAX:PRINCIPAL)
-                        try:
-                            l1 = this_key.find("DOMAIN:")
-                            l2 = this_key.find("MIN:")
-                            l3 = this_key.find("MAX:")
-                            domain = this_key[l1 + 7 : l2 - 1]
-                            role1 = this_key[l2 + 4 : l3 - 1]
-                            role2 = this_key[l3 + 4 : -1]
-                            all_disclosures.append(f"{domain}({role1}:{role2})")
-                        except:
-                            print(this_key)
-                    else:
-                        # format: DOMAIN(ROLE:ROLE)
-                        both_side_roles = this_key[
-                            this_key.find("(") + 1 : this_key.find(")")
-                        ].split(":")
-                        # left side of colon is from this entity's point of view
-                        # but if blank, must use right side as both sides not required
-                        roles_to_use = (
-                            both_side_roles[0]
-                            if both_side_roles[0]
-                            else both_side_roles[1]
-                        )
-                        disclosed_keys += roles_to_use.split(",")
-            elif key_list[i] in ("-"):
-                i += 1
-                this_key = key_list[i]
-                minus_keys.append(this_key)
-
-            i += 1
-        if kwargs.get("from_database") is True:
-            return all_disclosures, plus_keys, minus_keys
-        else:
-            return disclosed_keys, plus_keys, minus_keys
-
-     # ---------------------------
     def get_ambiguous_entity_set(self, entity_id):
         # get other ambiguous relationships if this is the ambiguous entity
         get_flag_list = [
@@ -6453,6 +6320,7 @@ class G2CmdShell(cmd.Cmd):
         print()
 
     def show_report2(self, report, **kwargs):
+        print()
         self.current_report = report
         from_how_or_why = kwargs.get("from_how_or_why")
         if self.current_settings["auto_scroll"] == "off" and not from_how_or_why:
@@ -6488,7 +6356,6 @@ class G2CmdShell(cmd.Cmd):
             less_options + " /" + search
 
         # try pipe to less on small enough files (pipe buffer usually 1mb and fills up on large entity displays)
-        print()
         less = subprocess.Popen(["less", less_options], stdin=subprocess.PIPE)
         with suppress(Exception):
             less.stdin.write(report.encode())

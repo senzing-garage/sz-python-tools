@@ -501,7 +501,7 @@ def random_sample_index():
 def initialize_stat_pack():
     """# TODO"""
     stat_pack = {}
-    stat_pack["SOURCE"] = "sz_snapshot"
+    stat_pack["SOURCE"] = "G2Snapshot"
     stat_pack["PROCESS"] = {}
     stat_pack["PROCESS"]["STATUS"] = "Incomplete"
     stat_pack["PROCESS"]["START_TIME"] = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
@@ -1284,7 +1284,7 @@ def calculate_esb_stats():
     print(f"Reviewing {len(esb_entities)} entities...")
 
     try:
-        sz_engine = SzEngine("pySzSnapshotEsb", sz_api_config, False)
+        sz_engine = SzEngine("pySzSnapshotEsb", engine_settings, False)
     except SzError as err:
         print(f"\nSzError: {err}\n")
         with shut_down.get_lock():
@@ -1491,22 +1491,22 @@ if __name__ == "__main__":
 
     # TODO - Ant
     # Check we can locate an engine configuration
-    sz_api_config = get_engine_config(args.config_file_name)
+    engine_settings = get_engine_config(args.config_file_name)
 
     # TODO Ant - move sanity checks like this into helpers code
-    if not json.loads(sz_api_config)["SQL"]["CONNECTION"]:
+    if not json.loads(engine_settings)["SQL"]["CONNECTION"]:
         print("\nCONNECTION parameter not found in [SQL] section of the ini file\n")
         sys.exit(1)
-    g2dbUri = json.loads(sz_api_config)["SQL"]["CONNECTION"]
+    g2dbUri = json.loads(engine_settings)["SQL"]["CONNECTION"]
 
     try:
-        sz_engine = SzEngine("pySzEngine", sz_api_config, False)
+        sz_engine = SzEngine("pySzEngine", engine_settings, False)
 
         sz_product = SzProduct()
         api_version = json.loads(sz_product.get_version())
         api_version_major = int(api_version["VERSION"][0:1])
 
-        sz_configmgr = SzConfigManager("pySzConfigmgr", sz_api_config, False)
+        sz_configmgr = SzConfigManager("pySzConfigmgr", engine_settings, False)
         default_config_id = sz_configmgr.get_default_config_id()
         default_config = sz_configmgr.get_config(default_config_id)
         config_data = json.loads(default_config)
@@ -1629,6 +1629,7 @@ if __name__ == "__main__":
         )
 
         # --adjusts the parameter syntax based on the database type
+        SQL_ENTITIES = g2Dbo.sqlPrep(SQL_ENTITIES)
         SQL_RELATIONS = g2Dbo.sqlPrep(SQL_RELATIONS)
 
         # # abandoned hack to determine if this is an ambiguous entity
