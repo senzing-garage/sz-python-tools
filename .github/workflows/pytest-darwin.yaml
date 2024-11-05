@@ -3,8 +3,9 @@ name: pytest darwin
 on: [pull_request, workflow_dispatch]
 
 env:
-  PYTHONPATH: /Users/runner/work/g2-sdk-python-next/g2-sdk-python-next/src
-  SENZING_TOOLS_DATABASE_URL: "sqlite3://na:na@/tmp/sqlite/G2C.db"
+  DYLD_LIBRARY_PATH: /opt/senzing/er/lib:/opt/senzing/er/lib/macos
+  PYTHONPATH: /Users/runner/work/sz-python-tools/sz-python-tools/sz_tools
+  SENZING_TOOLS_DATABASE_URL: sqlite3://na:na@nowhere/tmp/sqlite/G2C.db
 
 permissions:
   contents: read
@@ -16,48 +17,59 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-13]
-        # 3.8 and 3.9 are unsupported on the darwin runner
-        python-version: ["3.10", "3.11"]
+        os: [macos-latest]
+        # 3.9 is unsupported on the darwin runner
+        python-version: ["3.10", "3.11", "3.12"]
         senzingapi-version: [staging-v4]
 
     steps:
-      - name: checkout repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: set up Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: install dependencies
+      - name: Install dependencies
         run: |
+          python -m venv ./venv
+          source ./venv/bin/activate
+          echo "PATH=${PATH}" >> "${GITHUB_ENV}"
           python -m pip install --upgrade pip
-          pip install psutil pytest pytest-cov pytest-schema
+          python -m pip install --requirement requirements.txt
+          python -m pip install psutil pytest pytest-cov pytest-schema
 
-      - if: matrix.python-version == '3.8' || matrix.python-version == '3.9'
-        name: install python libraries for python 3.8 and 3.9
-        run: pip install typing_extensions
+      - if: matrix.python-version == '3.10'
+        name: Install python libraries for python 3.10
+        run: |
+          source ./venv/bin/activate
+          python -m pip install typing_extensions
 
-      - name: install Senzing API
-        uses: senzing-factory/github-action-install-senzing-api@v3
+      - name: Install Senzing API
+        uses: senzing-factory/github-action-install-senzing-api@v4
         with:
           senzingapi-version: ${{ matrix.senzingapi-version }}
 
-      - name: copy /etc files
-        run: sudo cp testdata/senzing-license/g2.lic /opt/senzing/g2/etc/g2.lic
-
-      - name: copy test database files
-        run: mkdir /tmp/sqlite && cp testdata/sqlite/G2C.db /tmp/sqlite/G2C.db
-
-      - name: run pytest on tests
+      - name: Copy /etc files
         run: |
-          export DYLD_LIBRARY_PATH=/opt/senzing/g2/lib:/opt/senzing/g2/lib/macos
+          sudo mkdir -p /opt/senzing/er/etc
+          sudo cp testdata/senzing-license/g2.lic /opt/senzing/er/etc/g2.lic
+
+      - name: Copy test database files
+        run: |
+          mkdir /tmp/sqlite
+          cp testdata/sqlite/G2C.db /tmp/sqlite/G2C.db
+
+      - name: Run pytest on tests
+        run: |
+          source ./venv/bin/activate
+          export DYLD_LIBRARY_PATH=/opt/senzing/er/lib:/opt/senzing/er/lib/macos
           pytest tests/ --verbose --capture=no --cov=src
 
-      - name: rename coverage file
+      - name: Rename coverage file
         env:
-          COVERAGE_FILE: ".coverage.${{ matrix.python-version }}"
+          COVERAGE_FILE: "coverage.${{ matrix.python-version }}"
         run: |
           mv .coverage "$COVERAGE_FILE"
 
@@ -65,10 +77,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-${{ matrix.python-version }}
-          path: .coverage.${{ matrix.python-version }}
+          path: coverage.${{ matrix.python-version }}
 
   coverage:
-    name: coverage
+    name: Coverage
     needs: pytest-darwin
     permissions:
       pull-requests: write

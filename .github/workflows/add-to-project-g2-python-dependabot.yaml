@@ -1,4 +1,4 @@
-name: add to project g2 python dependabot
+name: Add to project g2 python dependabot
 
 on:
   pull_request:

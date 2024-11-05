@@ -1,4 +1,4 @@
-name: add to project g2 python
+name: Add to project g2 python
 
 on:
   issues:

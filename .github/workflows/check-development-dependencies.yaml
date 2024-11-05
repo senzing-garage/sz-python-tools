@@ -1,17 +1,21 @@
-name: isort
+name: Check development dependencies
 
-on: [push, pull_request]
+on: [pull_request]
 
 permissions:
   contents: read
 
 jobs:
-  isort:
+  check-development-dependencies:
+    name: Check development dependencies
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
 
       - name: Install dependencies
         run: |
@@ -19,11 +23,4 @@ jobs:
           source ./venv/bin/activate
           echo "PATH=${PATH}" >> "${GITHUB_ENV}"
           python -m pip install --upgrade pip
-          python -m pip install --requirement requirements.txt
-
-      - name: Run isort
-        uses: isort/isort-action@v1
-        with:
-          configuration:
-          requirements-files: requirements.txt
-          sort-paths: "sz_tools"
+          python -m pip install --requirement development-requirements.txt

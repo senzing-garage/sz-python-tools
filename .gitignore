@@ -20,6 +20,7 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
@@ -130,6 +131,10 @@ ENV/
 env.bak/
 venv.bak/
 
+# venv
+bin/
+pyvenv.cfg
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -147,6 +152,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+.history
 
 # pytype static type analyzer
 .pytype/
