@@ -241,8 +241,6 @@ class SzCfgShell(cmd.Cmd):
         # cmd.Cmd.__init__(self)
         super().__init__()
 
-        print("here")
-
         # Create Senzing engines
         self.engine_config = engine_config
         try:

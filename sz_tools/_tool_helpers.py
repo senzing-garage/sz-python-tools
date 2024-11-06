@@ -73,6 +73,7 @@ class TimedOut(Exception):
 # -------------------------------------------------------------------------
 
 
+# TODO - Ant -  Make a dataclass
 class Colors:
     """# TODO"""
 
@@ -495,17 +496,17 @@ def colorize_output(
 # -------------------------------------------------------------------------
 
 
-def print_error(msg: Union[Exception, str], end_str: str = "\n") -> None:
+def print_error(msg: Union[Exception, str], end_str: str = "\n\n") -> None:
     """# TODO"""
     print(f"\n{colorize_output('ERROR:', 'error')} {msg}", end=end_str)
 
 
-def print_info(msg: Union[Exception, str], end_str: str = "\n") -> None:
+def print_info(msg: Union[Exception, str], end_str: str = "\n\n") -> None:
     """# TODO"""
     print(colorize_output(f"\n{msg}", "info"), end=end_str)
 
 
-def print_warning(msg: Union[Exception, str], end_str: str = "\n") -> None:
+def print_warning(msg: Union[Exception, str], end_str: str = "\n\n") -> None:
     """# TODO"""
     print(colorize_output(f"\nWARNING: {msg}", "warning"), end=end_str)
 

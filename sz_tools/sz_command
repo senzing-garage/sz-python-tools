@@ -2,6 +2,9 @@
 
 """ # TODO """
 
+# TODO - Ant - Add turning off colour from CLI args still so don't need to do ./sz_tools/sz_command -C json_color -C getEntityByEntityID 1 or getEntityByEntityID nocolor?
+# TODO              This should also not output any info, error or warning output with colour
+# TODO - Ant - Are there commands that shouldn't be allowed for file/cli input, e.g., purge?
 
 import argparse
 import cmd
@@ -53,6 +56,8 @@ formatters = [
     "nocolour",
 ]
 
+MODULE_NAME = pathlib.Path(__file__).stem
+
 
 # -------------------------------------------------------------------------
 # Metadata
@@ -74,13 +79,16 @@ __updated__ = "2024-06-13"
 
 def sz_cmds_decorator(
     cmd_has_args: bool = True,
-) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
+    # ) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
+) -> Union[Callable[[Callable[..., RT]], Callable[..., RT]], None]:
     """Decorator for do_* commands to parse args, display help, set response variables etc."""
 
-    def decorator(func: Callable[..., RT]) -> Callable[..., RT]:
-        @functools.wraps(func)
+    # def decorator(func: Callable[..., RT]) -> Callable[..., RT]:
+    def decorator(do_method: Callable[..., RT]) -> Union[Callable[..., RT], None]:
+        @functools.wraps(do_method)
         def wrapper(self, *args: Any, **kwargs: Any) -> Union[None, RT]:  # type: ignore[no-untyped-def]
             cmd_args = args[0]
+
             # Apply and remove any command formatters
             cmd_args = self.apply_formats(cmd_args)
 
@@ -88,14 +96,14 @@ def sz_cmds_decorator(
                 try:
                     # Parse arguments for a command and add to kwargs
                     # to use in calling method
-                    kwargs["parsed_args"] = self.parser.parse_args([f"{func.__name__[3:]}"] + self.parse(cmd_args))
+                    kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + self.parse(cmd_args))
 
                     if "flags" in kwargs["parsed_args"] and kwargs["parsed_args"].flags:
                         kwargs["flags"] = get_engine_flags(kwargs["parsed_args"].flags)
 
                 # Catch argument errors from parser and display the commands help
                 except SystemExit:
-                    self.do_help(func.__name__)
+                    self.do_help(do_method.__name__)
                     return None
                 # Catch parsing errors such as missing single quote around JSON
                 # Error is displayed in parse()
@@ -110,17 +118,14 @@ def sz_cmds_decorator(
             try:
                 if self.timer:
                     timer_start = time.perf_counter()
-                try:
-                    result = func(self, **kwargs)
-                except SzError as err:
-                    print_error(err)
-                    return
+                result = do_method(self, **kwargs)
                 if self.timer:
                     exec_time = time.perf_counter() - timer_start
                     print_info(
                         f"Approximate execution time (s): {exec_time:.5f}",
                     )
             except (SzError, IOError) as err:
+                result = None
                 print_error(err)
             finally:
                 self.format_json_cmd = False
@@ -169,7 +174,7 @@ class SzCmdShell(cmd.Cmd):
 
         try:
             self.sz_factory = SzAbstractFactory(
-                "sz_command", self.engine_settings, verbose_logging=self.cli_args.debug_trace
+                MODULE_NAME, self.engine_settings, verbose_logging=self.cli_args.debug_trace
             )
             self.sz_config = self.sz_factory.create_sz_config()
             self.sz_configmgr = self.sz_factory.create_sz_configmanager()
@@ -220,6 +225,7 @@ class SzCmdShell(cmd.Cmd):
 
         # Themes
         self.theme = "TERMINAL"
+        # TODO - Ant - Read these from Colors class
         self.themes = ["default", "dark", "light", "terminal"]
 
         # General
@@ -243,7 +249,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.parser = SzCommandArgumentParser(
             add_help=False,
-            prog="sz_command",
+            prog=MODULE_NAME,
             usage=argparse.SUPPRESS,
         )
         self.subparsers = self.parser.add_subparsers()
@@ -574,94 +580,71 @@ class SzCmdShell(cmd.Cmd):
         # Initially set theme to use the default colors set by the terminal
         Colors.set_theme(self.theme)
 
-        print_info("Welcome to sz_command. Type help or ? for help")
+        print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help")
 
     # -------------------------------------------------------------------------
     # Non-interactive input methods
     # -------------------------------------------------------------------------
 
-    # Read commands from a file and call
-    # TODO - Ant - What happens with the split if there is JSON with a space in it! Same for commands_from_cli. Have to use a list somehow to not break on space or remove the split?
     def commands_from_file(self, file_name: str) -> None:
-        """Read commands from a file and call the matching commands"""
+        """
+        Read commands from a file and call the matching commands. Command formatters (jsonl, json, etc) are
+        permitted and are handled by sz_cmds_decorator
+        """
         try:
             with open(file_name, encoding="utf-8") as cmds_file:
-                for read_line in cmds_file:
-                    read_line = read_line.strip()
-                    # Apply and remove any command formatters
-                    cmd_line = self.apply_formats(read_line)
+                for each_cmd in cmds_file:
+                    each_cmd = each_cmd.strip()
 
-                    # Check for comment prefixes
-                    if not read_line or read_line[0:1] in ("#", "-", "/"):
+                    # Skip blank lines and comment prefixes
+                    if not each_cmd or each_cmd[0:1] in ("#", "-", "/"):
                         continue
 
-                    (cmd_, *args) = cmd_line.split()
-                    do_cmd = f"do_{cmd_}"
-                    print(f"\n----- {read_line} -----")
-
+                    (requested_cmd, *requested_args) = each_cmd.split()
+                    do_cmd = f"do_{requested_cmd}"
                     if do_cmd not in dir(self):
-                        print_error(f"Command {cmd_} not found")
+                        print_error(f"Command {do_cmd} not found")
                         continue
 
                     try:
-                        func = getattr(self, do_cmd)
-                        func(" ".join(args))
+                        cmd_args = " ".join(requested_args)
+                        print(f"\n----- {each_cmd} -----")
+                        do_method = getattr(self, do_cmd)
+                        do_method(cmd_args)
                     except (ValueError, TypeError) as err:
                         print_error(f"Problem with command: {err}")
         except OSError as err:
             print_error(err)
 
-    # Run a single command from the CLI
     def commands_from_cli(self, commands: List[List[str]]) -> None:
-        """# TODO"""
-
-        # There could be multiple commands and associated arguments in commands[]
+        """
+        Run command(s) from the command line, here could be multiple commands and associated arguments in
+        commands[]. Command formatters (jsonl, json, etc) are permitted and are handled by sz_cmds_decorator
+        """
         for each_cmd in commands:
-            # TODO - Ant -  Can the list be empty from -C or does argparse ensure there is a value?
-            # single_cmd_str = " ".join(single_cmd)
-            print(f"\n{each_cmd = }", flush=True)
-            print(f"\n{type(each_cmd) = }", flush=True)
             requested_cmd = each_cmd[0]
-            requested_args = [i for i in each_cmd if i != requested_cmd]
-            print(f"\n{requested_cmd = }", flush=True)
-            print(f"\n{requested_args = }", flush=True)
-            cmd_args = " ".join(requested_args)
-            print(f"\n{cmd_args = }", flush=True)
-            # Apply and remove any command formatters
-            # cmd_no_formatting = self.apply_formats(single_cmd_str)
-            # args_no_formatting = self.apply_formats(cmd_args)
-            # print(f"\n{args_no_formatting = }", flush=True)
-            # if not cmd_no_formatting:
-            # continue
-
-            # Get the command name to append to do_ and separate the args for the call
-            # requested_cmd = cmd_no_formatting[0]
-            # requested_args = requested_cmd.replace(requested_cmd, "")
             do_cmd = f"do_{requested_cmd}"
-            print(f"\n{do_cmd = }", flush=True)
-
             if do_cmd not in dir(self):
                 print_error(f"Command {do_cmd} not found")
                 return
 
+            # Build a new list without the requested command resulting in any arguments for the requested command
+            # Due to the way argparse builds the list with the -C argument, also repr() a list item (command argument)
+            # if it looks like JSON otherwise the single quotes around the JSON are lost and characters such as space
+            # in the JSON string break parsing in the actual do_* methods
+            requested_args = [
+                repr(i) if i.strip().startswith("{") and i.strip().endswith("}") else i
+                for i in each_cmd
+                if i != requested_cmd
+            ]
+
+            # Turn the arguments back into a single string for further parsing and call the requested command
             try:
+                cmd_args = " ".join(requested_args)
                 do_method = getattr(self, do_cmd)
                 do_method(cmd_args)
             except (ValueError, TypeError) as err:
                 print_error(f"Problem with command: {err}")
-
-        # cmd_ = commands[0]
-        # commands.remove(cmd_)
-        # do_cmd = f"do_{cmd_}"
-        # if do_cmd not in dir(self):
-        #     print_error(f"Command {cmd_} not found")
-        #     return
-
-        # try:
-        #     do_method = getattr(self, do_cmd)
-        #     do_method(" ".join(commands))
-        # except (ValueError, TypeError) as err:
-        #     print_error(f"Problem with command: {err}")
 
     # -------------------------------------------------------------------------
     # Custom help
@@ -1942,7 +1925,7 @@ class SzCmdShell(cmd.Cmd):
         cmd_line: str,
     ) -> str:
         # Convert command string to a list and lower each element to check
-        # Check if there are any formatters on the input command
+        # if there are any formatters on the input command
         cmd_list_lower = [x.lower() for x in cmd_line.split()]
         formats = [f for f in formatters if f in cmd_list_lower]
 
@@ -2221,6 +2204,7 @@ class SzCmdShell(cmd.Cmd):
         return []
 
 
+# TODO - Ant - Move to helpers
 def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
     """Detect if int or named flags are used and convert to int ready to send to SDK call"""
     print(flags)
@@ -2249,14 +2233,13 @@ def parse_cli_args() -> argparse.Namespace:
         "--ini-file",
         help="optional path and file name of G2Module.ini to use",
     )
-    # TODO Make mutually exclusive with file    g
-    # TODO Add that multiple -C can be used?
+    # TODO Make mutually exclusive with file
     arg_parser.add_argument(
         "-C",
         "--command",
         action="append",
-        nargs="*",
-        help="run a single command non-interactively",
+        nargs="+",
+        help="run command(s) without starting an interactive session",
     )
     arg_parser.add_argument(
         "-f",
@@ -2298,9 +2281,8 @@ def main() -> None:
 
     cmd_obj = SzCmdShell(engine_config, cli_args)
 
-    # Execute a single command
+    # Execute command(s) non-interactively from the command line
     if cli_args.command:
-        print(f"\n{cli_args.command = }", flush=True)
         cmd_obj.commands_from_cli(cli_args.command)
         return
 
