@@ -26,26 +26,23 @@
         "ulonglong"
     ],
     "terminal.integrated.env.linux": {
-        // "PYTHONPATH": ".:${workspaceFolder}/src:${workspaceFolder}/src/senzing",
-        // "PYTHONPATH": ".:/Users/ant/Work/Senzing/git/sz-sdk-python/src/senzing",
-        "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing",
-        // "LD_LIBRARY_PATH": "/home/ant/senzprojs/3.8.0.23292/lib:/home/ant/senzprojs/3.8.0.23292/lib/jre/lib/server:/home/ant/senzprojs/3.8.0.23292/lib/debian:"
-        "LD_LIBRARY_PATH": "/opt/senzing/g2/lib/:/opt/senzing/g2/lib/jre/lib/server:/opt/senzing/g2/lib/debian:",
-        "SENZING_ENGINE_CONFIGURATION_JSON": "{\"PIPELINE\":{\"CONFIGPATH\":\"/etc/opt/senzing\",\"RESOURCEPATH\":\"/opt/senzing/g2/resources\",\"SUPPORTPATH\":\"/opt/senzing/data\"},\"SQL\":{\"CONNECTION\":\"sqlite3://na:na@/tmp/sqlite/G2C.db\"}}"
+        "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python/src:/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing",
+        "LD_LIBRARY_PATH": "/opt/senzing/er/lib/",
+        "SENZING_ENGINE_CONFIGURATION_JSON": "{\"PIPELINE\":{\"CONFIGPATH\":\"/etc/opt/senzing\",\"RESOURCEPATH\":\"/opt/senzing/er/resources\",\"SUPPORTPATH\":\"/opt/senzing/data\"},\"SQL\":{\"CONNECTION\":\"sqlite3://na:na@/tmp/sqlite/G2C.db\"}}"
         // "SENZING_ENGINE_CONFIGURATION_JSON": "{\"PIPELINE\":{\"CONFIGPATH\":\"/etc/opt/senzing\",\"LICENSESTRINGBASE64\": \"AQAAADgCAAAAAAAAU2VuemluZyBJbnRlcm5hbAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU2VuemluZyBJbnRlcm5hbAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADIwMjQtMDUtMDIAAAAAAAAAAAAARVZBTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFNUQU5EQVJEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4mH8AAEBCDwAAAAAAMjAyNS0wNS0wMgAAAAAAAAAAAABZRUFSTFkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFXwDOdVd1TL+0dJRXnE9ykJJyJYnGhUN1QqoS8ASfNaDioankisRviWuB3I5uQ20EEh9tjNzzOszGf1+khWl5cb+XqE+GoMMW0rrSi6ScZmgrfh2oHrRpEbnfb4uejMrl3XGdTPdHUGNSkTKDgEQrlimVt04W5gsFVcBHBiUbKoZCghI+qaYGocsNZLh1yWOklu8Fh02CWkXXQZSKvq/PsXpkHtbsxPbActcMmZRYPZNiRXq0BK3ChyCRM0zbl4mZCPBfNL9zAx6v2HLUmDp4lNEVIyS86T9/enSrsK1udnJq09jnP8gBzY6kBxpoYyxr5o2u1VX3DC9ySHiwtio6NQMo0ckGultNqYpSBejXm10YCYH6eCsnnC5z49Gp+2NYIRcgRz/N93uLd7PrkLyLreayF8HCQOg7CBZeUGcFsufdf0304eJHCsoRy1w2dUT8N2auYJxuzjwzAMvZIYrYamjiG6Mc4Wdcpuktlcht+pjhqk9vwqQI0AzjMq2oXDGYL6KlFcOAojAIZu8bl30pZGGkq2n9NFuuO4gMiRjIwYkBpwHNmBq3QT21owPb4urlidmQelmXtzk9+BNMZL34bUK7R509Rt3GTmjb2c5TDqyIatGfnBsh3658ce8ohnBJ/ZmUgJifcorgLDawDqr8spClKfwLtcwzbkNPDKHJ/e\",\"RESOURCEPATH\":\"/opt/senzing/g2/resources\",\"SUPPORTPATH\":\"/opt/senzing/data\"},\"SQL\":{\"CONNECTION\":\"sqlite3://na:na@/tmp/sqlite/G2C.db\"}}"
     },
     "python.testing.pytestArgs": [],
     "python.autoComplete.extraPaths": [
-        // "/Users/ant/Work/Senzing/git/sz-sdk-python/src",
         "/home/ant/Work/Senzing/git/sz-sdk-python/src",
-        // "/Users/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
-        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing",
+        "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src",
+        "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing"
     ],
     "python.analysis.extraPaths": [
-        // "/Users/ant/Work/Senzing/git/sz-sdk-python/src",
         "/home/ant/Work/Senzing/git/sz-sdk-python/src",
-        // "/Users/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
-        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing",
+        "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src",
+        "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing"
     ],
     // "pylint.args": [
         // " \"--init-hook='import sys; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src\\\")'; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing\\\")'\""

@@ -67,54 +67,6 @@ __updated__ = "2024-06-13"
 # pylint: disable=missing-function-docstring
 
 
-def parse_cli_args() -> argparse.Namespace:
-    """# TODO"""
-    arg_parser = argparse.ArgumentParser(
-        allow_abbrev=False,
-        description="Utility to interact with Senzing APIs",
-        formatter_class=argparse.RawTextHelpFormatter,
-    )
-    arg_parser.add_argument(
-        "fileToProcess",
-        default=None,
-        help="path and file name of file with commands to process",
-        nargs="?",
-    )
-    arg_parser.add_argument(
-        "-c",
-        "--iniFile",
-        help="optional path and file name of G2Module.ini to use",
-    )
-    # TODO Make mutually exclusive with file
-    arg_parser.add_argument(
-        "-C",
-        "--command",
-        nargs="*",
-        help="run a single command non-interactively",
-    )
-    arg_parser.add_argument(
-        "-o",
-        "--captureFile",
-        help="capture session output to a file",
-    )
-    arg_parser.add_argument(
-        "-t",
-        "--debugTrace",
-        action="store_true",
-        default=False,
-        help="output debug information",
-    )
-    arg_parser.add_argument(
-        "-H",
-        "--histDisable",
-        action="store_true",
-        default=False,
-        help="disable use of history file",
-    )
-
-    return arg_parser.parse_args()
-
-
 # -------------------------------------------------------------------------
 # Decorators
 # -------------------------------------------------------------------------
@@ -202,20 +154,23 @@ class SzCmdShell(cmd.Cmd):
     def __init__(
         self,
         engine_settings: str,
-        debug: bool,
-        args_cli: argparse.Namespace,
-        sz_abstract_factory: SzAbstractFactory,
+        # debug: bool,
+        cli_args: argparse.Namespace,
+        # sz_abstract_factory: SzAbstractFactory,
     ):
         super().__init__()
 
-        self.cli_args = args_cli
+        self.cli_args = cli_args
 
         # Acquire Senzing API engines
-        self.debug_trace = debug
+        # self.debug_trace = debug
         self.engine_settings = engine_settings
-        self.sz_factory = sz_abstract_factory
+        # self.sz_factory = sz_abstract_factory
 
         try:
+            self.sz_factory = SzAbstractFactory(
+                "sz_command", self.engine_settings, verbose_logging=self.cli_args.debug_trace
+            )
             self.sz_config = self.sz_factory.create_sz_config()
             self.sz_configmgr = self.sz_factory.create_sz_configmanager()
             self.sz_diagnostic = self.sz_factory.create_sz_diagnostic()
@@ -225,7 +180,7 @@ class SzCmdShell(cmd.Cmd):
             print_error(err)
             sys.exit(1)
 
-        # Get engine flags for use in auto completion
+        # Get Senzing engine flags for use in auto completion
         self.engine_flags_list = list(SzEngineFlags.__members__.keys())
 
         # Collect attributes from configuration
@@ -249,7 +204,7 @@ class SzCmdShell(cmd.Cmd):
 
         # Readline and history
         self.history_avail = False
-        self.history_disable = self.cli_args.histDisable
+        self.history_disable = self.cli_args.hist_disable
         self.history_msg = ""
 
         # Capture output
@@ -601,9 +556,9 @@ class SzCmdShell(cmd.Cmd):
         # return cmd.Cmd.precmd(self, line)
 
     def preloop(self) -> None:
-        if self.cli_args.captureFile:
+        if self.cli_args.capture_file:
             with suppress(IOError):
-                self.capture_file = capture_file(self.cli_args.captureFile)
+                self.capture_file = capture_file(self.cli_args.capture_file)
 
         if not self.history_disable:
             history_check = history_setup()
@@ -625,24 +580,24 @@ class SzCmdShell(cmd.Cmd):
     # Non-interactive input methods
     # -------------------------------------------------------------------------
 
-    # TODO Allow purge?
     # Read commands from a file and call
-    def file_loop(self, file_name: str) -> None:
-        with open(file_name, encoding="utf-8") as cmds_file:
-            for line in cmds_file:
-                line = line.strip()
-                # Apply and remove any command formatters
-                line = self.apply_formats(line)
-                # apply_formats can remove only formatters and no actual command
-                if not line:
-                    continue
+    # TODO - Ant - What happens with the split if there is JSON with a space in it! Same for commands_from_cli. Have to use a list somehow to not break on space or remove the split?
+    def commands_from_file(self, file_name: str) -> None:
+        """Read commands from a file and call the matching commands"""
+        try:
+            with open(file_name, encoding="utf-8") as cmds_file:
+                for read_line in cmds_file:
+                    read_line = read_line.strip()
+                    # Apply and remove any command formatters
+                    cmd_line = self.apply_formats(read_line)
 
-                # Skip comments
-                if line and line[0:1] not in ("#", "-", "/"):
-                    (cmd_, *args) = line.split()
+                    # Check for comment prefixes
+                    if not read_line or read_line[0:1] in ("#", "-", "/"):
+                        continue
+
+                    (cmd_, *args) = cmd_line.split()
                     do_cmd = f"do_{cmd_}"
-                    print(f"\n----- {cmd_} -----")
-                    print(f"\n{line}")
+                    print(f"\n----- {read_line} -----")
 
                     if do_cmd not in dir(self):
                         print_error(f"Command {cmd_} not found")
@@ -653,21 +608,60 @@ class SzCmdShell(cmd.Cmd):
                         func(" ".join(args))
                     except (ValueError, TypeError) as err:
                         print_error(f"Problem with command: {err}")
+        except OSError as err:
+            print_error(err)
 
     # Run a single command from the CLI
-    def one_cmd(self, cmd_args: List[str]) -> None:
-        cmd_ = cmd_args[0]
-        cmd_args.remove(cmd_)
-        do_cmd = f"do_{cmd_}"
-        if do_cmd not in dir(self):
-            print_error(f"Command {cmd_} not found")
-            return
+    def commands_from_cli(self, commands: List[List[str]]) -> None:
+        """# TODO"""
 
-        try:
-            func = getattr(self, do_cmd)
-            func(" ".join(cmd_args))
-        except (ValueError, TypeError) as err:
-            print_error(f"Problem with command: {err}")
+        # There could be multiple commands and associated arguments in commands[]
+        for each_cmd in commands:
+            # TODO - Ant -  Can the list be empty from -C or does argparse ensure there is a value?
+            # single_cmd_str = " ".join(single_cmd)
+            print(f"\n{each_cmd = }", flush=True)
+            print(f"\n{type(each_cmd) = }", flush=True)
+            requested_cmd = each_cmd[0]
+            requested_args = [i for i in each_cmd if i != requested_cmd]
+            print(f"\n{requested_cmd = }", flush=True)
+            print(f"\n{requested_args = }", flush=True)
+            cmd_args = " ".join(requested_args)
+            print(f"\n{cmd_args = }", flush=True)
+            # Apply and remove any command formatters
+            # cmd_no_formatting = self.apply_formats(single_cmd_str)
+            # args_no_formatting = self.apply_formats(cmd_args)
+            # print(f"\n{args_no_formatting = }", flush=True)
+            # if not cmd_no_formatting:
+            # continue
+
+            # Get the command name to append to do_ and separate the args for the call
+            # requested_cmd = cmd_no_formatting[0]
+            # requested_args = requested_cmd.replace(requested_cmd, "")
+            do_cmd = f"do_{requested_cmd}"
+            print(f"\n{do_cmd = }", flush=True)
+
+            if do_cmd not in dir(self):
+                print_error(f"Command {do_cmd} not found")
+                return
+
+            try:
+                do_method = getattr(self, do_cmd)
+                do_method(cmd_args)
+            except (ValueError, TypeError) as err:
+                print_error(f"Problem with command: {err}")
+
+        # cmd_ = commands[0]
+        # commands.remove(cmd_)
+        # do_cmd = f"do_{cmd_}"
+        # if do_cmd not in dir(self):
+        #     print_error(f"Command {cmd_} not found")
+        #     return
+
+        # try:
+        #     do_method = getattr(self, do_cmd)
+        #     do_method(" ".join(commands))
+        # except (ValueError, TypeError) as err:
+        #     print_error(f"Problem with command: {err}")
 
     # -------------------------------------------------------------------------
     # Custom help
@@ -951,7 +945,7 @@ class SzCmdShell(cmd.Cmd):
 
                 ********** WARNING **********
 
-                Are you sure you want to purge the senzing database? Type YESPURGESENZING to purge: """
+                Are you sure you want to purge the Senzing database? Type YESPURGESENZING to purge: """
             ),
             "warning",
         )
@@ -2243,29 +2237,76 @@ def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
     return SzEngineFlags.combine_flags(flags)  # type: ignore
 
 
+def parse_cli_args() -> argparse.Namespace:
+    """# TODO"""
+    arg_parser = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description="Utility to interact with Senzing APIs",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    arg_parser.add_argument(
+        "-c",
+        "--ini-file",
+        help="optional path and file name of G2Module.ini to use",
+    )
+    # TODO Make mutually exclusive with file    g
+    # TODO Add that multiple -C can be used?
+    arg_parser.add_argument(
+        "-C",
+        "--command",
+        action="append",
+        nargs="*",
+        help="run a single command non-interactively",
+    )
+    arg_parser.add_argument(
+        "-f",
+        "--file-to-process",
+        default=None,
+        help="path and file name of file with commands to process",
+        nargs="?",
+    )
+    arg_parser.add_argument(
+        "-o",
+        "--capture-file",
+        help="capture session output to a file",
+    )
+    arg_parser.add_argument(
+        "-t",
+        "--debug_trace",
+        action="store_true",
+        default=False,
+        help="output debug information",
+    )
+    arg_parser.add_argument(
+        "-H",
+        "--hist_disable",
+        action="store_true",
+        default=False,
+        help="disable use of history file",
+    )
+
+    return arg_parser.parse_args()
+
+
 def main() -> None:
     """main"""
 
     cli_args = parse_cli_args()
 
     # Check an engine configuration can be located
-    engine_config = get_engine_config(cli_args.iniFile)
+    engine_config = get_engine_config(cli_args.ini_file)
 
-    try:
-        sz_abstract_factory = SzAbstractFactory("sz_command", engine_config, verbose_logging=cli_args.debugTrace)
-    except SzError as err:
-        print(err)
-        sys.exit(1)
+    cmd_obj = SzCmdShell(engine_config, cli_args)
 
-    cmd_obj = SzCmdShell(engine_config, cli_args.debugTrace, cli_args, sz_abstract_factory)
     # Execute a single command
     if cli_args.command:
-        cmd_obj.one_cmd(cli_args.command)
+        print(f"\n{cli_args.command = }", flush=True)
+        cmd_obj.commands_from_cli(cli_args.command)
         return
 
     # Execute a file of commands
-    if cli_args.fileToProcess:
-        cmd_obj.file_loop(cli_args.fileToProcess)
+    if cli_args.file_to_process:
+        cmd_obj.commands_from_file(cli_args.file_to_process)
         return
 
     # Interactive session
