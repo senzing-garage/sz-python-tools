@@ -490,33 +490,10 @@ class SzCmdShell(cmd.Cmd):
     # Cmd module methods
     # -------------------------------------------------------------------------
 
-    # def cmdloop(self, intro: None = None) -> None:
-    #     while True:
-    #         try:
-    #             cmd.Cmd.cmdloop(self)
-    #             break
-    #         except KeyboardInterrupt:
-    #             if input(
-    #                 colorize_output(
-    #                     "\n\nAre you sure you want to exit? (y/n) ",
-    #                     "caution",
-    #                 )
-    #             ) in ["y", "Y", "yes", "YES"]:
-    #                 break
-    #             else:
-    #                 print()
-    #         except TypeError as err:
-    #             print_error(err)
-
     # Override function from cmd module to make command completion case-insensitive
     def completenames(self, text: str, *ignored: Any) -> List[str]:
         do_text = "do_" + text
         return [a[3:] for a in self.get_names() if a.lower().startswith(do_text.lower())]
-
-    @staticmethod
-    def do_EOF(_):  # type: ignore[no-untyped-def] # pylint: disable=unused-argument
-        # return True
-        raise KeyboardInterrupt
 
     def do_exit(self, _) -> bool:  # type: ignore[no-untyped-def]
         self.do_quit(_)
@@ -594,10 +571,10 @@ class SzCmdShell(cmd.Cmd):
         """
         for each_cmd in commands:
             requested_cmd = each_cmd[0]
-            do_cmd = f"do_{requested_cmd}"
-            if do_cmd not in dir(self):
-                print_error(f"Command {do_cmd} not found")
-                return
+            # do_cmd = f"do_{requested_cmd}"
+            # if do_cmd not in dir(self):
+            #     print_error(f"Command {do_cmd} not found")
+            #     return
 
             # Build a new list without the requested command resulting in any arguments for the requested command
             # Due to the way argparse builds the list with the -C argument, also repr() a list item (command argument)
@@ -612,8 +589,9 @@ class SzCmdShell(cmd.Cmd):
             # Turn the arguments back into a single string for further parsing and call the requested command
             try:
                 cmd_args = " ".join(requested_args)
-                do_method = getattr(self, do_cmd)
-                do_method(cmd_args)
+                # do_method = getattr(self, do_cmd)
+                # do_method(cmd_args)
+                self.onecmd(f"{requested_cmd} {cmd_args}")
             except (ValueError, TypeError) as err:
                 print_error(f"Problem with command: {err}")
 
