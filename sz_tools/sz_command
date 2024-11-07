@@ -44,8 +44,9 @@ from senzing import SzAbstractFactory, SzEngineFlags, SzError
 
 R = TypeVar("R")
 P = ParamSpec("P")
+# TODO - Ant -
 # RT = TypeVar("RT")
-WrappedFn = TypeVar("WrappedFn", bound=Callable[..., Any])
+# WrappedFn = TypeVar("WrappedFn", bound=Callable[..., Any])
 
 # Per command JSON formatting options used in decorator
 formatters = [
@@ -80,51 +81,31 @@ __updated__ = "2024-06-13"
 
 def sz_cmds_decorator(
     cmd_has_args: bool = True,
-    # ) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
-    # ) -> Union[Callable[[Callable[..., RT]], Callable[..., RT]], None]:
-    # ) -> Union[Callable, None]:
-    # ) -> Any:
 ) -> Union[Callable[[Callable[P, R]], Callable[P, R]], None]:
     """Decorator for do_* commands to parse args, display help, set response variables etc."""
 
-    # def decorator(func: Callable[..., RT]) -> Callable[..., RT]:
-    # def decorator(do_method: Callable[..., RT]) -> Union[Callable[..., RT], None]:
-    # def decorator(do_method: Callable) -> Union[Callable, None]:
     def decorator(do_method: Callable[P, R]) -> Union[Callable[P, R], None]:
         @functools.wraps(do_method)
         def wrapped_func(self, *args: P.args, **kwargs: P.kwargs) -> Union[R, None]:  # type: ignore[no-untyped-def]
-            cmd_args = args[0]
-            print(f"\n{kwargs = }", flush=True)
-            print(f"\n{type(kwargs) = }", flush=True)
-
-            # Apply and remove any command formatters
-            cmd_args = self.apply_formats(cmd_args)
+            # Apply and remove any command formatters such as jsonl, nocolor, etc
+            cmd_args = self.apply_formats(args[0])
 
             if cmd_has_args:
                 try:
-                    # Parse arguments for a command and add to kwargs
-                    # to use in calling method
-                    # TODO - Ant - comment this returns argparse.Namespace
+                    # Parse arguments for a command and add to kwargs to use in calling do_ method
+                    # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
                     kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + self.parse(cmd_args))
-                    print(f"\n{kwargs['parsed_args'] = }", flush=True)
-                    print(f"\n{type(kwargs['parsed_args']) = }", flush=True)
-                    print(f"\n{vars(kwargs['parsed_args']) = }", flush=True)
                     parsed_args_dict: Dict[str, Any] = vars(kwargs["parsed_args"])
-                    # if "flags" in kwargs["parsed_args"] and kwargs["parsed_args"].flags:
-                    # if kwargs.get("flags") is not None:
                     cmd_flags = parsed_args_dict.get("flags")
-                    print(f"\n{cmd_flags = }", flush=True)
                     if cmd_flags:
-                        # kwargs["flags"] = get_sz_engine_flags(kwargs["parsed_args"].flags)
-                        # kwargs["flags"] = get_sz_engine_flags(kwargs["parsed_args"].flags)
                         kwargs["flags"] = get_sz_engine_flags(cmd_flags)
 
-                # Catch argument errors from parser and display the commands help
+                # Catch argument errors from parser.parse_args and display the commands help
+                # Argparse parser error method is subclassed by SzCommandArgumentParser and displays the error
                 except SystemExit:
                     self.do_help(do_method.__name__)
                     return None
-                # Catch parsing errors such as missing single quote around JSON
-                # Error is displayed in parse()
+                # Catch parsing errors such as missing single quote around JSON, the error is displayed by parse()
                 except ValueError:
                     return None
                 # Catch errors from methods such as get_engine_flags
@@ -132,21 +113,23 @@ def sz_cmds_decorator(
                     print_error(err)
                     return None
 
-            # Run the decorated method passing back kwargs for use in SDK call
+            if self.timer:
+                timer_start = time.perf_counter()
+
+            # Run the decorated method passing back kwargs for use in API call
             try:
-                if self.timer:
-                    timer_start = time.perf_counter()
-                # result = do_method(self, **kwargs)
                 result = do_method(self, **kwargs)
+            except (SzError, IOError) as err:
+                result = None
+                print_error(err)
+            finally:
                 if self.timer:
                     exec_time = time.perf_counter() - timer_start
                     print_info(
                         f"Approximate execution time (s): {exec_time:.5f}",
                     )
-            except (SzError, IOError) as err:
-                # result = None
-                print_error(err)
-            finally:
+
+                # TODO - Ant - Do these belong here or in post cmd?
                 self.format_json_cmd = False
                 self.color_json_cmd = False
                 self.cmd_color = False
@@ -168,7 +151,7 @@ class SzCommandArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> NoReturn:
         self.exit(
             2,
-            colorize_output(f"\nERROR: {self.prog} - {message}\n", "error"),
+            print_error(message),
         )
 
 
@@ -199,6 +182,7 @@ class SzCmdShell(cmd.Cmd):
             print_error(err)
             sys.exit(1)
 
+        # TODO - Ant -  Move to helpers
         # Get Senzing engine flags for use in auto completion
         self.engine_flags_list = list(SzEngineFlags.__members__.keys())
 
@@ -336,6 +320,7 @@ class SzCmdShell(cmd.Cmd):
         findInterestingEntitiesByRecordID_parser.add_argument("record_id")
         findInterestingEntitiesByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
+        # TODO - Ant -
         def list_of_ints(ints: str) -> List[int]:
             # print(list(map(int, ints.split(","))))
             return list(map(int, ints.split(",")))
@@ -348,6 +333,7 @@ class SzCmdShell(cmd.Cmd):
         findNetworkByEntityID_parser.add_argument("max_entities", type=int)
         findNetworkByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
+        # TODO - Ant -
         def list_of_tuples(rec_keys: str) -> list[tuple[str, str]]:
 
             error_msg = "error parsing, expecting: 'DATA_SOURCE:RECORD_ID, DATA_SOURCE:RECORD_ID, ...'"
@@ -470,11 +456,13 @@ class SzCmdShell(cmd.Cmd):
 
     def get_sz_config_attrs(self) -> List[str]:
         # TODO - Work in progress for JSON autocomplete
+        # TODO - Ant - Move to __init__ / post_cmd and only get once and then reinit if config changes from methods like replaceDefaultConfigID
         config_id = self.sz_engine.get_active_config_id()
         config = self.sz_configmgr.get_config(config_id)
         config_json = json.loads(config)
         cfg_attr = config_json["G2_CONFIG"]["CFG_ATTR"]
         attr_list = []
+        # TODO - Ant - comprehension
         for attr in cfg_attr:
             # print(attr["ATTR_CODE"] + "-" + attr["INTERNAL"])
             if attr["INTERNAL"].lower() == "no":
@@ -482,8 +470,7 @@ class SzCmdShell(cmd.Cmd):
 
         return attr_list
 
-    # Call helper function to format and print command responses with
-    # constant values
+    # Call helper function to format and print command responses with constant values
     def output_response(self, response: Union[int, str], color: str = "") -> str:
         formatted_response: str = print_response(
             response,
@@ -503,23 +490,23 @@ class SzCmdShell(cmd.Cmd):
     # Cmd module methods
     # -------------------------------------------------------------------------
 
-    def cmdloop(self, intro: None = None) -> None:
-        while True:
-            try:
-                super(SzCmdShell, self).cmdloop(intro=self.intro)
-                break
-            except KeyboardInterrupt:
-                if input(
-                    colorize_output(
-                        "\n\nAre you sure you want to exit? (y/n) ",
-                        "caution",
-                    )
-                ) in ["y", "Y", "yes", "YES"]:
-                    break
-                else:
-                    print()
-            except TypeError as err:
-                print_error(err)
+    # def cmdloop(self, intro: None = None) -> None:
+    #     while True:
+    #         try:
+    #             cmd.Cmd.cmdloop(self)
+    #             break
+    #         except KeyboardInterrupt:
+    #             if input(
+    #                 colorize_output(
+    #                     "\n\nAre you sure you want to exit? (y/n) ",
+    #                     "caution",
+    #                 )
+    #             ) in ["y", "Y", "yes", "YES"]:
+    #                 break
+    #             else:
+    #                 print()
+    #         except TypeError as err:
+    #             print_error(err)
 
     # Override function from cmd module to make command completion case-insensitive
     def completenames(self, text: str, *ignored: Any) -> List[str]:
@@ -528,7 +515,8 @@ class SzCmdShell(cmd.Cmd):
 
     @staticmethod
     def do_EOF(_):  # type: ignore[no-untyped-def] # pylint: disable=unused-argument
-        return True
+        # return True
+        raise KeyboardInterrupt
 
     def do_exit(self, _) -> bool:  # type: ignore[no-untyped-def]
         self.do_quit(_)
@@ -2288,18 +2276,22 @@ def main() -> None:
 
     cmd_obj = SzCmdShell(engine_config, cli_args)
 
-    # Execute command(s) non-interactively from the command line
-    if cli_args.command:
-        cmd_obj.commands_from_cli(cli_args.command)
-        return
+    # Execute commands and catch ctrl-c
+    try:
+        # Execute command(s) non-interactively from the command line
+        if cli_args.command:
+            cmd_obj.commands_from_cli(cli_args.command)
+            return
 
-    # Execute a file of commands
-    if cli_args.file_to_process:
-        cmd_obj.commands_from_file(cli_args.file_to_process)
-        return
+        # Execute a file of commands
+        if cli_args.file_to_process:
+            cmd_obj.commands_from_file(cli_args.file_to_process)
+            return
 
-    # Interactive session
-    cmd_obj.cmdloop()
+        # Interactive session
+        cmd_obj.cmdloop()
+    except KeyboardInterrupt:
+        return
 
 
 if __name__ == "__main__":
