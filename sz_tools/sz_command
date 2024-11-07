@@ -42,9 +42,10 @@ from _tool_helpers import (
 )
 from senzing import SzAbstractFactory, SzEngineFlags, SzError
 
-T = TypeVar("T")
+R = TypeVar("R")
 P = ParamSpec("P")
-RT = TypeVar("RT")
+# RT = TypeVar("RT")
+WrappedFn = TypeVar("WrappedFn", bound=Callable[..., Any])
 
 # Per command JSON formatting options used in decorator
 formatters = [
@@ -80,14 +81,21 @@ __updated__ = "2024-06-13"
 def sz_cmds_decorator(
     cmd_has_args: bool = True,
     # ) -> Callable[[Callable[..., RT]], Callable[..., RT]]:
-) -> Union[Callable[[Callable[..., RT]], Callable[..., RT]], None]:
+    # ) -> Union[Callable[[Callable[..., RT]], Callable[..., RT]], None]:
+    # ) -> Union[Callable, None]:
+    # ) -> Any:
+) -> Union[Callable[[Callable[P, R]], Callable[P, R]], None]:
     """Decorator for do_* commands to parse args, display help, set response variables etc."""
 
     # def decorator(func: Callable[..., RT]) -> Callable[..., RT]:
-    def decorator(do_method: Callable[..., RT]) -> Union[Callable[..., RT], None]:
+    # def decorator(do_method: Callable[..., RT]) -> Union[Callable[..., RT], None]:
+    # def decorator(do_method: Callable) -> Union[Callable, None]:
+    def decorator(do_method: Callable[P, R]) -> Union[Callable[P, R], None]:
         @functools.wraps(do_method)
-        def wrapper(self, *args: Any, **kwargs: Any) -> Union[None, RT]:  # type: ignore[no-untyped-def]
+        def wrapped_func(self, *args: P.args, **kwargs: P.kwargs) -> Union[R, None]:  # type: ignore[no-untyped-def]
             cmd_args = args[0]
+            print(f"\n{kwargs = }", flush=True)
+            print(f"\n{type(kwargs) = }", flush=True)
 
             # Apply and remove any command formatters
             cmd_args = self.apply_formats(cmd_args)
@@ -96,10 +104,20 @@ def sz_cmds_decorator(
                 try:
                     # Parse arguments for a command and add to kwargs
                     # to use in calling method
+                    # TODO - Ant - comment this returns argparse.Namespace
                     kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + self.parse(cmd_args))
-
-                    if "flags" in kwargs["parsed_args"] and kwargs["parsed_args"].flags:
-                        kwargs["flags"] = get_engine_flags(kwargs["parsed_args"].flags)
+                    print(f"\n{kwargs['parsed_args'] = }", flush=True)
+                    print(f"\n{type(kwargs['parsed_args']) = }", flush=True)
+                    print(f"\n{vars(kwargs['parsed_args']) = }", flush=True)
+                    parsed_args_dict: Dict[str, Any] = vars(kwargs["parsed_args"])
+                    # if "flags" in kwargs["parsed_args"] and kwargs["parsed_args"].flags:
+                    # if kwargs.get("flags") is not None:
+                    cmd_flags = parsed_args_dict.get("flags")
+                    print(f"\n{cmd_flags = }", flush=True)
+                    if cmd_flags:
+                        # kwargs["flags"] = get_sz_engine_flags(kwargs["parsed_args"].flags)
+                        # kwargs["flags"] = get_sz_engine_flags(kwargs["parsed_args"].flags)
+                        kwargs["flags"] = get_sz_engine_flags(cmd_flags)
 
                 # Catch argument errors from parser and display the commands help
                 except SystemExit:
@@ -118,6 +136,7 @@ def sz_cmds_decorator(
             try:
                 if self.timer:
                     timer_start = time.perf_counter()
+                # result = do_method(self, **kwargs)
                 result = do_method(self, **kwargs)
                 if self.timer:
                     exec_time = time.perf_counter() - timer_start
@@ -125,7 +144,7 @@ def sz_cmds_decorator(
                         f"Approximate execution time (s): {exec_time:.5f}",
                     )
             except (SzError, IOError) as err:
-                result = None
+                # result = None
                 print_error(err)
             finally:
                 self.format_json_cmd = False
@@ -135,7 +154,7 @@ def sz_cmds_decorator(
 
             return result
 
-        return wrapper
+        return wrapped_func
 
     return decorator
 
@@ -159,19 +178,14 @@ class SzCmdShell(cmd.Cmd):
     def __init__(
         self,
         engine_settings: str,
-        # debug: bool,
         cli_args: argparse.Namespace,
-        # sz_abstract_factory: SzAbstractFactory,
     ):
         super().__init__()
 
         self.cli_args = cli_args
+        self.engine_settings = engine_settings
 
         # Acquire Senzing API engines
-        # self.debug_trace = debug
-        self.engine_settings = engine_settings
-        # self.sz_factory = sz_abstract_factory
-
         try:
             self.sz_factory = SzAbstractFactory(
                 MODULE_NAME, self.engine_settings, verbose_logging=self.cli_args.debug_trace
@@ -189,7 +203,7 @@ class SzCmdShell(cmd.Cmd):
         self.engine_flags_list = list(SzEngineFlags.__members__.keys())
 
         # Collect attributes from configuration
-        self.attrs = self.get_config_attrs()
+        self.attrs = self.get_sz_config_attrs()
 
         # Hide methods - could be deprecated, undocumented, not supported, experimental
         self.__hidden_cmds = (
@@ -233,18 +247,17 @@ class SzCmdShell(cmd.Cmd):
         self.scroll_output = False
         self.timer = False
 
-        # Configuration ini file
-        path = pathlib.Path(sys.argv[0])
-        file_str = f"~/.{path.stem.lower()}{'.ini'}"
-        self.config_file = pathlib.Path(file_str).expanduser()
+        # Configuration ini file for this tool
+        config_file_str = f"~/.{MODULE_NAME.lower()}{'.ini'}"
+        self.config_file = pathlib.Path(config_file_str).expanduser()
 
         # Display can't read/write config message once, not at all in container
         self.config_error = False
-        env_launched = os.getenv("SENZING_DOCKER_LAUNCHED", None)
-        self.docker_launched = True if env_launched in ("y", "yes", "t", "true", "on", "1") else False
+        docker_launched = os.getenv("SENZING_DOCKER_LAUNCHED")
+        self.docker_launched = True if docker_launched in ("y", "yes", "t", "true", "on", "1") else False
 
         # -------------------------------------------------------------------------
-        # do_* command parsers
+        # do_* method parsers
         # -------------------------------------------------------------------------
 
         self.parser = SzCommandArgumentParser(
@@ -455,7 +468,7 @@ class SzCmdShell(cmd.Cmd):
             nargs=1,
         )
 
-    def get_config_attrs(self) -> List[str]:
+    def get_sz_config_attrs(self) -> List[str]:
         # TODO - Work in progress for JSON autocomplete
         config_id = self.sz_engine.get_active_config_id()
         config = self.sz_configmgr.get_config(config_id)
@@ -494,7 +507,6 @@ class SzCmdShell(cmd.Cmd):
         while True:
             try:
                 super(SzCmdShell, self).cmdloop(intro=self.intro)
-                # super().cmdloop(intro=None)
                 break
             except KeyboardInterrupt:
                 if input(
@@ -515,7 +527,7 @@ class SzCmdShell(cmd.Cmd):
         return [a[3:] for a in self.get_names() if a.lower().startswith(do_text.lower())]
 
     @staticmethod
-    def do_EOF(_):  # type: ignore[no-untyped-def] # pylint: disable=invalid-name
+    def do_EOF(_):  # type: ignore[no-untyped-def] # pylint: disable=unused-argument
         return True
 
     def do_exit(self, _) -> bool:  # type: ignore[no-untyped-def]
@@ -523,7 +535,7 @@ class SzCmdShell(cmd.Cmd):
         return True
 
     @staticmethod
-    def do_quit(_) -> bool:  # type: ignore[no-untyped-def]
+    def do_quit(_) -> bool:  # type: ignore[no-untyped-def]  # pylint: disable=unused-argument
         return True
 
     def do_shell(self, line: str) -> None:
@@ -559,9 +571,9 @@ class SzCmdShell(cmd.Cmd):
 
     def precmd(self, line: str) -> str:
         return line
-        # return cmd.Cmd.precmd(self, line)
 
     def preloop(self) -> None:
+        # TODO - Ant - Should only be used if in interactive mode not commands or file
         if self.cli_args.capture_file:
             with suppress(IOError):
                 self.capture_file = capture_file(self.cli_args.capture_file)
@@ -575,6 +587,7 @@ class SzCmdShell(cmd.Cmd):
         # Check if there is a config file and use config
         if not self.docker_launched:
             self.read_config()
+            # TODO - Ant - This isn't needed? read_config() will try and create a new one
             self.write_config()
 
         # Initially set theme to use the default colors set by the terminal
@@ -585,36 +598,6 @@ class SzCmdShell(cmd.Cmd):
     # -------------------------------------------------------------------------
     # Non-interactive input methods
     # -------------------------------------------------------------------------
-
-    def commands_from_file(self, file_name: str) -> None:
-        """
-        Read commands from a file and call the matching commands. Command formatters (jsonl, json, etc) are
-        permitted and are handled by sz_cmds_decorator
-        """
-        try:
-            with open(file_name, encoding="utf-8") as cmds_file:
-                for each_cmd in cmds_file:
-                    each_cmd = each_cmd.strip()
-
-                    # Skip blank lines and comment prefixes
-                    if not each_cmd or each_cmd[0:1] in ("#", "-", "/"):
-                        continue
-
-                    (requested_cmd, *requested_args) = each_cmd.split()
-                    do_cmd = f"do_{requested_cmd}"
-                    if do_cmd not in dir(self):
-                        print_error(f"Command {do_cmd} not found")
-                        continue
-
-                    try:
-                        cmd_args = " ".join(requested_args)
-                        print(f"\n----- {each_cmd} -----")
-                        do_method = getattr(self, do_cmd)
-                        do_method(cmd_args)
-                    except (ValueError, TypeError) as err:
-                        print_error(f"Problem with command: {err}")
-        except OSError as err:
-            print_error(err)
 
     def commands_from_cli(self, commands: List[List[str]]) -> None:
         """
@@ -645,6 +628,36 @@ class SzCmdShell(cmd.Cmd):
                 do_method(cmd_args)
             except (ValueError, TypeError) as err:
                 print_error(f"Problem with command: {err}")
+
+    def commands_from_file(self, file_name: str) -> None:
+        """
+        Read commands from a file and call the matching commands. Command formatters (jsonl, json, etc) are
+        permitted and are handled by sz_cmds_decorator
+        """
+        try:
+            with open(file_name, encoding="utf-8") as cmds_file:
+                for each_cmd in cmds_file:
+                    each_cmd = each_cmd.strip()
+
+                    # Skip blank lines and comment prefixes
+                    if not each_cmd or each_cmd[0:1] in ("#", "-", "/"):
+                        continue
+
+                    (requested_cmd, *requested_args) = each_cmd.split()
+                    do_cmd = f"do_{requested_cmd}"
+                    if do_cmd not in dir(self):
+                        print_error(f"Command {do_cmd} not found")
+                        continue
+
+                    try:
+                        cmd_args = " ".join(requested_args)
+                        print(f"\n----- {each_cmd} -----")
+                        do_method = getattr(self, do_cmd)
+                        do_method(cmd_args)
+                    except (ValueError, TypeError) as err:
+                        print_error(f"Problem with command: {err}")
+        except OSError as err:
+            print_error(err)
 
     # -------------------------------------------------------------------------
     # Custom help
@@ -724,10 +737,6 @@ class SzCmdShell(cmd.Cmd):
         """
             )
         )
-
-    # -----------------------------------------------------------------------------
-    # SDK commands
-    # -----------------------------------------------------------------------------
 
     # -----------------------------------------------------------------------------
     # szconfig commands
@@ -826,7 +835,7 @@ class SzCmdShell(cmd.Cmd):
         self.sz_factory.reinitialize(kwargs["parsed_args"].new_default_config_id)
 
         # Configuration has changed, update attributes from configuration
-        self.attrs = self.get_config_attrs()
+        self.attrs = self.get_sz_config_attrs()
         # TODO Test this, resetting last_response in pre/-cmd
         # self.last_response = ""
 
@@ -850,7 +859,7 @@ class SzCmdShell(cmd.Cmd):
         self.sz_configmgr.set_default_config_id(kwargs["parsed_args"].config_id)
         self.output_response("Default config set, reinitializing...", "success")
         # Configuration has changed, update attributes from configuration
-        self.attrs = self.get_config_attrs()
+        self.attrs = self.get_sz_config_attrs()
         # self.last_response = ""
 
     # -----------------------------------------------------------------------------
@@ -1976,25 +1985,25 @@ class SzCmdShell(cmd.Cmd):
     # Try and read configuration ini file, if one doesn't exist create one
     def read_config(self) -> None:
         config_exists = pathlib.Path(self.config_file).exists()
-        read_config = configparser.ConfigParser()
 
         if config_exists:
             try:
+                config_parser = configparser.ConfigParser()
                 with open(self.config_file, "r", encoding="utf-8") as _:
                     pass
-                read_config.read(self.config_file)
-                self.format_json = read_config["CONFIG"].getboolean("formatjson")
-                self.color_json = read_config["CONFIG"].getboolean("outputcolor")
-                self.timer = read_config["CONFIG"].getboolean("timer")
-                self.theme = read_config["CONFIG"]["theme"]
-                self.scroll_output = read_config["CONFIG"].getboolean("scrolloutput")
+                config_parser.read(self.config_file)
+                self.format_json = config_parser["CONFIG"].getboolean("formatjson")
+                self.color_json = config_parser["CONFIG"].getboolean("outputcolor")
+                self.timer = config_parser["CONFIG"].getboolean("timer")
+                self.theme = config_parser["CONFIG"]["theme"]
+                self.scroll_output = config_parser["CONFIG"].getboolean("scrolloutput")
             except IOError as err:
                 print_warning(
-                    f"Error reading configuration file: {err}",
+                    f"Error reading configuration file {self.config_file}: {err}",
                 )
             except (configparser.Error, KeyError) as err:
                 print_warning(
-                    f"Error reading entries from configuration file: {err}",
+                    f"Error reading entries from configuration file {self.config_file}: {err}",
                 )
         else:
             # If a configuration file doesn't exist attempt to create one
@@ -2020,13 +2029,13 @@ class SzCmdShell(cmd.Cmd):
         except IOError as err:
             if not self.config_error:
                 print_warning(
-                    f"Error saving configuration: {err}",
+                    f"Error saving configuration to {self.config_file}: {err}",
                 )
                 self.config_error = not self.config_error
         except configparser.Error as err:
             if not self.config_error:
                 print_warning(
-                    f"Error writing entries to the configuration file: {err}",
+                    f"Error writing entries to the configuration file {self.config_file}: {err}",
                 )
                 self.config_error = not self.config_error
 
@@ -2205,10 +2214,8 @@ class SzCmdShell(cmd.Cmd):
 
 
 # TODO - Ant - Move to helpers
-def get_engine_flags(flags: Union[List[str], List[int]]) -> int:
+def get_sz_engine_flags(flags: Union[List[str], List[int]]) -> int:
     """Detect if int or named flags are used and convert to int ready to send to SDK call"""
-    print(flags)
-    # Support
     if flags[0] == "-1":
         return -1
 

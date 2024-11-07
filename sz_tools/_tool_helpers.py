@@ -508,7 +508,7 @@ def print_info(msg: Union[Exception, str], end_str: str = "\n\n") -> None:
 
 def print_warning(msg: Union[Exception, str], end_str: str = "\n\n") -> None:
     """# TODO"""
-    print(colorize_output(f"\nWARNING: {msg}", "warning"), end=end_str)
+    print(f"\n{colorize_output('WARNING:', 'warning')} {msg}", end=end_str)
 
 
 def print_response(
@@ -688,7 +688,7 @@ def capture_file(file_path: str) -> TextIO:
     try:
         out_file = open(file_path, "w", encoding="utf-8")
     except IOError as err:
-        print_warning(f"Can't write to capture file, continuing without capturing: {err}")
+        print_warning(f"Can't write to capture file, continuing without capturing: {err}", end_str="\n")
         raise IOError from err
 
     return out_file
