@@ -18,6 +18,7 @@ import textwrap
 import time
 import tty
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from signal import SIGALRM, alarm, signal
 from typing import TYPE_CHECKING, Any, Dict, List, TextIO, Union
@@ -74,8 +75,11 @@ class TimedOut(Exception):
 
 
 # TODO - Ant -  Make a dataclass
+@dataclass
 class Colors:
     """# TODO"""
+
+    AVAILABLE_THEMES = ["DEFAULT", "LIGHT", "DARK", "TERMINAL"]
 
     @classmethod
     def apply(cls, to_color: Union[int, str], colors_list: str = "") -> Union[int, str]:
@@ -91,8 +95,9 @@ class Colors:
     @classmethod
     def set_theme(cls, theme: str) -> None:
         """# TODO"""
+        theme = theme.upper()
         # best for dark backgrounds
-        if theme.upper() == "DEFAULT":
+        if theme == "DEFAULT":
             cls.TABLE_TITLE = cls.FG_GREY42
             cls.ROW_TITLE = cls.FG_GREY42
             cls.COLUMN_HEADER = cls.FG_GREY42
@@ -109,9 +114,9 @@ class Colors:
             cls.POSSIBLE = cls.SZ_ORANGE
             cls.RELATED = cls.SZ_GREEN
             cls.DISCLOSED = cls.SZ_PURPLE
-            cls.JSONKEYCOLOR = cls.FG_BLUE
-            cls.JSONVALUECOLOR = cls.FG_YELLOW
-        elif theme.upper() == "LIGHT":
+            cls.JSONKEYCOLOR = cls.SZ_BLUE
+            cls.JSONVALUECOLOR = cls.SZ_YELLOW
+        elif theme == "LIGHT":
             cls.TABLE_TITLE = cls.FG_LIGHTBLACK
             cls.ROW_TITLE = cls.FG_LIGHTBLACK
             cls.COLUMN_HEADER = cls.FG_LIGHTBLACK  # + cls.ITALICS
@@ -129,7 +134,7 @@ class Colors:
             cls.DISCLOSED = cls.FG_LIGHTMAGENTA
             cls.JSONKEYCOLOR = cls.FG_LIGHTBLUE
             cls.JSONVALUECOLOR = cls.FG_LIGHTYELLOW
-        elif theme.upper() == "DARK":
+        elif theme == "DARK":
             cls.TABLE_TITLE = cls.FG_BLACK
             cls.ROW_TITLE = cls.FG_BLACK
             cls.COLUMN_HEADER = cls.FG_BLACK  # + cls.ITALICS
@@ -152,7 +157,7 @@ class Colors:
         # Other tools need to do basic coloring of text, setting this theme uses
         # the colors set by the terminal preferences so a user will see the colors
         # they expect and set in their terminal in the output from tools
-        elif theme.upper() == "TERMINAL":
+        elif theme == "TERMINAL":
             cls.GOOD = cls.FG_GREEN  # Green
             cls.BAD = cls.FG_RED  # Red
             cls.CAUTION = cls.FG_YELLOW  # Yellow
@@ -268,8 +273,8 @@ class Colors:
     POSSIBLE = SZ_ORANGE
     RELATED = SZ_GREEN
     DISCLOSED = SZ_PURPLE
-    JSONKEYCOLOR = FG_BLUE
-    JSONVALUECOLOR = FG_YELLOW
+    JSONKEYCOLOR = SZ_BLUE
+    JSONVALUECOLOR = SZ_YELLOW
 
 
 # -------------------------------------------------------------------------
@@ -489,6 +494,15 @@ def colorize_output(
         output_type = color_or_type
 
     return f"{Colors.apply(output, output_type)}"
+
+
+def colorize_cmd_prompt(prompt: str, color_or_type: str) -> str:
+    """
+    For the Cmd module prompt to be coloured need to add \001 and \002 otherwise readline prints spurious
+    characters when using functions such as reverse search (ctrl-r)
+    """
+    color_prompt = colorize_output(prompt, color_or_type)
+    return f"(\001{color_prompt}\002) "
 
 
 # -------------------------------------------------------------------------

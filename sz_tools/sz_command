@@ -6,6 +6,7 @@
 # TODO              This should also not output any info, error or warning output with colour
 # TODO - Ant - Are there commands that shouldn't be allowed for file/cli input, e.g., purge?
 
+
 import argparse
 import cmd
 import configparser
@@ -20,11 +21,12 @@ import sys
 import textwrap
 import time
 from contextlib import suppress
-from typing import Any, Callable, Dict, List, NoReturn, ParamSpec, TypeVar, Union
+from typing import Any, Callable, List, NoReturn, TypeVar, Union
 
 from _tool_helpers import (
     Colors,
     capture_file,
+    colorize_cmd_prompt,
     colorize_output,
     colorize_str,
     do_help,
@@ -42,14 +44,13 @@ from _tool_helpers import (
 )
 from senzing import SzAbstractFactory, SzEngineFlags, SzError
 
-R = TypeVar("R")
-P = ParamSpec("P")
-# TODO - Ant -
-# RT = TypeVar("RT")
-# WrappedFn = TypeVar("WrappedFn", bound=Callable[..., Any])
+WrappedFunc = TypeVar("WrappedFunc", bound=Callable[..., Any])
 
-# Per command JSON formatting options used in decorator
-formatters = [
+
+MODULE_NAME = pathlib.Path(__file__).stem
+
+# Per command JSON formatting options
+PER_CMD_FORMATTERS = [
     "json",
     "jsonl",
     "color",
@@ -57,8 +58,6 @@ formatters = [
     "nocolor",
     "nocolour",
 ]
-
-MODULE_NAME = pathlib.Path(__file__).stem
 
 
 # -------------------------------------------------------------------------
@@ -81,16 +80,12 @@ __updated__ = "2024-06-13"
 
 def sz_cmds_decorator(
     cmd_has_args: bool = True,
-    # ) -> Union[Callable[[Callable[P, R]], Callable[P, R]], None]:
-) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    """Decorator for do_* commands to parse args, display help, set response variables etc."""
+) -> Callable[[WrappedFunc], WrappedFunc]:
+    """Decorator for do_* methods to parse args, display help, set response variables etc."""
 
-    def decorator(do_method: Callable[P, R]) -> Union[Callable[P, R], None]:
+    def decorator(do_method: WrappedFunc) -> Any:
         @functools.wraps(do_method)
-        # def wrapped_func(self: "SzCmdShell", *args: P.args, **kwargs: P.kwargs) -> Union[R, None]:
-        def wrapped_func(self: "SzCmdShell", *args: P.args, **kwargs: P.kwargs) -> Union[R, None]:
-            print(f"\n{args = }", flush=True)
-            print(f"\n{type(args) = }", flush=True)
+        def wrapped_func(self: "SzCmdShell", *args: Any, **kwargs: Any) -> Any:
             # Apply and remove any command formatters such as jsonl, nocolor, etc
             cmd_args = self.apply_formats(args[0])
 
@@ -98,13 +93,8 @@ def sz_cmds_decorator(
                 try:
                     # Parse arguments for a command and add to kwargs to use in calling do_ method
                     # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
-                    parsed_args: argparse.Namespace = self.parser.parse_args(
-                        [f"{do_method.__name__[3:]}"] + self.parse(cmd_args)
-                    )
-                    kwargs["parsed_args"] = parsed_args
-                    parsed_args_dict: Dict[str, Any] = vars(kwargs["parsed_args"])
-                    print(f"\n{parsed_args_dict = }", flush=True)
-                    cmd_flags = parsed_args_dict.get("flags")
+                    kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + self.parse(cmd_args))
+                    cmd_flags = kwargs["parsed_args"].flags
                     if cmd_flags:
                         kwargs["flags"] = get_sz_engine_flags(cmd_flags)
 
@@ -176,7 +166,7 @@ class SzCmdShell(cmd.Cmd):
         self.cli_args = cli_args
         self.engine_settings = engine_settings
 
-        # Acquire Senzing API engines
+        # Acquire Senzing engines
         try:
             self.sz_factory = SzAbstractFactory(
                 MODULE_NAME, self.engine_settings, verbose_logging=self.cli_args.debug_trace
@@ -197,7 +187,7 @@ class SzCmdShell(cmd.Cmd):
         # Collect attributes from configuration
         self.attrs = self.get_sz_config_attrs()
 
-        # Hide methods - could be deprecated, undocumented, not supported, experimental
+        # Could be deprecated, undocumented, not supported, experimental or not relevant
         self.__hidden_cmds = (
             "do_EOF",
             "do_findInterestingEntitiesByEntityID",
@@ -209,9 +199,14 @@ class SzCmdShell(cmd.Cmd):
             "do_shell",
         )
 
+        # Themes - set early, used for setting cmd prompt, use the default colors set by the terminal
+        self.themes = Colors.AVAILABLE_THEMES
+        self.theme = "TERMINAL"
+        Colors.set_theme(self.theme)
+
         # Cmd module settings
         self.intro = ""
-        self.prompt = "(szcmd) "
+        self.prompt = colorize_cmd_prompt("szcmd", "info")
 
         # Readline and history
         self.history_avail = False
@@ -228,11 +223,6 @@ class SzCmdShell(cmd.Cmd):
         self.color_json_cmd = False
         self.format_json = False
         self.format_json_cmd = False
-
-        # Themes
-        self.theme = "TERMINAL"
-        # TODO - Ant - Read these from Colors class
-        self.themes = ["default", "dark", "light", "terminal"]
 
         # General
         self.last_response = ""
@@ -566,9 +556,6 @@ class SzCmdShell(cmd.Cmd):
             self.read_config()
             # TODO - Ant - This isn't needed? read_config() will try and create a new one
             self.write_config()
-
-        # Initially set theme to use the default colors set by the terminal
-        Colors.set_theme(self.theme)
 
         print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help")
 
@@ -1897,23 +1884,21 @@ class SzCmdShell(cmd.Cmd):
     # Helper methods
     # -----------------------------------------------------------------------------
 
-    # Check input command for optional formatters and apply them
-    # Remove formatters from input command and return modified input command
     def apply_formats(
         self,
         cmd_line: str,
     ) -> str:
-        # Convert command string to a list and lower each element to check
-        # if there are any formatters on the input command
+        """Check command for optional formatters, apply them and remove formatters from the command before running it"""
+        # Convert command str to a list, lower each element to check if any formatters are present
         cmd_list_lower = [x.lower() for x in cmd_line.split()]
-        formats = [f for f in formatters if f in cmd_list_lower]
+        formatting = [f for f in PER_CMD_FORMATTERS if f in cmd_list_lower]
 
         # Set formatters if any are found on the input command
-        if formats:
+        if formatting:
             # Input command as a list to remove any formatters
             cmd_list = cmd_line.split()
 
-            for format_ in formats:
+            for format_ in formatting:
                 if format_ in ["json", "jsonl"]:
                     self.cmd_format = True
                     if format_ == "json":
@@ -1933,21 +1918,16 @@ class SzCmdShell(cmd.Cmd):
                     if format_ in ["nocolor", "nocolour"]:
                         self.color_json_cmd = False
 
-                # Remove any formatters from input command list
-                for a in cmd_list:
-                    if a.lower() == format_:
-                        cmd_list.remove(a)
-
-            # Return a string of input command with formatters removed
-            return " ".join(cmd_list)
+            # Remove any formatters from input command list and convert back to a string
+            cmd_list = [c for c in cmd_list if c not in PER_CMD_FORMATTERS]
+            cmd_line = " ".join(cmd_list)
 
         return cmd_line
 
     # Parses command arguments into a list of argument strings
     def parse(self, argument_string: str) -> List[str]:
         try:
-            shlex_list = shlex.split(argument_string)
-            return shlex_list
+            return shlex.split(argument_string)
         except ValueError as err:
             print_error(f"Unable to parse arguments: {err}")
             raise
@@ -2187,7 +2167,7 @@ class SzCmdShell(cmd.Cmd):
 
 # TODO - Ant - Move to helpers
 def get_sz_engine_flags(flags: List[str]) -> int:
-    """Detect if int or named flags are used and convert to int ready to send to SDK call"""
+    """Detect if int or named flags are used and convert to int"""
     if flags[0] == "-1":
         return -1
 
