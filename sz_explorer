@@ -179,10 +179,19 @@ def colorize_prompt(prompt_str, auto_scroll="off"):
     # example prompt: (P)revious, (N)ext, (G)oto, (D)etail, (H)ow, (W)hy, (E)xport, (Q)uit
     if auto_scroll == "on":
         for str1 in "PNGDHWEQCFSO":
-            prompt_str = prompt_str.replace(
-                f"({str1})", f"({Colors.apply(str1, 'bold')})"
-            )
+            prompt_str = prompt_str.replace(f"({str1})", f"({Colors.apply(str1, 'bold')})")
     return prompt_str
+
+def wrap_text(_str, _width, _color = None):
+    if len(_str) < _width:
+        return [colorize(_str, _color)]
+    else:
+        _list = []
+        wrapper = textwrap.TextWrapper(width=_width - 1)  
+        for line in wrapper.wrap(text=_str):
+            prefix = " " if len(_list) else ""
+            _list.append(colorize(prefix + line, _color))
+        return _list
 
 
 class G2CmdShell(cmd.Cmd):
@@ -407,14 +416,21 @@ class G2CmdShell(cmd.Cmd):
                         feat_record['USAGE_TYPE_SORT'] = f"2-{feat_record['USAGE_TYPE']}"
                     else:
                         feat_record['USAGE_TYPE_SORT'] = "3-UNSPECIFIED"
-                    lib_feat_id = feat_record["LIB_FEAT_ID"]
-                    features_by_id[lib_feat_id] = feat_record
                     features_by_type[ftype_code].append(feat_record)
+                    lib_feat_id = feat_record["LIB_FEAT_ID"]
+                    if lib_feat_id in features_by_id: # may be a different usage type
+                        usage_type1 = features_by_id.get("USAGE_TYPE","")
+                        usage_type2 = feat_record.get("USAGE_TYPE","")
+                        if usage_type2 and usage_type2 != usage_type1: 
+                            delim = ', ' if usage_type1 else ''
+                            features_by_id[lib_feat_id]["USAGE_TYPE"] += delim + usage_type2
+                    else:
+                        features_by_id[lib_feat_id] = feat_record
         return {"BY_ID": features_by_id, "BY_TYPE": features_by_type}
 
     def get_record_features(self, entity_features, feature_list):
+        features_by_id = {}
         features_by_type = {}
-        record_features = {}
         for feat_record in feature_list:
             lib_feat_id = feat_record["LIB_FEAT_ID"]
             if lib_feat_id in entity_features:
@@ -431,7 +447,25 @@ class G2CmdShell(cmd.Cmd):
                     features_by_type[ftype_code] = [feature_data]
                 else:
                     features_by_type[ftype_code].append(feature_data)
-        return features_by_type 
+                if lib_feat_id in features_by_id: # may be a different usage type
+                    usage_type1 = features_by_id.get("USAGE_TYPE","")
+                    usage_type2 = feature_data.get("USAGE_TYPE","")
+                    if usage_type2 and usage_type2 != usage_type1: 
+                        delim = ', ' if usage_type1 else ''
+                        features_by_id[lib_feat_id]["USAGE_TYPE"] += delim + usage_type2
+                else:
+                    features_by_id[lib_feat_id] = feature_data
+        return {"BY_ID": features_by_id, "BY_TYPE": features_by_type}
+
+    def regroup_by_type(self, features_by_id):
+        features_by_type = {}
+        for lib_feat_id in features_by_id:
+            ftype_code = features_by_id[lib_feat_id]["FTYPE_CODE"]
+            if ftype_code not in features_by_type:
+                features_by_type[ftype_code] = [features_by_id[lib_feat_id]]
+            else:
+                features_by_type[ftype_code].append(features_by_id[lib_feat_id])
+        return features_by_type
 
     def get_unmapped_list(self, unmapped_data):
         if not unmapped_data:
@@ -478,6 +512,89 @@ class G2CmdShell(cmd.Cmd):
                 "RELATIONSHIPS": self.get_related_entities(entity["RELATED_ENTITIES"])["LIST"]
             }
         return entities
+
+    def get_why_key(self, match_info):
+        why_key = {
+            "MATCH_KEY": match_info["WHY_KEY"],
+            "ERRULE_CODE": match_info["WHY_ERRULE_CODE"],
+            "ERRULE_ID": self.errule_code_lookup[match_info["WHY_ERRULE_CODE"]]['ERRULE_ID'],
+            "ANY_CANDIDATES": len(match_info["CANDIDATE_KEYS"])
+        }
+        return why_key
+
+    def get_why_scores(self, match_info):
+        scores_by_id = {}
+        for ftype_code in match_info["CANDIDATE_KEYS"]:
+            for score_record in match_info["CANDIDATE_KEYS"][ftype_code]:
+                lib_feat_id = score_record["FEAT_ID"]
+                scores_by_id[lib_feat_id] = {
+                    "WAS_CANDIDATE": True,
+                    "MATCH_SCORE": 100
+                }
+        for ftype_code in match_info["FEATURE_SCORES"]:
+            all_scores = match_info["FEATURE_SCORES"][ftype_code]
+            best_score = sorted(all_scores, key=lambda x: x["SCORE"])[-1]
+            scores_by_id[best_score["INBOUND_FEAT_ID"]] = {
+                "MATCHED_FEAT_ID": best_score["CANDIDATE_FEAT_ID"],
+                "MATCHED_FEAT_DESC": best_score["CANDIDATE_FEAT_DESC"],
+                "MATCH_SCORE": best_score["SCORE"],
+                "ALL_SCORES": best_score["ADDITIONAL_SCORES"],
+                "SCORE_BUCKET": best_score["SCORE_BUCKET"],
+                "SCORE_BEHAVIOR": best_score["SCORE_BEHAVIOR"]
+            }
+            scores_by_id[best_score["CANDIDATE_FEAT_ID"]] = {
+                "MATCHED_FEAT_ID": best_score["INBOUND_FEAT_ID"],
+                "MATCHED_FEAT_DESC": best_score["INBOUND_FEAT_DESC"],
+                "MATCH_SCORE": best_score["SCORE"],
+                "ALL_SCORES": best_score["ADDITIONAL_SCORES"],
+                "SCORE_BUCKET": best_score["SCORE_BUCKET"],
+                "SCORE_BEHAVIOR": best_score["SCORE_BEHAVIOR"]
+            }
+
+        return scores_by_id
+
+
+
+
+        # scores_by_id = {}
+        # for ftype_code in match_info["FEATURE_SCORES"]:
+        #     for feat_record in match_info["CANDIDATE_KEYS"][ftype_code]:
+        #         lib_feat_id = feat_record["ID"]
+        #         scores_by_id[lib_feat_id] = {
+        #             best_score_record["libFeatId"] = lib_feat_id
+        #             best_score_record["matchScore"] = match_score
+        #             best_score_record["matchScoreDisplay"] = match_score_display
+        #             best_score_record["matchLevel"] = match_level
+        #             best_score_record["matchedFeatId"] = matched_feat_id
+        #             best_score_record["matchedFeatDesc"] = matched_feat_desc
+        #             best_score_record["featBehavior"] = feat_behavior
+
+
+        #             ""
+        #             "SCORE_TYPE": "CANDIDATE",
+        #             "SCORE": 100
+        #             "SCORE_CATEGORY": "EXACT"
+        #         }
+
+
+        #         feat_record = self.why_set_match_score(feat_record)
+        #         match_score = feat_record["MATCH_SCORE"]
+        #         match_score_display = feat_record["MATCH_SCORE_DISPLAY"]
+        #         match_level = feat_record["SCORE_BUCKET"]
+        #         feat_behavior = feat_record["SCORE_BEHAVIOR"]
+
+        #         if (
+        #             "matchScore" not in best_score_record
+        #             or match_score > best_score_record["matchScore"]
+        #         ):
+        #             best_score_record["libFeatId"] = lib_feat_id
+        #             best_score_record["matchScore"] = match_score
+        #             best_score_record["matchScoreDisplay"] = match_score_display
+        #             best_score_record["matchLevel"] = match_level
+        #             best_score_record["matchedFeatId"] = matched_feat_id
+        #             best_score_record["matchedFeatDesc"] = matched_feat_desc
+        #             best_score_record["featBehavior"] = feat_behavior
+
 
     #-------------------
     # display formatters
@@ -526,22 +643,14 @@ class G2CmdShell(cmd.Cmd):
         include_feature_code = True #len(feature_data.keys()) > 1
         for ftype_code in sorted(feature_data.keys(), key=lambda k: self.ftype_code_order[k]):
             line_cnt = 0
-            last_feature_str = ''
             for feature in sorted(feature_data[ftype_code], key=lambda k: (k['USAGE_TYPE_SORT'], -len(k['FEAT_DESC']))):
                 usage_type = f' ({feature.get("USAGE_TYPE")})' if feature.get("USAGE_TYPE") else ''
                 feat_desc = feature["FEAT_DESC"]
-                if feat_desc + usage_type == last_feature_str:
-                    continue
-
                 line_cnt += 1
                 if line_cnt == attr_limit:
                     continue
-
-                last_feature_str = feat_desc + usage_type
-
                 colored_ftype = colorize_attr(ftype_code) + ': ' if include_feature_code else ''
                 colored_utype = colorize(usage_type, "dim, italics")
-
                 if len(ftype_code + feat_desc + usage_type) + 2 < attr_width:
                     display_list.append(f"{colored_ftype}{feat_desc}{colored_utype}")
                 elif len(feat_desc + usage_type) + 1 < attr_width - 1:
@@ -562,6 +671,68 @@ class G2CmdShell(cmd.Cmd):
                 display_list.append(f"{colored_ftype}: +{line_cnt - attr_limit} more")
 
         return '\n'.join(display_list)
+
+    def fmt_why_features(self, feat_list, attr_limit, attr_width):
+        display_list = []
+        line_cnt = 0
+        for feature in sorted(feat_list, key=lambda k: (-k.get("MATCH_SCORE", 0), k["FEAT_DESC"])):
+            #debug_print(feature)
+            line_cnt += 1
+            if line_cnt == attr_limit:
+                continue
+
+            feat_desc = feature["FEAT_DESC"]
+            stats = "["
+            if feature["CANDIDATE_CAP_REACHED"] == "Y":
+                stats += "~"
+            if feature["SCORING_CAP_REACHED"] == "Y":
+                stats += "!"
+            if feature["SUPPRESSED"] == "Y":
+                stats += "#"
+            stats += str(feature["ENTITY_COUNT"]) + "]"
+
+            feat_color = ''
+            if feature.get("MATCH_SCORE", 0) > 0:
+                if feature.get("WAS_CANDIDATE"): # always 100
+                    feat_color = "highlight2"
+                elif feature.get("SCORE_BUCKET") in ("SAME", "CLOSE"):
+                    feat_color = "good"
+                elif "E" in feature.get("SCORE_BEHAVIOR", ""):
+                    feat_color = "bad"
+                else:
+                    feat_color = "caution"
+            elif feature["FTYPE_CODE"] == 'AMBIGUOUS_ENTITY':
+                feat_color = "bad"
+
+            if any(x in stats for x in ("~", "!", "#")):
+                feat_color += ",dim" if feat_color else 'dim'
+
+            display_list.extend(wrap_text(f"{feat_desc} {stats}", attr_width, feat_color))
+
+            if feature.get("MATCHED_FEAT_DESC"):
+                if feature["FTYPE_CODE"] != "NAME":
+                    score = feature.get("MATCH_SCORE", 0) 
+                elif feature["ALL_SCORES"].get("GNR_ON", -1) != -1:
+                    score = f"ORG:{feature["ALL_SCORES"].get("GNR_ON", 0)}"
+                else:
+                    score_list = []
+                    if feature["ALL_SCORES"].get("GNR_FN", -1) != -1:
+                        score_list.append(f"FULL:{feature["ALL_SCORES"].get("GNR_FN")}")
+                    if feature["ALL_SCORES"].get("GNR_SN", -1) != -1:
+                        score_list.append(f"SUR:{feature["ALL_SCORES"].get("GNR_SN")}")
+                    if feature["ALL_SCORES"].get("GNR_GN", -1) != -1:
+                        score_list.append(f"GIV:{feature["ALL_SCORES"].get("GNR_GN")}")
+                    score = '|'.join(score_list)
+                matched_desc = f"\u2514\u2500\u2500 {feature["MATCHED_FEAT_DESC"]} ({score})"
+                display_list.extend(wrap_text(matched_desc, attr_width, feat_color))
+
+
+        if attr_limit > 0 and line_cnt > attr_limit:
+            display_list.append(f"{colored_ftype}: +{line_cnt - attr_limit} more")
+
+        return '\n'.join(display_list)
+
+        return feature_data
 
     def fmt_unmapped(self, unmapped_list, attr_limit, attr_width):
         attr_data = {}
@@ -1264,9 +1435,9 @@ class G2CmdShell(cmd.Cmd):
                 print_message(err, "error")
                 continue
 
-            features_by_id = self.get_entity_features(json_data["RESOLVED_ENTITY"]['FEATURES'])["BY_ID"]
+            entity_features = self.get_entity_features(json_data["RESOLVED_ENTITY"]['FEATURES'])["BY_ID"]
             for record in json_data["RESOLVED_ENTITY"]['RECORDS']:
-                record['FEATURES_BY_TYPE'] = self.get_record_features(features_by_id, record['FEATURES'])
+                record['FEATURES_BY_TYPE'] = self.get_record_features(entity_features, record['FEATURES'])["BY_TYPE"]
                 record_list.append(record)
                 ftypes_used.extend(list(record['FEATURES_BY_TYPE'].keys()))
         ftypes_used = sorted(set(ftypes_used))
@@ -2819,7 +2990,7 @@ class G2CmdShell(cmd.Cmd):
         show_detail = False
         features_only = False
         feature_filters = []
-        attr_limit = 10
+        attr_limit = 20
         arg_tokens = []
 
         for token in arg.split():
@@ -2874,7 +3045,7 @@ class G2CmdShell(cmd.Cmd):
         related_entity_count = len(json_data.get("RELATED_ENTITIES", []))
         entity_id = json_data["RESOLVED_ENTITY"]["ENTITY_ID"]
         entity_name = json_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
-        features_by_id = self.get_entity_features(json_data["RESOLVED_ENTITY"]['FEATURES'])["BY_ID"]
+        entity_features = self.get_entity_features(json_data["RESOLVED_ENTITY"]['FEATURES'])["BY_ID"]
         self.last_entity_id = entity_id
 
         if features_only:
@@ -2886,7 +3057,7 @@ class G2CmdShell(cmd.Cmd):
                 {"name": "Elements", "width": 100, "align": "left"}
             ]
             tbl_rows =[]
-            for lib_feat_id in sorted(set(features_by_id.keys()), key=lambda k: self.ftype_code_order[features_by_id[k]["FTYPE_CODE"]]):
+            for lib_feat_id in sorted(set(entity_features.keys()), key=lambda k: self.ftype_code_order[entity_features[k]["FTYPE_CODE"]]):
                 try:
                     response = sz_diagnostic.get_feature(lib_feat_id)
                 except SzError as err:
@@ -2913,7 +3084,7 @@ class G2CmdShell(cmd.Cmd):
 
                 tbl_rows.append([
                     f'{colorize_attr(feature_data["FTYPE_CODE"])}\n  {colorize("id: " + str(lib_feat_id), "dim")}',
-                    features_by_id[lib_feat_id]["FEAT_DESC"],
+                    entity_features[lib_feat_id]["FEAT_DESC"],
                     "\n".join(felem_values)
                 ])
             self.show_report2(self.render_table2(tbl_title, tbl_columns, tbl_rows))
@@ -2930,12 +3101,13 @@ class G2CmdShell(cmd.Cmd):
             {"name": "Features", "width": attr_width, "align": "left"},
             {"name": "Additional Data", "width": attr_width, "align": "left"}
         ]
+
         table_data = {}
         for record in sorted(json_data["RESOLVED_ENTITY"]["RECORDS"], key=lambda k: (k["DATA_SOURCE"], k["RECORD_ID"])):
             data_source = record["DATA_SOURCE"]
             record_id = record["RECORD_ID"]
             record_only = {"DATA_SOURCE": data_source, "RECORD_ID": record_id}
-            features_by_type = self.get_record_features(features_by_id, record["FEATURES"])
+            record_features = self.get_record_features(entity_features, record["FEATURES"])["BY_ID"]
             unmapped_items = self.get_unmapped_list(record.get("UNMAPPED_DATA"))
             if report_type == "summary":
                 table_key = data_source
@@ -2944,22 +3116,21 @@ class G2CmdShell(cmd.Cmd):
             if table_key not in table_data:
                 table_data[table_key] = {
                     "RECORDS": [record_only],
-                    "FEATURES": features_by_type,
+                    "FEATURES": record_features,
                     "UNMAPPED": unmapped_items
                 }
             else:
                 table_data[table_key]['RECORDS'].append(record_only)
-                for ftype_id in features_by_type:
-                    if ftype_id not in table_data[table_key]['FEATURES']:
-                        table_data[table_key]['FEATURES'][ftype_id] = features_by_type[ftype_id]
-                    else:
-                        table_data[table_key]['FEATURES'][ftype_id] += features_by_type[ftype_id]
-                table_data[table_key]['UNMAPPED'] += unmapped_items
+                table_data[table_key]['FEATURES'].update(record_features)
+                table_data[table_key]['UNMAPPED'].extend(unmapped_items)
+
+
 
         tbl_rows = []
         for table_key in table_data:
+            features_by_type = self.regroup_by_type(table_data[table_key]['FEATURES'])
             source_display = self.fmt_record_list(table_data[table_key]["RECORDS"], attr_limit, attr_width)
-            feature_display = self.fmt_features(table_data[table_key]["FEATURES"], attr_limit, attr_width)
+            feature_display = self.fmt_features(features_by_type, attr_limit, attr_width)
             unmapped_display = self.fmt_unmapped(table_data[table_key]["UNMAPPED"], attr_limit, attr_width)
             tbl_rows.append([
                 source_display,
@@ -3088,7 +3259,7 @@ class G2CmdShell(cmd.Cmd):
         if self.current_settings["data_source_suppression"] == "on":
             data_source_filter = kwargs.get('dataSourceFilter')
 
-        attr_limit = 10
+        attr_limit = 20
 
         if isinstance(arg, str) and "SEARCH" in arg.upper():
             entity_list = self.last_search_result
@@ -3120,7 +3291,7 @@ class G2CmdShell(cmd.Cmd):
         entity_list = sorted(entity_list)
         ftype_codes = []
         entities = {}
-        source_row = ["data_source"]
+        source_row = ["DATA_SOURCES"]
         for entity_id in entity_list:
             try:
                 json_data = execute_sz_api("get_entity_by_entity_id", get_flag_list, int(entity_id))
@@ -3132,18 +3303,20 @@ class G2CmdShell(cmd.Cmd):
             records = json_data["RESOLVED_ENTITY"]["RECORDS"]
             features = self.get_entity_features(json_data["RESOLVED_ENTITY"]['FEATURES'])["BY_TYPE"]
             relations = self.get_related_entities(json_data["RELATED_ENTITIES"])["BY_ID"]
+
             source_row.append(self.fmt_record_list(records, 1, attr_width))
             entities[entity_id] = {
                 "RECORDS": records,
                 "FEATURES": features,
                 "RELATIONS": relations
             }
-            column_header = f"{colorize_entity(entity_id)}: {entity_name}"
+            column_header = f"{colorize_entity(entity_id)}"
             tbl_columns.append({"name": column_header, "width": attr_width, "align": "left"})
             ftype_codes.extend(list(features.keys()))
+        tbl_rows.append(source_row)
 
-        cross_row = ["cross_relation"]
-        common_row = ["common_relation"]
+        cross_row = ["CROSS_RELATIONS"]
+        common_row = ["COMMON_RELATIONS"]
         any_cross_rels = False
         any_common_rels = False
         for entity_id in entity_list:
@@ -3170,9 +3343,8 @@ class G2CmdShell(cmd.Cmd):
         if any_common_rels:
             tbl_rows.append(common_row)
 
-        tbl_rows.append(source_row)
         for ftype_code in sorted(set(ftype_codes), key=lambda k: self.ftype_code_order[k]):
-            feat_row = [ftype_code.lower()]
+            feat_row = [ftype_code]
             for entity_id in entity_list:
                 feat_list = entities[entity_id]["FEATURES"].get(ftype_code)
                 if feat_list:
@@ -3184,7 +3356,7 @@ class G2CmdShell(cmd.Cmd):
             tbl_rows.append(feat_row)
 
         any_unmapped = False
-        unmapped_row = ['additional_data']
+        unmapped_row = ['ADDITIONAL_DATA']
         for entity_id in entity_list:
             unmapped_list = []
             for record in entities[entity_id]["RECORDS"]:
@@ -3493,37 +3665,218 @@ class G2CmdShell(cmd.Cmd):
         if len(entity_list) == 1:
             why_type = "whyEntity"
             tbl_title = f"Why for entity: {colorize_entity(entity_list[0])}"
-            first_row_title = "INTERNAL_ID"
+            row1_title = "INTERNAL_ID"
             entity_data = self.why_entity(entity_list)
 
         elif len(entity_list) == 2 and not old_why_not:
             why_type = "whyNot1"
             tbl_title = "Why not for listed entities"
-            first_row_title = "ENTITY_ID"
-            entity_data = self.why_not_2(entity_list)
+            row1_title = "ENTITY_ID"
+            entity_data = self.why_not(entity_list)
 
         elif len(entity_list) == 4 and entity_list[0].upper() in self.dsrc_code_lookup:
             why_type = "whyRecords"
-            tbl_title = f"Why for record: {colorize_dsrc(entity_list[0].upper())}: {entity_list[1]} vs {colorize_dsrc(entity_list[2].upper())}: {entity_list[3]}"
-            first_row_title = "INTERNAL_ID"
+            tbl_title = f"Why for listed records"
+            row1_title = "INTERNAL_ID"
             entity_data = self.why_records(entity_list)
 
         else:
             why_type = "whyNot2"
             tbl_title = "Why not for listed entities"
-            first_row_title = "ENTITY_ID"
+            row1_title = "ENTITY_ID"
             entity_data = self.why_not_many(entity_list)
 
         if not entity_data:
             return -1 if calledDirect else 0
 
-        self.why_display(entity_data, tbl_title, first_row_title)
+        self.why_display2(tbl_title, row1_title, entity_data)
 
-    def why_display(self, entity_data, tbl_title, first_row_title):
+    def why_display2(self, report_title, row1_title, entity_data):
+        attr_width = 80
+        attr_limit = 20
+        tbl_title = report_title
+        tbl_columns = [{"name": row1_title, "width": 15, "align": "left"}]
+        tbl_rows = []
+        source_row = ["DATA_SOURCES"]
+        why_row = ["WHY_RESULT"]
+        entity_list = sorted(entity_data.keys())
+
+        ftype_codes_used = []
+        for _id in entity_list:
+            records = entity_data[_id]["RECORDS"]
+            source_row.append(self.fmt_record_list(records, 1, attr_width))
+
+            match_info = entity_data[_id]["MATCH_INFO"]
+            why_key = self.get_why_key(match_info)
+            scores_by_id = self.get_why_scores(match_info)
+            why_row.append(self.fmt_match_key(why_key))
+
+            features_by_id = entity_data[_id]["FEATURES"]
+            for lib_feat_id in features_by_id:
+                ftype_codes_used.append(features_by_id[lib_feat_id]["FTYPE_CODE"])
+                if lib_feat_id in scores_by_id:
+                    if scores_by_id[lib_feat_id].get("MATCH_SCORE"):
+                        features_by_id[lib_feat_id].update(scores_by_id[lib_feat_id])
+            entity_data[_id]["FEATURES"] = self.regroup_by_type(features_by_id)
+
+            column_header = colorize(_id, "dim" if row1_title == "Internal ID" else "entity_color")
+            tbl_columns.append({"name": column_header, "width": attr_width, "align": "left"})
+        tbl_rows.append(source_row)
+        tbl_rows.append(why_row)
+
+        cross_row = ["CROSS_RELATIONS"]
+        any_cross_rels = False
+        for entity_id in entity_list:
+            cross_rels = []
+            for related_id in entity_data[entity_id]["RELATIONS"]:
+                if related_id in entity_list:
+                    relation = entity_data[entity_id]["RELATIONS"][related_id]
+                    cross_rels.append(self.fmt_relation(relation))
+                    any_cross_rels = True
+            cross_row.append("\n".join(cross_rels))
+        if any_cross_rels:
+            tbl_rows.append(cross_row)
+
+        for ftype_code in sorted(set(ftype_codes_used), key=lambda k: self.ftype_code_order[k]):
+            feat_row = [ftype_code]
+            for _id in entity_list:
+                feat_list = entity_data[_id]["FEATURES"].get(ftype_code)
+                if feat_list:
+                    feat_row.append(self.fmt_why_features(feat_list, attr_limit, attr_width))
+                else:
+                    feat_row.append("")
+            tbl_rows.append(feat_row)
+
+
+        self.show_report2(self.render_table2(tbl_title, tbl_columns, tbl_rows))
+
+        return
+
+    # ---------------------------
+    def why_records(self, entity_list):
+        whyFlagList = [
+            "SZ_WHY_ENTITIES_DEFAULT_FLAGS",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+        ]
+        try:
+            parms = [entity_list[0], entity_list[1], entity_list[2], entity_list[3]]
+            json_data = execute_sz_api("why_records", whyFlagList, parms)
+        except SzError as err:
+            print_message(err, "error")
+            return
+
+        entities = {}
+        for entity_data in json_data["ENTITIES"]:
+            entity_id = entity_data["RESOLVED_ENTITY"]["ENTITY_ID"]
+            entity_name = entity_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
+            entity_features = self.get_entity_features(entity_data["RESOLVED_ENTITY"]['FEATURES'])["BY_ID"]
+            records = entity_data["RESOLVED_ENTITY"]["RECORDS"]
+            relations = self.get_related_entities(entity_data["RELATED_ENTITIES"])["BY_ID"]
+            entities[entity_id] = {
+                "ENTITY_ID": entity_id,
+                "ENTITY_NAME": entity_name,
+                "FEATURES": entity_features,
+                "RECORDS": records,
+                "RELATIONS": relations
+            }
+
+        why_result = json_data["WHY_RESULTS"][0] # only 1 result for whyRecord
+        match_info = why_result["MATCH_INFO"]
+        entity_data = {}
+        entity_fields = (
+            ("INTERNAL_ID", "ENTITY_ID", "FOCUS_RECORDS"),
+            ("INTERNAL_ID_2", "ENTITY_ID_2", "FOCUS_RECORDS_2")
+        )
+        for internal_field, entity_field, record_field in entity_fields:
+            internal_id = why_result[internal_field]
+            entity_id = why_result[entity_field]
+            entity_features = entities[entity_id]["FEATURES"]
+            entity_records = entities[entity_id]["RECORDS"]
+            features = {}
+            for record in why_result[record_field]:
+                data_source = record["DATA_SOURCE"]
+                record_id = record["RECORD_ID"]
+                record = next(x for x in entity_records if x["DATA_SOURCE"] == data_source and x["RECORD_ID"] == record_id)
+                features.update(self.get_record_features(entity_features, record["FEATURES"])["BY_ID"])
+            entity_data[internal_id] = {
+                "RECORDS": why_result[record_field],
+                "FEATURES": features,
+                "RELATIONS": [],
+                "MATCH_INFO": match_info
+            }
+
+        return entity_data
+
+    # ---------------------------
+    def why_not(self, entity_list):
+        why_flag_list = ["SZ_WHY_ENTITIES_DEFAULT_FLAGS"]
+        try:
+            parms = [int(entity_list[0]), int(entity_list[1])]
+            json_data = execute_sz_api("why_entities", why_flag_list, parms)
+        except SzError as err:
+            print_message(err, "error")
+            return
+
+        match_info = json_data["WHY_RESULTS"][0]["MATCH_INFO"]
+        entities = {}
+        for entity_data in json_data["ENTITIES"]:
+            entity_id = entity_data["RESOLVED_ENTITY"]["ENTITY_ID"]
+            entity_name = entity_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
+            entity_features = self.get_entity_features(entity_data["RESOLVED_ENTITY"]['FEATURES'])["BY_ID"]
+            records = entity_data["RESOLVED_ENTITY"]["RECORDS"]
+            relations = self.get_related_entities(entity_data["RELATED_ENTITIES"])["BY_ID"]
+            entities[entity_id] = {
+                "ENTITY_ID": entity_id,
+                "ENTITY_NAME": entity_name,
+                "FEATURES": entity_features,
+                "RECORDS": records,
+                "RELATIONS": relations,
+                "MATCH_INFO": match_info
+            }
+
+        return entities
+
+    def why_not_many(self, entity_list):
+        get_flag_list = [
+            "SZ_ENTITY_INCLUDE_ENTITY_NAME",
+            "SZ_ENTITY_INCLUDE_RECORD_DATA",
+            "SZ_ENTITY_INCLUDE_RECORD_MATCHING_INFO",
+            "SZ_ENTITY_INCLUDE_ALL_RELATIONS",
+            "SZ_ENTITY_INCLUDE_RELATED_ENTITY_NAME",
+            "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
+            "SZ_ENTITY_INCLUDE_RELATED_RECORD_SUMMARY",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+            "SZ_ENTITY_INCLUDE_ALL_FEATURES",
+            "SZ_ENTITY_INCLUDE_RECORD_UNMAPPED_DATA",
+        ]
+        entities = {}
+        for entity_id in entity_list:
+            try:
+                json_data = execute_sz_api("get_entity_by_entity_id", get_flag_list, int(entity_id))
+            except SzError as err:
+                print_message(err, "error")
+                return
+            entity_id = json_data["RESOLVED_ENTITY"]["ENTITY_ID"]
+            entity_name = json_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
+            entity_features = self.get_entity_features(json_data    ["RESOLVED_ENTITY"]['FEATURES'])["BY_ID"]
+            records = json_data["RESOLVED_ENTITY"]["RECORDS"]
+            relations = self.get_related_entities(json_data["RELATED_ENTITIES"])["BY_ID"]
+            entities[entity_id] = {
+                "ENTITY_ID": entity_id,
+                "ENTITY_NAME": entity_name,
+                "FEATURES": entity_features,
+                "RECORDS": records,
+                "RELATIONS": relations
+            }
+
+        return entities
+
+
+    def why_display(self, entity_data, tbl_title, row1_title):
 
         tbl_columns = [
             {
-                "name": colorize(first_row_title, "row_title"),
+                "name": colorize(row1_title, "row_title"),
                 "width": 50,
                 "align": "left",
             }
@@ -3536,7 +3889,7 @@ class G2CmdShell(cmd.Cmd):
         feature_array = {}
         for entity_id in sorted(entity_data.keys()):
             # add the column
-            color = "entity_color" if first_row_title == "ENTITY_ID" else "dim"
+            color = "entity_color" if row1_title == "ENTITY_ID" else "dim"
             tbl_columns.append(
                 {"name": colorize(entity_id, color), "width": 75, "align": "left"}
             )
@@ -3637,7 +3990,7 @@ class G2CmdShell(cmd.Cmd):
             tbl_rows[i][0] = colorize(tbl_rows[i][0], "row_title")
 
         self.render_table(tbl_title, tbl_columns, tbl_rows, displayFlag="No")
-        if first_row_title != 'Step':
+        if row1_title != 'Step':
             self.show_report("auto", from_how_or_why=True)
 
     # ---------------------------
@@ -3679,64 +4032,99 @@ class G2CmdShell(cmd.Cmd):
         return entity_data
 
     # ---------------------------
-    def why_records(self, entity_list):
-        whyFlagList = [
-            "SZ_WHY_ENTITIES_DEFAULT_FLAGS",
-            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
-        ]
-        try:
-            json_data = execute_sz_api(
-                "why_records",
-                whyFlagList,
-                [entity_list[0], entity_list[1], entity_list[2], entity_list[3]],
-            )
-        except SzError as err:
-            print_message(err, "error")
-            return
+    def why_add_match_info(self, features, matchInfo, default_side="INBOUND"):
+        other_side = "CANDIDATE" if default_side == "INBOUND" else "INBOUND"
 
-        entity_data = {}
-        for why_result in json_data["WHY_RESULTS"]:
-            # get the first record
-            internal_id = why_result["INTERNAL_ID"]
-            entity_id = why_result["ENTITY_ID"]
-            this_id = internal_id  # will eventually be entityId when why not function is added
-            entity_data[this_id] = {}
+        why_key = {}
+        why_key["matchKey"] = matchInfo["WHY_KEY"]
+        why_key["ruleCode"] = self.getRule_desc(matchInfo["WHY_ERRULE_CODE"])
+        why_key["anyCandidates"] = False
 
-            records = self.why_fmt_record_list(why_result["FOCUS_RECORDS"])
-            features = self.why_get_features(json_data, entity_id, internal_id)
-            if "MATCH_INFO" not in why_result:
-                why_key = None
-            else:
-                why_key, features = self.why_add_match_info(
-                    features, why_result["MATCH_INFO"]
-                )
+        # update from candidate section of why
+        if "CANDIDATE_KEYS" in matchInfo:
+            for ftype_code in matchInfo["CANDIDATE_KEYS"]:
+                ftype_id = self.ftype_code_lookup[ftype_code]["FTYPE_ID"]
+                for feat_record in matchInfo["CANDIDATE_KEYS"][ftype_code]:
+                    lib_feat_id = feat_record["FEAT_ID"]
+                    if lib_feat_id not in features:
+                        print(
+                            "warning: candidate feature %s not in record!" % lib_feat_id
+                        )
+                        continue
+                    features[lib_feat_id]["ftypeCode"] = ftype_code
+                    features[lib_feat_id]["ftypeId"] = ftype_id
+                    features[lib_feat_id]["wasCandidate"] = "Yes"
+                    features[lib_feat_id]["matchScore"] = 100
+                    features[lib_feat_id]["matchLevel"] = "SAME"
+                    why_key["anyCandidates"] = True
 
-            entity_data[this_id]["dataSources"] = records
-            entity_data[this_id]["whyKey"] = why_key
-            entity_data[this_id]["features"] = features
+        # update from scoring section of why
+        for ftype_code in matchInfo["FEATURE_SCORES"]:
+            ftype_id = self.ftype_code_lookup[ftype_code]["FTYPE_ID"]
+            best_score_record = {}
+            for feat_record in matchInfo["FEATURE_SCORES"][ftype_code]:
+                # if featRecord.get('scoringWasSuppressed','No') == 'Yes':
+                #    continue
+                # BUG WHERE INBOUND/CANDIDATE IS SOMETIMES REVERSED...
+                if feat_record[default_side + "_FEAT_ID"] in features:
+                    lib_feat_id = feat_record[default_side + "_FEAT_ID"]
+                    matched_feat_id = feat_record[other_side + "_FEAT_ID"]
+                    matched_feat_desc = feat_record[other_side + "_FEAT_DESC"]
+                elif feat_record[other_side + "_FEAT_ID"] in features:
+                    lib_feat_id = feat_record[other_side + "_FEAT_ID"]
+                    matched_feat_id = feat_record[default_side + "_FEAT_ID"]
+                    matched_feat_desc = feat_record[default_side + "_FEAT_DESC"]
+                else:
+                    print(
+                        "warning: scored feature %s not in either record!" % lib_feat_id
+                    )
+                    continue
 
-            # get the second record
-            internal_id = why_result["INTERNAL_ID_2"]
-            entity_id = why_result["ENTITY_ID_2"]
-            this_id = internal_id  # will eventually be entityId when why not function is added
-            entity_data[this_id] = {}
+                feat_record = self.why_set_match_score(feat_record)
+                match_score = feat_record["MATCH_SCORE"]
+                match_score_display = feat_record["MATCH_SCORE_DISPLAY"]
+                match_level = feat_record["SCORE_BUCKET"]
+                feat_behavior = feat_record["SCORE_BEHAVIOR"]
 
-            records = self.why_fmt_record_list(why_result["FOCUS_RECORDS_2"])
-            features = self.why_get_features(json_data, entity_id, internal_id)
-            if "MATCH_INFO" not in why_result:
-                why_key = None
-            else:
-                why_key, features = self.why_add_match_info(
-                    features, why_result["MATCH_INFO"]
-                )
+                if (
+                    "matchScore" not in best_score_record
+                    or match_score > best_score_record["matchScore"]
+                ):
+                    best_score_record["libFeatId"] = lib_feat_id
+                    best_score_record["matchScore"] = match_score
+                    best_score_record["matchScoreDisplay"] = match_score_display
+                    best_score_record["matchLevel"] = match_level
+                    best_score_record["matchedFeatId"] = matched_feat_id
+                    best_score_record["matchedFeatDesc"] = matched_feat_desc
+                    best_score_record["featBehavior"] = feat_behavior
 
-            entity_data[this_id]["dataSources"] = records
-            entity_data[this_id]["whyKey"] = why_key
-            entity_data[this_id]["features"] = features
+            # and bestScoreRecord['libFeatId'] in features) or not : #--adjusted for how
+            if best_score_record:
+                lib_feat_id = best_score_record["libFeatId"]
+                if lib_feat_id not in features:  # adjusted for how
+                    # input(f'hit how adjustment on {libFeatId}, press any key')
+                    features[lib_feat_id] = {}
+                features[lib_feat_id]["libFeatId"] = lib_feat_id
+                features[lib_feat_id]["ftypeId"] = ftype_id
+                features[lib_feat_id]["ftypeCode"] = ftype_code
+                features[lib_feat_id]["wasScored"] = "Yes"
+                features[lib_feat_id]["matchScore"] = best_score_record["matchScore"]
+                features[lib_feat_id]["matchScoreDisplay"] = best_score_record[
+                    "matchScoreDisplay"
+                ]
+                features[lib_feat_id]["matchLevel"] = best_score_record["matchLevel"]
+                features[lib_feat_id]["matchedFeatId"] = best_score_record[
+                    "matchedFeatId"
+                ]
+                features[lib_feat_id]["matchedFeatDesc"] = best_score_record[
+                    "matchedFeatDesc"
+                ]
+                features[lib_feat_id]["featBehavior"] = best_score_record[
+                    "featBehavior"
+                ]
 
-            break  # there can only really be one, so lets be done!
+        return why_key, features
 
-        return entity_data
 
     # ---------------------------
     def why_not_2(self, entity_list):
@@ -3828,7 +4216,7 @@ class G2CmdShell(cmd.Cmd):
         return entity_data
 
     # ---------------------------
-    def why_not_many(self, entity_list):
+    def why_not_manyx(self, entity_list):
 
         why_flag_list = [
             "SZ_WHY_ENTITY_DEFAULT_FLAGS",
@@ -6632,6 +7020,14 @@ def _append_slash_if_dir(p):
     else:
         return p
 
+def debug_print(_value, _desc = "some variable"):
+    print('-'*20)
+    print(_desc)
+    if type(_value) in (list, dict):
+        print(json.dumps(_value, indent=4))
+    else:
+        print(_value)
+    input('press any key ...')
 
 # --------------------------------------
 if __name__ == "__main__":
