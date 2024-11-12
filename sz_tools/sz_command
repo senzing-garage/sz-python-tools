@@ -93,104 +93,48 @@ def sz_cmds_decorator(
                 try:
                     # Parse arguments for a command and add to kwargs to use in calling do_ method
                     # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
-                    # TODO - Ant -
-                    print(f"\nIn decorator: {cmd_args = }", flush=True)
                     kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + self.parse(cmd_args))
-                    # print(f"\n{do_method.__name__[3:] = }", flush=True)
-                    # print(f"\n{[f'{do_method.__name__[3:]}'] + [cmd_args] = }", flush=True)
-                    # NOTE Didn't work lost flags again
-                    # print(f"\n{[f'{do_method.__name__[3   :]}'] + [cmd_args.split()] = }", flush=True)
-                    # NOTE Didn't work lost flags again
-                    # print(f"\n{[f'{do_method.__name__[3:]}'] + [[cmd_args]] = }", flush=True)
-                    # print(f"\n{[f'{do_method.__name__[3:]} ' + cmd_args] = }", flush=True)
-                    # print(f"\n{self.parser.parse_args([f'{do_method.__name__[3:]}']) = }", flush=True)
-                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + cmd_args.split())
-                    # NOTE This one gets to the type=list_of_tuples: [f'{do_method.__name__[3:]}'] + [cmd_args] = ['getVirtualEntityByRecordID', 'REFERENCE 1 customer 2 -f SZ_WITH_INFO']
-                    # NOTE Fudged list_of_tuples to work for now (force the return), rec_keys = 'REFERENCE 1 customer 2 -f SZ_WITH_INFO' - works but lose the flags on the parse
-                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + [cmd_args])
-                    # NOTE Doesn't like this, as if it can't find the parser: [f'{do_method.__name__[3:]} ' + cmd_args] = ['getVirtualEntityByRecordID REFERENCE 1 custgomer 2 -f SZ_WITH_INFO']
-                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]} " + cmd_args])
-                    # NOTE Didn't work lost flags again
-                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + [cmd_args.split()])
-                    # NOTE Didn't work lost flags again
-                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + [[cmd_args]])
 
-                    # NOTE Trying manually to see what parser is happy with
-
-                    # NOTE Didn't work only picked up REFERENCE as a single parm, expected - ERROR: unrecognized arguments: 1 customer 2
-                    # parse_list = ["getVirtualEntityByRecordID", "REFERENCE", "1", "customer", "2", "-f", "SZ_WITH_INFO"]
-
-                    # NOTE Didn't work thinks unknown command? - ERROR: argument {getConfig,replaceDefaultC
-                    # parse_list = ["getVirtualEntityByRecordID REFERENCE 1 customer 2 -f SZ_WITH_INFO"]
-
-                    # NOTE Semi works but lost flags
-                    # NOTE rec_keys = 'REFERENCE 1 customer 2 -f SZ_WITH_INFO'
-                    # NOTE In decorator out of parse: kwargs['parsed_args'] = Namespace(record_list=[('REFERENCE', '2012'), ('CUSTOMERS', '1001')], flags=None)
-                    # parse_list = ["getVirtualEntityByRecordID", "REFERENCE 1 customer 2 -f SZ_WITH_INFO"]
-
-                    # NOTE This works, but need to figure out how to have the ds and rec_ids picked up, nargs?
-                    # NOTE rec_keys = 'REFERENCE 1 customer 2'
-                    # NOTE In decorator out of parse: kwargs['parsed_args'] = Namespace(record_list=[('REFERENCE', '2012'), ('CUSTOMERS', '1001')], flags=['SZ_WITH_INFO'])
-                    # parse_list = ["getVirtualEntityByRecordID", "REFERENCE 1 customer 2", "-f", "SZ_WITH_INFO"]
-
-                    # NOTE
-                    # parse_list = ["getVirtualEntityByRecordID", "REFERENCE 1 customer 2 -f SZ_WITH_INFO"]
-
-                    # parse_list = [f"{do_method.__name__[3:]}"] + self.parse(cmd_args)
-                    # print(f"\n{parse_list = }", flush=True)
-                    # kwargs["parsed_args"] = self.parser.parse_args(parse_list)
-
-                    # TODO - Ant -
-                    print(f"\nIn decorator out of parse: {kwargs['parsed_args'] = }", flush=True)
-                    # If the command has flags build the int value to send on the do_ method
+                    # If the command has flags build the int value for the do_ method
                     if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
                         kwargs["flags"] = get_sz_engine_flags(kwargs["parsed_args"].flags)
 
-                    # TODO - Ant -
-                    if hasattr(kwargs["parsed_args"], "record_list"):
-                        record_list = kwargs["parsed_args"].record_list
-                        if len(record_list) % 2 != 0:
-                            print_error(f"Uneven number of data source codes and record IDs: {record_list}")
+                    # If the command uses record_keys build the expected list of tuples for the SDK
+                    if hasattr(kwargs["parsed_args"], "record_keys"):
+                        record_keys = kwargs["parsed_args"].record_keys
+                        # 1 list element = str from quotes: getVirtualEntityByRecordID 'REFERENCE 2012 customers 1001'
+                        # Split it into a list
+                        if len(record_keys) == 1:
+                            record_keys = record_keys[0].split()
+
+                        if len(record_keys) % 2 != 0:
+                            print_error(f"Uneven number of data source codes and record IDs: {record_keys}")
                             return None
 
-                        # TODO - Ant -
-                        kwargs["record_keys"] = [tuple(record_list[i : i + 2]) for i in range(0, len(record_list), 2)]
+                        # Build the list of tuples expected by the SDK for record_keys arguments
+                        # [('REFERENCE', '2012'), ('CUSTOMERS', '1001')]
+                        kwargs["record_keys"] = [tuple(record_keys[i : i + 2]) for i in range(0, len(record_keys), 2)]
 
-                    # TODO - Ant -
-                    if hasattr(kwargs["parsed_args"], "entity_list"):
-                        entity_list = kwargs["parsed_args"].entity_list
-                        # TODO - Ant -
-                        print(f"\n{entity_list = }", flush=True)
+                    # If the command uses entity IDs perform clean up, sanity checks and build the expected list for the SDK
+                    if hasattr(kwargs["parsed_args"], "entity_ids"):
+                        entity_ids_str = kwargs["parsed_args"].entity_ids
 
-                        # Entity_list from parser was collected as a single string from input like '1 2 3', '1, 2, 3'
-                        # This means all other expected arguments were present on the command
-                        if len(entity_list) == 1:
-                            # Convert to a str and remove any possible commas
-                            entity_list_str = entity_list[0].replace(",", " ")
-                            # Convert back to a list where each string is an elements '1,2,3' -> ['1', '2', '3']
-                            entity_list = entity_list_str.split()
-                            print(f"\n{entity_list = }", flush=True)
-                        else:
-                            # Strip commas out of list elements when argument like 1, 222222, 3
-                            entity_list = [i.replace(",", " ") for i in entity_list]
+                        # entity_list could be provided with commas, remove then '1,2,3,4' -> '1 2 3 4'
+                        entity_ids_str = entity_ids_str.replace(",", " ")
 
-                        non_ints = [i.strip() for i in entity_list if not i.strip().isdigit()]
-                        print(f"\n{non_ints = }", flush=True)
+                        # Convert back list for further checks and ready to send to the do_ method
+                        entity_ids_list = entity_ids_str.split()
+                        non_ints = [id for id in entity_ids_list if not id.isdigit()]
                         if non_ints:
                             print_error(f"Entity IDs should be integers: {non_ints}")
                             return None
 
-                        entity_ids = [int(i) for i in entity_list]
-                        print(f"\n{entity_ids = }", flush=True)
-
-                        return None
-                        return None
+                        # Convert the str digits to ints
+                        kwargs["entity_ids"] = [int(i) for i in entity_ids_list]
 
                 # Catch argument errors from parser.parse_args and display the commands help
                 # Argparse parser error method is subclassed by SzCommandArgumentParser and displays the error
                 except SystemExit:
-                    # TODO - Ant -
-                    print("\nIn decorator SystemExit...", flush=True)
                     self.do_help(do_method.__name__)
                     return None
                 # Catch parsing errors such as missing single quote around JSON, the error is displayed by parse()
@@ -237,10 +181,6 @@ class SzCommandArgumentParser(argparse.ArgumentParser):
     """Subclass ArgumentParser, override error() with custom message"""
 
     def error(self, message: str) -> NoReturn:
-        # TODO - Ant -
-        print("In argparse error override...")
-        print(f"\n{self = }", flush=True)
-        # print(f"\n{self. = }", flush=True)
         self.exit(
             2,
             print_error(message),
@@ -365,10 +305,10 @@ class SzCmdShell(cmd.Cmd):
 
         # szdiagnostic parsers
 
-        checkDatastorePerformance_parser = self.subparsers.add_parser(
-            "checkDatastorePerformance", usage=argparse.SUPPRESS
+        check_datastore_performance_parser = self.subparsers.add_parser(
+            "check_datastore_performance", usage=argparse.SUPPRESS
         )
-        checkDatastorePerformance_parser.add_argument("secondsToRun", default=3, nargs="?", type=int)
+        check_datastore_performance_parser.add_argument("seconds_to_run", default=3, nargs="?", type=int)
 
         getFeature_parser = self.subparsers.add_parser("getFeature", usage=argparse.SUPPRESS)
         getFeature_parser.add_argument("featureID", type=int)
@@ -385,25 +325,29 @@ class SzCmdShell(cmd.Cmd):
 
         # szengine parsers
 
-        addRecord_parser = self.subparsers.add_parser("addRecord", usage=argparse.SUPPRESS)
-        addRecord_parser.add_argument("data_source_code")
-        addRecord_parser.add_argument("record_id")
-        addRecord_parser.add_argument("record_definition")
-        addRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        add_record_parser = self.subparsers.add_parser("add_record", usage=argparse.SUPPRESS)
+        add_record_parser.add_argument("data_source_code")
+        add_record_parser.add_argument("record_id")
+        add_record_parser.add_argument("record_definition")
+        add_record_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        deleteRecord_parser = self.subparsers.add_parser("deleteRecord", usage=argparse.SUPPRESS)
-        deleteRecord_parser.add_argument("data_source_code")
-        deleteRecord_parser.add_argument("record_id")
-        deleteRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        delete_record_parser = self.subparsers.add_parser("delete_record", usage=argparse.SUPPRESS)
+        delete_record_parser.add_argument("data_source_code")
+        delete_record_parser.add_argument("record_id")
+        delete_record_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        exportCSVEntityReport_parser = self.subparsers.add_parser("exportCSVEntityReport", usage=argparse.SUPPRESS)
-        exportCSVEntityReport_parser.add_argument("output_file")
-        exportCSVEntityReport_parser.add_argument("-f", "--flags", nargs="+", required=False)
-        exportCSVEntityReport_parser.add_argument("-t", "--csv_column_list", required=False, type=str)
+        export_csv_entity_report_parser = self.subparsers.add_parser(
+            "export_csv_entity_report", usage=argparse.SUPPRESS
+        )
+        export_csv_entity_report_parser.add_argument("output_file")
+        export_csv_entity_report_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        export_csv_entity_report_parser.add_argument("-t", "--csv_column_list", required=False, type=str)
 
-        exportJSONEntityReport_parser = self.subparsers.add_parser("exportJSONEntityReport", usage=argparse.SUPPRESS)
-        exportJSONEntityReport_parser.add_argument("output_file")
-        exportJSONEntityReport_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        export_json_entity_report_parser = self.subparsers.add_parser(
+            "export_json_entity_report", usage=argparse.SUPPRESS
+        )
+        export_json_entity_report_parser.add_argument("output_file")
+        export_json_entity_report_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         findInterestingEntitiesByEntityID_parser = self.subparsers.add_parser(
             "findInterestingEntitiesByEntityID", usage=argparse.SUPPRESS
@@ -418,43 +362,56 @@ class SzCmdShell(cmd.Cmd):
         findInterestingEntitiesByRecordID_parser.add_argument("record_id")
         findInterestingEntitiesByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        findNetworkByEntityID_parser = self.subparsers.add_parser("findNetworkByEntityID", usage=argparse.SUPPRESS)
-        # TODO - Ant -
-        # findNetworkByEntityID_parser.add_argument("entity_list")
-        # findNetworkByEntityID_parser.add_argument("entity_list", type=list_of_ints)
-        # findNetworkByEntityID_parser.add_argument("entity_list", nargs="*")
-        findNetworkByEntityID_parser.add_argument("entity_list", nargs="+")
-        findNetworkByEntityID_parser.add_argument("max_degrees", type=int)
-        findNetworkByEntityID_parser.add_argument("build_out_degree", type=int)
-        findNetworkByEntityID_parser.add_argument("max_entities", type=int)
-        findNetworkByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        find_network_by_entity_id_parser = self.subparsers.add_parser(
+            "find_network_by_entity_id", usage=argparse.SUPPRESS
+        )
+        find_network_by_entity_id_parser.add_argument("entity_ids")
+        find_network_by_entity_id_parser.add_argument("max_degrees", type=int)
+        find_network_by_entity_id_parser.add_argument("build_out_degrees", type=int)
+        find_network_by_entity_id_parser.add_argument("build_out_max_entities", type=int)
+        find_network_by_entity_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        findNetworkByRecordID_parser = self.subparsers.add_parser("findNetworkByRecordID", usage=argparse.SUPPRESS)
-        # TODO - Ant -
-        # findNetworkByRecordID_parser.add_argument("record_list")
-        findNetworkByRecordID_parser.add_argument("record_list", nargs="*")
-        findNetworkByRecordID_parser.add_argument("max_degrees", type=int)
-        findNetworkByRecordID_parser.add_argument("build_out_degree", type=int)
-        findNetworkByRecordID_parser.add_argument("max_entities", type=int)
-        findNetworkByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        find_network_by_record_id_parser = self.subparsers.add_parser(
+            "find_network_by_record_id", usage=argparse.SUPPRESS
+        )
+        # find_network_by_record_id_parser.add_argument("record_keys", nargs="*")
+        find_network_by_record_id_parser.add_argument("record_keys", nargs="+")
+        find_network_by_record_id_parser.add_argument("max_degrees", type=int)
+        find_network_by_record_id_parser.add_argument("build_out_degrees", type=int)
+        find_network_by_record_id_parser.add_argument("build_out_max_entities", type=int)
+        find_network_by_record_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        findPathByEntityID_parser = self.subparsers.add_parser("findPathByEntityID", usage=argparse.SUPPRESS)
-        findPathByEntityID_parser.add_argument("start_entity_id", type=int)
-        findPathByEntityID_parser.add_argument("end_entity_id", type=int)
-        findPathByEntityID_parser.add_argument("max_degrees", type=int)
-        findPathByEntityID_parser.add_argument("-e", "--exclusions", default="", nargs="?", required=False)
-        findPathByEntityID_parser.add_argument("-r", "--required_data_sources", default="", nargs="?", required=False)
-        findPathByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        find_path_by_entity_id_parser = self.subparsers.add_parser("find_path_by_entity_id", usage=argparse.SUPPRESS)
+        find_path_by_entity_id_parser.add_argument("start_entity_id", type=int)
+        find_path_by_entity_id_parser.add_argument("end_entity_id", type=int)
+        find_path_by_entity_id_parser.add_argument("max_degrees", type=int)
+        # find_path_by_entity_id_parser.add_argument("-a", "--avoid_entity_ids", default="", nargs="?", required=False)
+        find_path_by_entity_id_parser.add_argument(
+            "-a", "--avoid_entity_ids", default=[], nargs="+", required=False, type=int
+        )
+        find_path_by_entity_id_parser.add_argument(
+            # "-r", "--required_data_sources", default="", nargs="?", required=False
+            "-r",
+            "--required_data_sources",
+            default=[],
+            nargs="+",
+            required=False,
+        )
+        find_path_by_entity_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        findPathByRecordID_parser = self.subparsers.add_parser("findPathByRecordID", usage=argparse.SUPPRESS)
-        findPathByRecordID_parser.add_argument("start_data_source_code")
-        findPathByRecordID_parser.add_argument("start_record_id")
-        findPathByRecordID_parser.add_argument("end_data_source_code")
-        findPathByRecordID_parser.add_argument("end_record_id")
-        findPathByRecordID_parser.add_argument("max_degrees", type=int)
-        findPathByRecordID_parser.add_argument("-e", "--exclusions", default="", nargs="?", required=False)
-        findPathByRecordID_parser.add_argument("-r", "--required_data_sources", default="", nargs="?", required=False)
-        findPathByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        find_path_by_record_id_parser = self.subparsers.add_parser("find_path_by_record_id", usage=argparse.SUPPRESS)
+        find_path_by_record_id_parser.add_argument("start_data_source_code")
+        find_path_by_record_id_parser.add_argument("start_record_id")
+        find_path_by_record_id_parser.add_argument("end_data_source_code")
+        find_path_by_record_id_parser.add_argument("end_record_id")
+        find_path_by_record_id_parser.add_argument("max_degrees", type=int)
+        # find_path_by_record_id_parser.add_argument("-a", "--avoid_record_keys", default="", nargs="?", required=False)
+        find_path_by_record_id_parser.add_argument("-a", "--avoid_record_keys", default=[], nargs="+", required=False)
+        # find_path_by_record_id_parser.add_argument("-r", "--required_data_sources", default="", nargs="?", required=False)
+        find_path_by_record_id_parser.add_argument(
+            "-r", "--required_data_sources", default=[], nargs="+", required=False
+        )
+        find_path_by_record_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         getEntityByEntityID_parser = self.subparsers.add_parser("getEntityByEntityID", usage=argparse.SUPPRESS)
         getEntityByEntityID_parser.add_argument("entity_id", type=int)
@@ -473,7 +430,7 @@ class SzCmdShell(cmd.Cmd):
         getVirtualEntityByRecordID_parser = self.subparsers.add_parser(
             "getVirtualEntityByRecordID", usage=argparse.SUPPRESS
         )
-        getVirtualEntityByRecordID_parser.add_argument("record_list", nargs="+")
+        getVirtualEntityByRecordID_parser.add_argument("record_keys", nargs="+")
         getVirtualEntityByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         howEntityByEntityID_parser = self.subparsers.add_parser("howEntityByEntityID", usage=argparse.SUPPRESS)
@@ -902,18 +859,18 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator()
-    def do_checkDatastorePerformance(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_check_datastore_performance(self, **kwargs: Any) -> None:
         """
         Run a performance check on the database
 
         Syntax:
-            checkDatastorePerformance [SECONDS]
-            checkDatastorePerformance
+            check_datastore_performance [seconds_to_run]
+            check_datastore_performance
 
         Arguments:
-            SECONDS = Time in seconds to run check, default is 3"""
+            seconds_to_run = Time in seconds to run the check, default is 3"""
 
-        response = self.sz_diagnostic.check_datastore_performance(kwargs["parsed_args"].secondsToRun)
+        response = self.sz_diagnostic.check_datastore_performance(kwargs["parsed_args"].seconds_to_run)
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
@@ -992,22 +949,22 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator()
-    def do_addRecord(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_add_record(self, **kwargs: Any) -> None:
         """
         Add a record and optionally return information
 
         Syntax:
-            addRecord DSRC_CODE RECORD_ID RECORD_DEFINITION [-f FLAG ...]
+            add_record dsrc_source_code record_id record_definition [-f flag ...]
 
         Examples:
-            addRecord test 1 '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}'
-            addRecord test 1 '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}' -f SZ_WITH_INFO
+            add_record test 1 '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}'
+            add_record test 1 '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}' -f SZ_WITH_INFO
 
         Arguments:
-            DSRC_CODE = Data source code
-            RECORD_ID = Record identifier
-            RECORD_DEFINITION = Senzing mapped JSON representation of a record
-            FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
+            dsrc_source_code = Data source code
+            record_id = Record identifier
+            record_definition = Senzing mapped JSON representation of a record
+            flag = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
         add_record = functools.partial(
             self.sz_engine.add_record,
@@ -1024,12 +981,12 @@ class SzCmdShell(cmd.Cmd):
             self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_countRedoRecords(self) -> None:  # pylint: disable=invalid-name
+    def do_count_redo_records(self) -> None:
         """
         Counts the number of records in the redo queue
 
         Syntax:
-            countRedoRecords"""
+            count_redo_records"""
 
         response = self.sz_engine.count_redo_records()
         if not response:
@@ -1038,21 +995,21 @@ class SzCmdShell(cmd.Cmd):
             self.last_response = self.output_response(response, "success")
 
     @sz_cmds_decorator()
-    def do_deleteRecord(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_delete_record(self, **kwargs: Any) -> None:
         """
         Delete a record and optionally return information
 
         Syntax:
-            deleteRecord DSRC_CODE RECORD_ID [-f FLAG ...]
+            delete_record data_source_code record_id [-f flag ...]
 
         Examples:
-            deleteRecord test 1
-            deleteRecord test 1 -f SZ_WITH_INFO
+            delete_record test 1
+            delete_record test 1 -f SZ_WITH_INFO
 
         Arguments:
-            DSRC_CODE = Data source code
-            RECORD_ID = Record identifier
-            FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
+            data_source_code = Data source code
+            record_id = Record identifier
+            flag = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
 
         delete_record = functools.partial(
@@ -1069,26 +1026,26 @@ class SzCmdShell(cmd.Cmd):
             self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_exportCSVEntityReport(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_export_csv_entity_report(self, **kwargs: Any) -> None:
         """
         Export repository contents as CSV
 
         Syntax:
-            exportCSVEntityReport OUTPUT_FILE [-t CSV_COLUMN_LIST,...] [-f FLAG ...]
+            export_csv_entity_report output_file [-t csv_column_list,...] [-f flag ...]
 
         Examples:
-            exportCSVEntityReport export.csv
-            exportCSVEntityReport export.csv -t RESOLVED_ENTITY_ID,RELATED_ENTITY_ID,MATCH_LEVEL,MATCH_KEY,DATA_SOURCE,RECORD_ID
-            exportCSVEntityReport export.json -F json -f SZ_ENTITY_BRIEF_DEFAULT_FLAGS SZ_EXPORT_INCLUDE_ALL_ENTITIES
+            export_csv_entity_report export.csv
+            export_csv_entity_report export.csv -t RESOLVED_ENTITY_ID,RELATED_ENTITY_ID,MATCH_LEVEL,MATCH_KEY,DATA_SOURCE,RECORD_ID
+            export_csv_entity_report export.csv -f SZ_ENTITY_BRIEF_DEFAULT_FLAGS SZ_EXPORT_INCLUDE_ALL_ENTITIES
 
         Arguments:
-            OUTPUT_FILE = File to save export to
-            CSV_COLUMN_LIST = Comma separated list of output columns (don't specify for defaults)
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            output_file = File to save export to
+            csv_column_list = Comma separated list of output columns (don't specify for defaults)
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Available CSV_COLUMNs
-                - RESOLVED_ENTITY_ID,RELATED_ENTITY_ID,MATCH_LEVEL,MATCH_KEY,DATA_SOURCE,RECORD_ID,RESOLVED_ENTITY_NAME,RECORD_DEFINITION,ERRULE_CODE
+            - Available csv_column_list columns
+                - RESOLVED_ENTITY_ID,RELATED_ENTITY_ID,MATCH_LEVEL,MATCH_KEY,DATA_SOURCE,RECORD_ID,RESOLVED_ENTITY_NAME,ERRULE_CODE,JSON_DATA
 
             - Engine flag details https://docs.senzing.com/flags/index.html
 
@@ -1110,7 +1067,6 @@ class SzCmdShell(cmd.Cmd):
             export_handle = export_csv(kwargs["flags"]) if "flags" in kwargs else export_csv()
 
             with open(kwargs["parsed_args"].output_file, "w", encoding="utf-8") as csv_out:
-
                 while True:
                     export_record = self.sz_engine.fetch_next(export_handle)
                     if not export_record:
@@ -1119,7 +1075,6 @@ class SzCmdShell(cmd.Cmd):
                     rec_cnt += 1
                     if rec_cnt % 1000 == 0:
                         print(f"Exported {rec_cnt} records...", flush=True)
-
                 self.sz_engine.close_export(export_handle)
         except (SzError, IOError) as err:
             print_error(err)
@@ -1128,20 +1083,20 @@ class SzCmdShell(cmd.Cmd):
             # self.last_response = ""
 
     @sz_cmds_decorator()
-    def do_exportJSONEntityReport(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_export_json_entity_report(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
         """
         Export repository contents as JSON
 
         Syntax:
-            exportJSONEntityReport OUTPUT_FILE [-f FLAG ...]
+            export_json_entity_report output_file [-f flag ...]
 
         Examples:
-            exportJSONEntityReport export.json
-            exportJSONEntityReport export.json -f SZ_EXPORT_INCLUDE_RESOLVED SZ_EXPORT_INCLUDE_POSSIBLY_SAME
+            export_json_entity_report export.json
+            export_json_entity_report export.json -f SZ_ENTITY_BRIEF_DEFAULT_FLAGS SZ_EXPORT_INCLUDE_ALL_ENTITIES
 
         Arguments:
-            OUTPUT_FILE = File to save export to
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            output_file = File to save export to
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html
@@ -1162,7 +1117,6 @@ class SzCmdShell(cmd.Cmd):
 
         try:
             export_handle = export_json(kwargs["flags"]) if "flags" in kwargs else export_json()
-
             with open(kwargs["parsed_args"].output_file, "w", encoding="utf-8") as data_out:
                 while True:
                     export_record = self.sz_engine.fetch_next(export_handle)
@@ -1172,7 +1126,6 @@ class SzCmdShell(cmd.Cmd):
                     rec_cnt += 1
                     if rec_cnt % 1000 == 0:
                         print(f"Exported {rec_cnt} records...", flush=True)
-
                 self.sz_engine.close_export(export_handle)
         except (SzError, IOError) as err:
             print_error(err)
@@ -1247,101 +1200,103 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_findNetworkByEntityID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_network_by_entity_id(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
         """
         Find network between entities
 
         Syntax:
-            findNetworkByEntityID ENTITY_LIST MAX_DEGREES BUILD_OUT_DEGREE MAX_ENTITIES [-f FLAG ...]
+            find_network_by_entity_id entity_ids max_degrees build_out_degrees build_out_max_entities [-f flag ...]
 
         Example:
-            findNetworkByEntityID '{"ENTITIES":[{"ENTITY_ID":"6"},{"ENTITY_ID":"11"},{"ENTITY_ID":"9"}]}' 4 3 20
+            find_network_by_entity_id '1 6 9' 4 3 20
 
         Arguments:
-            ENTITY_LIST = JSON document listing entities to find paths between and networks around
-            MAX_DEGREES = Maximum number of relationships to search for a path
-            BUILD_OUT_DEGREE = Maximum degree of relationships to include around each entity
-            MAX_ENTITIES = Maximum number of entities to return
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            entity_ids = List of entities to find paths between and networks around (NOTE: quotes around ENTITY_IDS)
+            max_degrees = Maximum number of relationships to search for a path
+            build_out_degrees = Maximum degree of relationships to include around each entity
+            build_out_max_entities = Maximum number of entities to return
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
         if "flags" in kwargs:
             response = self.sz_engine.find_network_by_entity_id(
-                kwargs["parsed_args"].entity_list,
+                kwargs["entity_ids"],
                 kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].build_out_degree,
-                kwargs["parsed_args"].max_entities,
+                kwargs["parsed_args"].build_out_degrees,
+                kwargs["parsed_args"].build_out_max_entities,
                 kwargs["flags"],
             )
         else:
             response = self.sz_engine.find_network_by_entity_id(
-                kwargs["parsed_args"].entity_list,
+                kwargs["entity_ids"],
                 kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].build_out_degree,
-                kwargs["parsed_args"].max_entities,
+                kwargs["parsed_args"].build_out_degrees,
+                kwargs["parsed_args"].build_out_max_entities,
             )
 
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_findNetworkByRecordID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_network_by_record_id(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
         """
         Find network between records
 
         Syntax:
-            findNetworkByRecordID RECORD_LIST MAX_DEGREES BUILD_OUT_DEGREE MAX_ENTITIES [-f FLAG ...]
+            find_network_by_record_id record_keys max_degrees build_out_degrees build_out_max_entities [-f flag ...]
 
         Example:
-            findNetworkByRecordID '{"RECORDS":[{"DATA_SOURCE":"REFERENCE","RECORD_ID":"2071"},{"DATA_SOURCE":"CUSTOMERS","RECORD_ID":"1069"}]}' 6 4 15
+            find_network_by_record_id 'REFERENCE 2012 CUSTOMERS 1001' 6 4 15
 
         Arguments:
-            RECORD_LIST = JSON document listing records to find paths between and networks around
-            MAX_DEGREES = Maximum number of relationships to search for a path
-            BUILD_OUT_DEGREE = Maximum degree of relationships to include around each entity
-            MAX_ENTITIES = Maximum number of entities to return
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            record_keys = List of datasource codes and record ID pairs to find paths between and networks around (NOTE: quotes around RECORD_KEYS)
+            max_degrees = Maximum number of relationships to search for a path
+            build_out_degrees = Maximum degree of relationships to include around each entity
+            build_out_max_entities = Maximum number of entities to return
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
         if "flags" in kwargs:
             response = self.sz_engine.find_network_by_record_id(
-                kwargs["parsed_args"].record_list,
+                kwargs["record_keys"],
                 kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].build_out_degree,
-                kwargs["parsed_args"].max_entities,
+                kwargs["parsed_args"].build_out_degrees,
+                kwargs["parsed_args"].build_out_max_entities,
                 kwargs["flags"],
             )
         else:
             response = self.sz_engine.find_network_by_record_id(
-                kwargs["parsed_args"].record_list,
+                kwargs["record_keys"],
                 kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].build_out_degree,
-                kwargs["parsed_args"].max_entities,
+                kwargs["parsed_args"].build_out_degrees,
+                kwargs["parsed_args"].build_out_max_entities,
             )
 
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_findPathByEntityID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_path_by_entity_id(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
         """
         Find a path between two entities
 
         Syntax:
-            findPathByEntityID START_ENTITY_ID END_ENTITY_ID MAX_DEGREES [-e EXCLUSIONS] [-r REQUIRED_DATA_SOURCES] [-f FLAG ...]
+            find_path_by_entity_id start_entity_id end_entity_id max_degrees [-a avoid_entity_ids] [-r required_data_sources] [-f flag ...]
 
         Example:
-            findPathByEntityID 100002 5 3
+            find_path_by_entity_id 100002 5 3
+            find_path_by_entity_id 100002 5 3 -a 259 10
+            find_path_by_entity_id 100002 5 3 -a 259 10 -r WATCHLIST
 
         Arguments:
-            START_ENTITY_ID = Identifier for an entity
-            END_ENTITY_ID = Identifier for an entity
-            MAX_DEGREES = Maximum number of relationships to search for a path
-            EXCLUSIONS = Exclude specified entity IDs or record IDs from the path, default is no exclusions
-            REQUIRED_DATA_SOURCES = An entity on the path has specified data source(s), default is no required data sources
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            start_entity_id = Identifier for an entity
+            end_entity_id = Identifier for an entity
+            max_degrees = Maximum number of relationships to search for a path
+            avoid_entity_ids = Space separated list of entity ID(s) to avoid when finding the path, default is no entities to avoid
+            required_data_sources = Space separated list of data source(s) an entity on the path has, default is no required data sources
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1351,7 +1306,7 @@ class SzCmdShell(cmd.Cmd):
                 kwargs["parsed_args"].start_entity_id,
                 kwargs["parsed_args"].end_entity_id,
                 kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].exclusions,
+                kwargs["parsed_args"].avoid_entity_ids,
                 kwargs["parsed_args"].required_data_sources,
                 kwargs["flags"],
             )
@@ -1360,7 +1315,7 @@ class SzCmdShell(cmd.Cmd):
                 kwargs["parsed_args"].start_entity_id,
                 kwargs["parsed_args"].end_entity_id,
                 kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].exclusions,
+                kwargs["parsed_args"].avoid_entity_ids,
                 kwargs["parsed_args"].required_data_sources,
             )
 
@@ -1368,15 +1323,15 @@ class SzCmdShell(cmd.Cmd):
 
     # TODO Wording on exclusions
     @sz_cmds_decorator()
-    def do_findPathByRecordID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_path_by_record_id(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
         """
         Find a path between two records
 
         Syntax:
-            findPathByRecordID START_DSRC_CODE START_RECORD_ID END_DSRC_CODE END_RECORD_ID MAX_DEGREES [-e EXCLUSIONS] [-r REQUIRED_DATA_SOURCES] [-f FLAG ...]
+            find_path_by_record_id START_DSRC_CODE START_RECORD_ID END_DSRC_CODE END_RECORD_ID MAX_DEGREES [-e EXCLUSIONS] [-r REQUIRED_DATA_SOURCES] [-f FLAG ...]
 
         Example:
-            findPathByRecordID reference 2141 reference 2121 6
+            find_path_by_record_id reference 2141 reference 2121 6
 
         Arguments:
             START_DSRC_CODE = Data source code
@@ -2155,23 +2110,23 @@ class SzCmdShell(cmd.Cmd):
 
         return completes
 
-    def complete_addRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_add_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.json_and_flags_completes(text, line, begidx, endidx)
 
-    def complete_deleteRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_delete_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_exportCSVEntityReport(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        if re.match("exportCSVEntityReport +", line) and not re.match("exportCSVEntityReport +.* +", line):
-            return self.path_completes(text, line, begidx, endidx, "exportCSVEntityReport")
+    def complete_export_csv_entity_report(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        if re.match("export_csv_entity_report +", line) and not re.match("export_csv_entity_report +.* +", line):
+            return self.path_completes(text, line, begidx, endidx, "export_csv_entity_report")
 
         if re.match(".* -f +", line):
             return self.flags_completes(text, line)
         return []
 
-    def complete_exportJSONEntityReport(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        if re.match("exportJSONEntityReport +", line) and not re.match("exportJSONEntityReport +.* +", line):
-            return self.path_completes(text, line, begidx, endidx, "exportJSONEntityReport")
+    def complete_export_json_entity_report(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        if re.match("export_json_entity_report +", line) and not re.match("export_json_entity_report +.* +", line):
+            return self.path_completes(text, line, begidx, endidx, "export_json_entity_report")
 
         if re.match(".* -f +", line):
             return self.flags_completes(text, line)
@@ -2183,16 +2138,16 @@ class SzCmdShell(cmd.Cmd):
     def complete_findInterestingEntitiesByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findNetworkByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_find_network_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findNetworkByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_find_network_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findPathByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_find_path_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findPathByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_find_path_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
     def complete_getEntityByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
