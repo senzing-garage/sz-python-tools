@@ -541,6 +541,8 @@ def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", color_disab
     print(f"\n{colorize_output('WARNING:', 'warning', color_disabled=color_disabled)} {msg}", end=end_str)
 
 
+last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
+
 def print_response(
     response: Union[int, str],
     color_json: bool,
@@ -765,6 +767,10 @@ def response_reformat_json(
         print_warning("The last response isn't JSON")
         return
 
+    # TODO - Ant -
+    # print_response(
+    #     last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
+    # )
     print_response(
         last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
     )

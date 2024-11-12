@@ -2,9 +2,7 @@
 
 """ # TODO """
 
-# TODO - Ant - Add turning off colour from CLI args still so don't need to do ./sz_tools/sz_command -C json_color -C getEntityByEntityID 1 or getEntityByEntityID nocolor?
-# TODO              This should also not output any info, error or warning output with colour
-# TODO - Ant - Are there commands that shouldn't be allowed for file/cli input, e.g., purge?
+# TODO - Ant - Partial functions instead of the if/else
 
 
 import argparse
@@ -99,10 +97,16 @@ def sz_cmds_decorator(
                     if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
                         kwargs["flags"] = get_sz_engine_flags(kwargs["parsed_args"].flags)
 
-                    # If the command uses record_keys build the expected list of tuples for the SDK
-                    if hasattr(kwargs["parsed_args"], "record_keys"):
-                        record_keys = kwargs["parsed_args"].record_keys
-                        # 1 list element = str from quotes: getVirtualEntityByRecordID 'REFERENCE 2012 customers 1001'
+                    # If the command uses *_record_keys build the expected list of tuples for the SDK
+                    if hasattr(kwargs["parsed_args"], "record_keys") or hasattr(
+                        kwargs["parsed_args"], "avoid_record_keys"
+                    ):
+                        record_keys = (
+                            kwargs["parsed_args"].record_keys
+                            if hasattr(kwargs["parsed_args"], "record_keys")
+                            else kwargs["parsed_args"].avoid_record_keys
+                        )
+                        # 1 list element = str from quotes: get_virtual_entity_by_record_id 'REFERENCE 2012 customers 1001'
                         # Split it into a list
                         if len(record_keys) == 1:
                             record_keys = record_keys[0].split()
@@ -224,10 +228,10 @@ class SzCmdShell(cmd.Cmd):
         # Could be deprecated, undocumented, not supported, experimental or not relevant
         self.__hidden_cmds = (
             "do_EOF",
-            "do_findInterestingEntitiesByEntityID",
-            "do_findInterestingEntitiesByRecordID",
-            "do_getRedoRecord",
-            "do_getFeature",
+            "do_find_interesting_entities_by_entity_id",
+            "do_find_interesting_entities_by_record_id",
+            "do_get_redo_record",
+            "do_get_feature",
             "do_help",
             "do_hidden",
             "do_shell",
@@ -291,17 +295,19 @@ class SzCmdShell(cmd.Cmd):
 
         # szconfig parsers
 
-        getConfig_parser = self.subparsers.add_parser("getConfig", usage=argparse.SUPPRESS)
-        getConfig_parser.add_argument("config_id", type=int)
+        get_config_parser = self.subparsers.add_parser("get_config", usage=argparse.SUPPRESS)
+        get_config_parser.add_argument("config_id", type=int)
 
         # szconfigmanager parsers
 
-        replaceDefaultConfigID_parser = self.subparsers.add_parser("replaceDefaultConfigID", usage=argparse.SUPPRESS)
-        replaceDefaultConfigID_parser.add_argument("current_default_config_id", type=int)
-        replaceDefaultConfigID_parser.add_argument("new_default_config_id", type=int)
+        replace_default_config_id_parser = self.subparsers.add_parser(
+            "replace_default_config_id", usage=argparse.SUPPRESS
+        )
+        replace_default_config_id_parser.add_argument("current_default_config_id", type=int)
+        replace_default_config_id_parser.add_argument("new_default_config_id", type=int)
 
-        setDefaultConfigID_parser = self.subparsers.add_parser("setDefaultConfigID", usage=argparse.SUPPRESS)
-        setDefaultConfigID_parser.add_argument("config_id", type=int)
+        set_default_config_id_parser = self.subparsers.add_parser("set_default_config_id", usage=argparse.SUPPRESS)
+        set_default_config_id_parser.add_argument("config_id", type=int)
 
         # szdiagnostic parsers
 
@@ -310,11 +316,11 @@ class SzCmdShell(cmd.Cmd):
         )
         check_datastore_performance_parser.add_argument("seconds_to_run", default=3, nargs="?", type=int)
 
-        getFeature_parser = self.subparsers.add_parser("getFeature", usage=argparse.SUPPRESS)
-        getFeature_parser.add_argument("featureID", type=int)
+        get_feature_parser = self.subparsers.add_parser("get_feature", usage=argparse.SUPPRESS)
+        get_feature_parser.add_argument("featureID", type=int)
 
-        purgeRepository_parser = self.subparsers.add_parser("purgeRepository", usage=argparse.SUPPRESS)
-        purgeRepository_parser.add_argument(
+        purge_repository_parser = self.subparsers.add_parser("purge_repository", usage=argparse.SUPPRESS)
+        purge_repository_parser.add_argument(
             "-FORCEPURGE",
             "--FORCEPURGE",
             action="store_true",
@@ -349,18 +355,18 @@ class SzCmdShell(cmd.Cmd):
         export_json_entity_report_parser.add_argument("output_file")
         export_json_entity_report_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        findInterestingEntitiesByEntityID_parser = self.subparsers.add_parser(
-            "findInterestingEntitiesByEntityID", usage=argparse.SUPPRESS
+        find_interesting_entities_by_entity_id_parser = self.subparsers.add_parser(
+            "find_interesting_entities_by_entity_id", usage=argparse.SUPPRESS
         )
-        findInterestingEntitiesByEntityID_parser.add_argument("entity_id", type=int)
-        findInterestingEntitiesByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        find_interesting_entities_by_entity_id_parser.add_argument("entity_id", type=int)
+        find_interesting_entities_by_entity_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        findInterestingEntitiesByRecordID_parser = self.subparsers.add_parser(
-            "findInterestingEntitiesByRecordID", usage=argparse.SUPPRESS
+        find_interesting_entities_by_record_id_parser = self.subparsers.add_parser(
+            "find_interesting_entities_by_record_id", usage=argparse.SUPPRESS
         )
-        findInterestingEntitiesByRecordID_parser.add_argument("data_source_code")
-        findInterestingEntitiesByRecordID_parser.add_argument("record_id")
-        findInterestingEntitiesByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        find_interesting_entities_by_record_id_parser.add_argument("data_source_code")
+        find_interesting_entities_by_record_id_parser.add_argument("record_id")
+        find_interesting_entities_by_record_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         find_network_by_entity_id_parser = self.subparsers.add_parser(
             "find_network_by_entity_id", usage=argparse.SUPPRESS
@@ -413,76 +419,76 @@ class SzCmdShell(cmd.Cmd):
         )
         find_path_by_record_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        getEntityByEntityID_parser = self.subparsers.add_parser("getEntityByEntityID", usage=argparse.SUPPRESS)
-        getEntityByEntityID_parser.add_argument("entity_id", type=int)
-        getEntityByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        get_entity_by_entity_id_parser = self.subparsers.add_parser("get_entity_by_entity_id", usage=argparse.SUPPRESS)
+        get_entity_by_entity_id_parser.add_argument("entity_id", type=int)
+        get_entity_by_entity_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        getEntityByRecordID_parser = self.subparsers.add_parser("getEntityByRecordID", usage=argparse.SUPPRESS)
-        getEntityByRecordID_parser.add_argument("data_source_code")
-        getEntityByRecordID_parser.add_argument("record_id")
-        getEntityByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        get_entity_by_record_id_parser = self.subparsers.add_parser("get_entity_by_record_id", usage=argparse.SUPPRESS)
+        get_entity_by_record_id_parser.add_argument("data_source_code")
+        get_entity_by_record_id_parser.add_argument("record_id")
+        get_entity_by_record_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        getRecord_parser = self.subparsers.add_parser("getRecord", usage=argparse.SUPPRESS)
-        getRecord_parser.add_argument("data_source_code")
-        getRecord_parser.add_argument("record_id")
-        getRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        get_record_parser = self.subparsers.add_parser("get_record", usage=argparse.SUPPRESS)
+        get_record_parser.add_argument("data_source_code")
+        get_record_parser.add_argument("record_id")
+        get_record_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        getVirtualEntityByRecordID_parser = self.subparsers.add_parser(
-            "getVirtualEntityByRecordID", usage=argparse.SUPPRESS
+        get_virtual_entity_by_record_id_parser = self.subparsers.add_parser(
+            "get_virtual_entity_by_record_id", usage=argparse.SUPPRESS
         )
-        getVirtualEntityByRecordID_parser.add_argument("record_keys", nargs="+")
-        getVirtualEntityByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        get_virtual_entity_by_record_id_parser.add_argument("record_keys", nargs="+")
+        get_virtual_entity_by_record_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        howEntityByEntityID_parser = self.subparsers.add_parser("howEntityByEntityID", usage=argparse.SUPPRESS)
-        howEntityByEntityID_parser.add_argument("entity_id", type=int)
-        howEntityByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        how_entity_by_entity_id_parser = self.subparsers.add_parser("how_entity_by_entity_id", usage=argparse.SUPPRESS)
+        how_entity_by_entity_id_parser.add_argument("entity_id", type=int)
+        how_entity_by_entity_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        preprocessRecord_parser = self.subparsers.add_parser("preprocessRecord", usage=argparse.SUPPRESS)
-        preprocessRecord_parser.add_argument("record_definition")
-        preprocessRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        preprocess_record_parser = self.subparsers.add_parser("preprocess_record", usage=argparse.SUPPRESS)
+        preprocess_record_parser.add_argument("record_definition")
+        preprocess_record_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        processRedoRecord_parser = self.subparsers.add_parser("processRedoRecord", usage=argparse.SUPPRESS)
-        processRedoRecord_parser.add_argument("redo_record")
-        processRedoRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        process_redo_record_parser = self.subparsers.add_parser("process_redo_record", usage=argparse.SUPPRESS)
+        process_redo_record_parser.add_argument("redo_record")
+        process_redo_record_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        reevaluateEntity_parser = self.subparsers.add_parser("reevaluateEntity", usage=argparse.SUPPRESS)
-        reevaluateEntity_parser.add_argument("entity_id", type=int)
-        reevaluateEntity_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        reevaluate_entity_parser = self.subparsers.add_parser("reevaluate_entity", usage=argparse.SUPPRESS)
+        reevaluate_entity_parser.add_argument("entity_id", type=int)
+        reevaluate_entity_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        reevaluateRecord_parser = self.subparsers.add_parser("reevaluateRecord", usage=argparse.SUPPRESS)
-        reevaluateRecord_parser.add_argument("data_source_code")
-        reevaluateRecord_parser.add_argument("record_id")
-        reevaluateRecord_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        reevaluate_record_parser = self.subparsers.add_parser("reevaluate_record", usage=argparse.SUPPRESS)
+        reevaluate_record_parser.add_argument("data_source_code")
+        reevaluate_record_parser.add_argument("record_id")
+        reevaluate_record_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        searchByAttributes_parser = self.subparsers.add_parser("searchByAttributes", usage=argparse.SUPPRESS)
-        searchByAttributes_parser.add_argument("attributes")
-        searchByAttributes_parser.add_argument("search_profile", default="SEARCH", nargs="?")
-        searchByAttributes_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        search_by_attributes_parser = self.subparsers.add_parser("search_by_attributes", usage=argparse.SUPPRESS)
+        search_by_attributes_parser.add_argument("attributes")
+        search_by_attributes_parser.add_argument("search_profile", default="SEARCH", nargs="?")
+        search_by_attributes_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        whyEntities_parser = self.subparsers.add_parser("whyEntities", usage=argparse.SUPPRESS)
-        whyEntities_parser.add_argument("entity_id1", type=int)
-        whyEntities_parser.add_argument("entity_id2", type=int)
-        whyEntities_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        why_entities_parser = self.subparsers.add_parser("why_entities", usage=argparse.SUPPRESS)
+        why_entities_parser.add_argument("entity_id_1", type=int)
+        why_entities_parser.add_argument("entity_id_2", type=int)
+        why_entities_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        whyRecordInEntity_parser = self.subparsers.add_parser("whyRecordInEntity", usage=argparse.SUPPRESS)
-        whyRecordInEntity_parser.add_argument("data_source_code")
-        whyRecordInEntity_parser.add_argument("record_id")
-        whyRecordInEntity_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        why_record_in_entity_parser = self.subparsers.add_parser("why_record_in_entity", usage=argparse.SUPPRESS)
+        why_record_in_entity_parser.add_argument("data_source_code")
+        why_record_in_entity_parser.add_argument("record_id")
+        why_record_in_entity_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        whyRecords_parser = self.subparsers.add_parser("whyRecords", usage=argparse.SUPPRESS)
-        whyRecords_parser.add_argument("data_source_code1")
-        whyRecords_parser.add_argument("record_id1")
-        whyRecords_parser.add_argument("data_source_code2")
-        whyRecords_parser.add_argument("record_id2")
-        whyRecords_parser.add_argument("-f", "--flags", nargs="+", required=False)
+        why_records_parser = self.subparsers.add_parser("why_records", usage=argparse.SUPPRESS)
+        why_records_parser.add_argument("data_source_code_1")
+        why_records_parser.add_argument("record_id_1")
+        why_records_parser.add_argument("data_source_code_2")
+        why_records_parser.add_argument("record_id_2")
+        why_records_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         # Utility parsers
 
-        responseToFile_parser = self.subparsers.add_parser("responseToFile", usage=argparse.SUPPRESS)
-        responseToFile_parser.add_argument("file_path")
+        response_to_file_parser = self.subparsers.add_parser("response_to_file", usage=argparse.SUPPRESS)
+        response_to_file_parser.add_argument("file_path")
 
-        setTheme_parser = self.subparsers.add_parser("setTheme", usage=argparse.SUPPRESS)
-        setTheme_parser.add_argument(
+        set_theme_parser = self.subparsers.add_parser("set_theme", usage=argparse.SUPPRESS)
+        set_theme_parser.add_argument(
             "theme",
             choices=self.themes,
             nargs=1,
@@ -492,7 +498,7 @@ class SzCmdShell(cmd.Cmd):
 
     def get_sz_config_attrs(self) -> List[str]:
         # TODO - Work in progress for JSON autocomplete
-        # TODO - Ant - Move to __init__ / post_cmd and only get once and then reinit if config changes from methods like replaceDefaultConfigID
+        # TODO - Ant - Move to __init__ / post_cmd and only get once and then reinit if config changes from methods like replace_default_config_id
         config_id = self.sz_engine.get_active_config_id()
         config = self.sz_configmgr.get_config(config_id)
         config_json = json.loads(config)
@@ -661,6 +667,7 @@ class SzCmdShell(cmd.Cmd):
     def help_all(self) -> None:
         self.do_help()
 
+    # TODO - Ant - Check this
     @staticmethod
     def help_overview() -> None:
         print(
@@ -678,24 +685,24 @@ class SzCmdShell(cmd.Cmd):
 
         {colorize_str('JSON Formatting', 'highlight2')}
             {colorize_str('- Change JSON formatting by adding "json" or "jsonl" to the end of a command', 'dim')}
-                - getEntityByEntityID 1001 jsonl
+                - get_entity_by_entity_id 1001 jsonl
 
             {colorize_str('- Can be combined with color formatting options', 'dim')}
-                - getEntityByEntityID 1001 jsonl nocolor
+                - get_entity_by_entity_id 1001 jsonl nocolor
 
             {colorize_str('- Set the JSON format for the session, saves the preference to a configuration file for use across sessions', 'dim')}
             {colorize_str('- Specifying the JSON and color formatting options at the end of a command override this setting for that command', 'dim')}
                 - setOutputFormat json|jsonl
 
             {colorize_str('- Convert last response output between json and jsonl', 'dim')}
-                - responseReformatJson
+                - response_reformat_json
 
         {colorize_str('Color Formatting', 'highlight2')}
             {colorize_str('- Add or remove colors from JSON formatting by adding "color", "colour", "nocolor" or "nocolour" to the end of a command', 'dim')}
-                - getEntityByEntityID 1001 color
+                - get_entity_by_entity_id 1001 color
 
             {colorize_str('- Can be combined with JSON formatting options', 'dim')}
-                - getEntityByEntityID 1001 color jsonl
+                - get_entity_by_entity_id 1001 color jsonl
 
             {colorize_str('- Set the color formatting for the session, saves the preference to a configuration file for use across sessions', 'dim')}
             {colorize_str('- Specifying the JSON and color formatting options at the end of a command override this setting for that command', 'dim')}
@@ -703,9 +710,9 @@ class SzCmdShell(cmd.Cmd):
 
         {colorize_str('Capturing Output', 'highlight2')}
             {colorize_str('- Capture the last response output to a file or the clipboard', 'dim')}
-                - responseToClipboard
-                - responseToFile /tmp/myoutput.json
-            {colorize_str('- responseToClipboard does not work in containers or SSH sessions', 'dim')}
+                - response_to_clipboard
+                - response_to_file /tmp/myoutput.json
+            {colorize_str('- response_to_clipboard does not work in containers or SSH sessions', 'dim')}
 
         {colorize_str('History', 'highlight2')}
             {colorize_str('- Arrow keys to cycle through history of commands', 'dim')}
@@ -735,17 +742,13 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getTemplateConfig(self) -> None:  # pylint: disable=invalid-name
+    def do_get_template_config(self) -> None:
         """
         Get a template configuration
 
         Syntax:
-            getTemplateConfig
+            get_template_config
 
-        Notes:
-            - Use responseToClipboard to send output to clipboard
-
-            - Use responseToFile to send output to a file
         """
 
         config_handle = self.sz_config.create_config()
@@ -758,66 +761,66 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator()
-    def do_getConfig(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_get_config(self, **kwargs: Any) -> None:
         """
         Get a configuration
 
         Syntax:
-            getConfig CONFIG_ID
+            get_config config_id
 
         Example:
-            getConfig 4180061352
+            get_config 4180061352
 
         Arguments:
-            CONFIG_ID = Configuration identifier
+            config_id = Configuration identifier
 
         Notes:
-            - Retrieve the active configuration identifier with getActiveConfigID
+            - Retrieve the active configuration identifier with get_active_config_id
 
-            - Retrieve a list of configurations and identifiers with getConfigList"""
+            - Retrieve a list of configurations and identifiers with get_configs"""
 
         response = self.sz_configmgr.get_config(kwargs["parsed_args"].config_id)
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getConfigs(self) -> None:  # pylint: disable=invalid-name
+    def do_get_configs(self) -> None:
         """
         Get a list of current configurations
 
         Syntax:
-            getConfigList"""
+            get_configs"""
 
         response = self.sz_configmgr.get_configs()
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getDefaultConfigID(self) -> None:  # pylint: disable=invalid-name
+    def do_get_default_config_id(self) -> None:
         """
         Get the default configuration ID
 
         Syntax:
-            getDefaultConfigID"""
+            get_default_config_id"""
 
         response = self.sz_configmgr.get_default_config_id()
         self.last_response = self.output_response(response, "success")
 
     @sz_cmds_decorator()
-    def do_replaceDefaultConfigID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_replace_default_config_id(self, **kwargs: Any) -> None:
         """
         Replace the default configuration ID
 
         Syntax:
-            replaceDefaultConfigID CURRENT_DEFAULT_CONFIG_ID NEW_DEFAULT_CONFIG_ID
+            replace_default_config_id current_default_config_id new_default_config_id
 
         Example:
-            replaceDefaultConfigID 4180061352 2787925967
+            replace_default_config_id 4180061352 2787925967
 
         Arguments:
-            CURRENT_DEFAULT_CONFIG_ID = Configuration identifier
-            NEW_DEFAULT_CONFIG_ID = Configuration identifier
+            current_default_config_id = Configuration identifier
+            new_default_config_id = Configuration identifier
 
         Notes:
-            - Retrieve a list of configurations and identifiers with getConfigList"""
+            - Retrieve a list of configurations and identifiers with get_configs"""
 
         self.sz_configmgr.replace_default_config_id(
             kwargs["parsed_args"].current_default_config_id,
@@ -832,23 +835,24 @@ class SzCmdShell(cmd.Cmd):
         # self.last_response = ""
 
     @sz_cmds_decorator()
-    def do_setDefaultConfigID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_set_default_config_id(self, **kwargs: Any) -> None:
         """
         Set the default configuration ID
 
         Syntax:
-            setDefaultConfigID CONFIG_ID
+            set_default_config_id config_id
 
         Example:
-            setDefaultConfigID 4180061352
+            set_default_config_id 4180061352
 
         Arguments:
-            CONFIG_ID = Configuration identifier
+            config_id = Configuration identifier
 
         Notes:
-            - Retrieve a list of configurations and identifiers with getConfigList"""
+            - Retrieve a list of configurations and identifiers with get_configList"""
 
         self.sz_configmgr.set_default_config_id(kwargs["parsed_args"].config_id)
+        # TODO - Ant - reinit
         self.output_response("Default config set, reinitializing...", "success")
         # Configuration has changed, update attributes from configuration
         self.attrs = self.get_sz_config_attrs()
@@ -874,43 +878,43 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getDatastoreInfo(self) -> None:  # pylint: disable=invalid-name
+    def do_get_datastore_info(self) -> None:
         """
         Get data store information
 
         Syntax:
-            getDatastoreInfo"""
+            get_datastore_info"""
 
         response = self.sz_diagnostic.get_datastore_info()
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_getFeature(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_get_feature(self, **kwargs: Any) -> None:
         """
         Get feature information
 
         Syntax:
-            getFeature FEATURE_ID
+            get_feature feature_id
 
         Examples:
-            getFeature 1
+            get_feature 1
 
         Arguments:
-            FEATURE_ID = Identifier of feature"""
+            feature_id = Identifier of feature"""
 
         response = self.sz_diagnostic.get_feature(kwargs["parsed_args"].featureID)
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_purgeRepository(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_purge_repository(self, **kwargs: Any) -> None:
         """
         Purge Senzing database of all data
 
         Syntax:
-            purgeRepository [--FORCEPURGE]
+            purge_repository [--FORCEPURGE]
 
         Example:
-            purgeRepository
+            purge_repository
 
         Arguments:
             --FORCEPURGE = Don't prompt before purging. USE WITH CAUTION!
@@ -1083,7 +1087,7 @@ class SzCmdShell(cmd.Cmd):
             # self.last_response = ""
 
     @sz_cmds_decorator()
-    def do_export_json_entity_report(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_export_json_entity_report(self, **kwargs: Any) -> None:
         """
         Export repository contents as JSON
 
@@ -1134,19 +1138,19 @@ class SzCmdShell(cmd.Cmd):
             # self.last_response = ""
 
     @sz_cmds_decorator()
-    def do_findInterestingEntitiesByEntityID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_interesting_entities_by_entity_id(self, **kwargs: Any) -> None:
         """
         Find interesting entities close to an entity by resolved entity identifier
 
         Syntax:
-            findInterestingEntitiesByEntityID ENTITY_ID [-f FLAG ...]
+            find_interesting_entities_by_entity_id entity_id [-f flag ...]
 
         Example:
-            findInterestingEntitiesByEntityID 1
+            find_interesting_entities_by_entity_id 1
 
         Arguments:
-            ENTITY_ID = Identifier for an entity
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            entity_id = Identifier for an entity
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html
@@ -1154,30 +1158,42 @@ class SzCmdShell(cmd.Cmd):
             - Experimental feature requires additional configuration, contact support@senzing.com
         """
 
-        if "flags" in kwargs:
-            response = self.sz_engine.find_interesting_entities_by_entity_id(
-                kwargs["parsed_args"].entity_id, kwargs["flags"]
-            )
-        else:
-            response = self.sz_engine.find_interesting_entities_by_entity_id(kwargs["parsed_args"].entity_id)
+        find_interesting_entities_by_entity_id = functools.partial(
+            self.sz_engine.find_interesting_entities_by_entity_id,
+            kwargs["parsed_args"].entity_id,
+        )
+
+        response = (
+            find_interesting_entities_by_entity_id(kwargs["flags"])
+            if "flags" in kwargs
+            else find_interesting_entities_by_entity_id()
+        )
+
+        # TODO - Ant -
+        # if "flags" in kwargs:
+        #     response = self.sz_engine.find_interesting_entities_by_entity_id(
+        #         kwargs["parsed_args"].entity_id, kwargs["flags"]
+        #     )
+        # else:
+        #     response = self.sz_engine.find_interesting_entities_by_entity_id(kwargs["parsed_args"].entity_id)
 
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_findInterestingEntitiesByRecordID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_interesting_entities_by_record_id(self, **kwargs: Any) -> None:
         """
         Find interesting entities close to an entity by record identifier
 
         Syntax:
-            findInterestingEntitiesByRecordID DSRC_CODE RECORD_ID [-f FLAG ...]
+            find_interesting_entities_by_record_id data_source_code record_id [-f flag ...]
 
         Example:
-            findInterestingEntitiesByRecordID customers 1001
+            find_interesting_entities_by_record_id customers 1001
 
         Arguments:
-            DSRC_CODE = Data source code
-            RECORD_ID = Record identifier
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            data_source_code = Data source code
+            record_id = Record identifier
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html
@@ -1200,7 +1216,7 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_find_network_by_entity_id(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_network_by_entity_id(self, **kwargs: Any) -> None:
         """
         Find network between entities
 
@@ -1239,7 +1255,7 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_find_network_by_record_id(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_network_by_record_id(self, **kwargs: Any) -> None:
         """
         Find network between records
 
@@ -1278,7 +1294,7 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_find_path_by_entity_id(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_path_by_entity_id(self, **kwargs: Any) -> None:
         """
         Find a path between two entities
 
@@ -1294,8 +1310,8 @@ class SzCmdShell(cmd.Cmd):
             start_entity_id = Identifier for an entity
             end_entity_id = Identifier for an entity
             max_degrees = Maximum number of relationships to search for a path
-            avoid_entity_ids = Space separated list of entity ID(s) to avoid when finding the path, default is no entities to avoid
-            required_data_sources = Space separated list of data source(s) an entity on the path has, default is no required data sources
+            avoid_entity_ids = Space separated list of entity ID(s) to avoid when finding the path, default is no avoidance
+            required_data_sources = Space separated list of data source(s) an entity on the path should have, default is no required data sources
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
@@ -1323,25 +1339,25 @@ class SzCmdShell(cmd.Cmd):
 
     # TODO Wording on exclusions
     @sz_cmds_decorator()
-    def do_find_path_by_record_id(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_find_path_by_record_id(self, **kwargs: Any) -> None:
         """
         Find a path between two records
 
         Syntax:
-            find_path_by_record_id START_DSRC_CODE START_RECORD_ID END_DSRC_CODE END_RECORD_ID MAX_DEGREES [-e EXCLUSIONS] [-r REQUIRED_DATA_SOURCES] [-f FLAG ...]
+            find_path_by_record_id start_dsrc_code start_record_id end_dsrc_code end_record_id max_degrees [-a avoid_record_keys] [-r required_data_sources] [-f flag ...]
 
         Example:
             find_path_by_record_id reference 2141 reference 2121 6
 
         Arguments:
-            START_DSRC_CODE = Data source code
-            START_RECORD_ID = Record identifier
-            END_DSRC_CODE = Data source code
-            END_RECORD_ID = Record identifier
-            MAX_DEGREES = Maximum number of relationships to search for a path
-            EXCLUSIONS = Exclude specified entity IDs or record IDs from the path, default is no exclusions
-            REQUIRED_DATA_SOURCES = An entity on the path has specified data source(s), default is no required data sources
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            start_dsrc_code = Data source code
+            start_record_id = Record identifier
+            end_dsrc_code = Data source code
+            end_record_id = Record identifier
+            max_degrees = Maximum number of relationships to search for a path
+            avoid_record_keys = Space separated list of data source code and record IDs to avoid when finding the path, default is no avoidance
+            required_data_sources = Space separated list of data source(s) an entity on the path should have, default is no required data sources
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1353,7 +1369,9 @@ class SzCmdShell(cmd.Cmd):
                 kwargs["parsed_args"].end_data_source_code,
                 kwargs["parsed_args"].end_record_id,
                 kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].exclusions,
+                # Although the SDK and parser argument is avoid_record_keys, the sz_cmds_decorator detects
+                # avoid_record_keys but always adds record_keys back to kwargs
+                kwargs["record_keys"],
                 kwargs["parsed_args"].required_data_sources,
                 kwargs["flags"],
             )
@@ -1364,38 +1382,40 @@ class SzCmdShell(cmd.Cmd):
                 kwargs["parsed_args"].end_data_source_code,
                 kwargs["parsed_args"].end_record_id,
                 kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].exclusions,
+                # Although the SDK and parser argument is avoid_record_keys, the sz_cmds_decorator detects
+                # avoid_record_keys but always adds record_keys back to kwargs
+                kwargs["record_keys"],
                 kwargs["parsed_args"].required_data_sources,
             )
 
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getActiveConfigID(self) -> None:  # pylint: disable=invalid-name
+    def do_get_active_config_id(self) -> None:
         """
         Get the active configuration identifier
 
         Syntax:
-            getActiveConfigID"""
+            get_active_config_id"""
 
         response = self.sz_engine.get_active_config_id()
         self.last_response = self.output_response(response, color="success")
 
     @sz_cmds_decorator()
-    def do_getEntityByEntityID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_get_entity_by_entity_id(self, **kwargs: Any) -> None:
         """
         Get entity by resolved entity identifier
 
         Syntax:
-            getEntityByEntityID ENTITY_ID [-f FLAG ...]
+            get_entity_by_entity_id entity_id [-f flag ...]
 
         Examples:
-            getEntityByEntityID 1
-            getEntityByEntityID 1 -f SZ_ENTITY_BRIEF_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_SUMMARY
+            get_entity_by_entity_id 1
+            get_entity_by_entity_id 1 -f SZ_ENTITY_BRIEF_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_SUMMARY
 
         Arguments:
-            ENTITY_ID = Identifier for an entity
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            entity_id = Identifier for an entity
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1409,21 +1429,21 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_getEntityByRecordID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_get_entity_by_record_id(self, **kwargs: Any) -> None:
         """
         Get entity by data source code and record identifier
 
         Syntax:
-            getEntityByRecordID DSRC_CODE RECORD_ID [-f FLAG ...]
+            get_entity_by_record_id data_source_code record_id [-f flag ...]
 
         Examples:
-        getEntityByRecordID customers 1001
-        getEntityByRecordID customers 1001 -f SZ_ENTITY_BRIEF_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_SUMMARY
+        get_entity_by_record_id customers 1001
+        get_entity_by_record_id customers 1001 -f SZ_ENTITY_BRIEF_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_SUMMARY
 
         Arguments:
-            DSRC_CODE = Data source code
-            RECORD_ID = Record identifier
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            data_source_code = Data source code
+            record_id = Record identifier
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1438,21 +1458,21 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_getRecord(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_get_record(self, **kwargs: Any) -> None:
         """
         Get a record
 
         Syntax:
-            getRecord DSRC_CODE RECORD_ID [-f FLAG ...]
+            get_record data_source_code record_id [-f flag ...]
 
         Examples:
-            getRecord watchlist 2092
-            getRecord watchlist 2092 -f SZ_RECORD_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_FORMATTED_DATA
+            get_record watchlist 2092
+            get_record watchlist 2092 -f SZ_RECORD_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_FORMATTED_DATA
 
         Arguments:
-            DSRC_CODE = Data source code
-            RECORD_ID = Record identifier
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            data_source_code = Data source code
+            record_id = Record identifier
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1467,12 +1487,12 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getRedoRecord(self) -> None:  # pylint: disable=invalid-name
+    def do_get_redo_record(self) -> None:
         """
         Get a redo record from the redo queue
 
         Syntax:
-            getRedoRecord"""
+            get_redo_record"""
 
         response = self.sz_engine.get_redo_record()
         if not response:
@@ -1481,37 +1501,36 @@ class SzCmdShell(cmd.Cmd):
             self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getStats(self) -> None:  # pylint: disable=invalid-name
+    def do_get_stats(self) -> None:
         """
         Get engine workload statistics for last process
 
         Syntax:
-            getStats"""
+            get_stats"""
 
         response = self.sz_engine.get_stats()
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_getVirtualEntityByRecordID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_get_virtual_entity_by_record_id(self, **kwargs: Any) -> None:
         """
         Determine how an entity composed of a given set of records would look
 
         Syntax:
-            getVirtualEntityByRecordID RECORD_LIST [-f FLAG ...]
+            get_virtual_entity_by_record_id record_keys [-f FLAG ...]
 
         Example:
-            getVirtualEntityByRecordID '{"RECORDS": [{"DATA_SOURCE": "REFERENCE","RECORD_ID": "2071"},{"DATA_SOURCE": "CUSTOMERS","RECORD_ID": "1069"}]}'
+            get_virtual_entity_by_record_id 'REFERENCE 2071 CUSTOMERS 1069'
 
         Arguments:
-            RECORD_LIST = JSON document listing data sources and records
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            record_keys = List of datasource codes and record ID pairs to find paths between and networks around (NOTE: quotes around RECORD_KEYS)
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
         get_virtual = functools.partial(
             self.sz_engine.get_virtual_entity_by_record_id,
-            # TODO - Ant -
             kwargs["record_keys"],
         )
 
@@ -1519,19 +1538,19 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_howEntityByEntityID(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_how_entity_by_entity_id(self, **kwargs: Any) -> None:
         """
         Retrieve information on how entities are constructed from their records
 
         Syntax:
-            howEntityByEntityID ENTITY_ID [-f FLAG ...]
+            how_entity_by_entity_id entity_id [-f flag ...]
 
         Example:
-            howEntityByEntityID 96
+            how_entity_by_entity_id 96
 
         Arguments:
-            ENTITY_ID = Identifier for an entity
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            entity_id = Identifier for an entity
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1545,31 +1564,31 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_primeEngine(self) -> None:  # pylint: disable=invalid-name
+    def do_prime_engine(self) -> None:
         """
         Prime the Senzing engine
 
         Syntax:
-            primeEngine"""
+            prime_engine"""
 
         self.sz_engine.prime_engine()
         self.last_response = self.output_response("Engine primed.", "success")
 
     @sz_cmds_decorator(cmd_has_args=True)
-    def do_processRedoRecord(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_process_redo_record(self, **kwargs: Any) -> None:
         """
         Process a redo record fetched from the redo queue
 
         Syntax:
-            processRedoRecord REDO_RECORD [-f FLAG ...]
+            process_redo_record redo_record [-f FLAG ...]
 
         Examples:
-            processRedoRecord <redo_record>
-            processRedoRecord <redo_record> -f SZ_WITH_INFO
+            process_redo_record <redo_record>
+            process_redo_record <redo_record> -f SZ_WITH_INFO
 
         Arguments:
-            REDO_RECORD = A redo record
-            FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
+            redo_record = A redo record
+            flag = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
 
         process_redo = functools.partial(
@@ -1581,20 +1600,20 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=True)
-    def do_preprocessRecord(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_preprocess_record(self, **kwargs: Any) -> None:
         """
         Pre-process a record
 
         Syntax:
-            preprocessRecord RECORD_DEFINITION [-f FLAG ...]
+            preprocess_record record_definition [-f flag ...]
 
         Examples:
-            preprocessRecord '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}'
-            preprocessRecord '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}' -f SZ_RECORD_DEFAULT_FLAGS
+            preprocess_record '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}'
+            preprocess_record '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}' -f SZ_RECORD_DEFAULT_FLAGS
 
         Arguments:
-            RECORD_DEFINITION = Senzing mapped JSON representation of a record
-            FLAG = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
+            record_definition = Senzing mapped JSON representation of a record
+            flag = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
         """
 
         preprocess_record = functools.partial(
@@ -1606,21 +1625,21 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_reevaluateEntity(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_reevaluate_entity(self, **kwargs: Any) -> None:
         """
         Reevaluate an entity and optionally return information
 
         Syntax:
-            reevaluateEntity ENTITY_ID [-f FLAG ...]
+            reevaluate_entity entity_id [-f FLAG ...]
 
         Example:
-            reevaluateEntity 1
+            reevaluate_entity 1
 
-            reevaluateEntity 1 -f SZ_WITH_INFO
+            reevaluate_entity 1 -f SZ_WITH_INFO
 
         Arguments:
-            ENTITY_ID = Entity identifier
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            entity_id = Entity identifier
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1637,21 +1656,21 @@ class SzCmdShell(cmd.Cmd):
             self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_reevaluateRecord(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_reevaluate_record(self, **kwargs: Any) -> None:
         """
         Reevaluate a record and optionally return information
 
         Syntax:
-            reevaluateRecord DSRC_CODE RECORD_ID [-f FLAG ...]
+            reevaluate_record data_source_code record_id [-f FLAG ...]
 
         Examples:
-            reevaluateRecord customers 1001
-            reevaluateRecord customers 1001 -f SZ_WITH_INFO
+            reevaluate_record customers 1001
+            reevaluate_record customers 1001 -f SZ_WITH_INFO
 
         Arguments:
-            DSRC_CODE = Data source code
-            RECORD_ID = Record identifier
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            data_source_code = Data source code
+            record_id = Record identifier
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1669,25 +1688,23 @@ class SzCmdShell(cmd.Cmd):
             self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_searchByAttributes(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
-        # TODO Should search_profile be documented?
-        # searchByAttributes ATTRIBUTES [SEARCH_PROFILE] [-f FLAG ...]
-        # searchByAttributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' SEARCH -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
+    def do_search_by_attributes(self, **kwargs: Any) -> None:
+        # search_by_attributes ATTRIBUTES [SEARCH_PROFILE] [-f FLAG ...]
+        # search_by_attributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' SEARCH -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
         # SEARCH_PROFILE = Search profile to use (defaults to SEARCH)
-
         """
         Search for entities
 
         Syntax:
-            searchByAttributes ATTRIBUTES [-f FLAG ...]
+            search_by_attributes attributes [-f FLAG ...]
 
         Examples:
-            searchByAttributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}'
-            searchByAttributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
+            search_by_attributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}'
+            search_by_attributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
 
         Arguments:
-            ATTRIBUTES = Senzing mapped JSON containing the attributes to search on
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            attributes = Senzing mapped JSON containing the attributes to search on
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1707,50 +1724,50 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_whyEntities(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_why_entities(self, **kwargs: Any) -> None:
         """
         Determine how entities relate to each other
 
         Syntax:
-            whyEntities ENTITY_ID1 ENTITY_ID2 [-f FLAG ...]
+            why_entities entity_id_1 entity_id_2 [-f flag ...]
 
         Examples:
-            whyEntities 96 200011
-            whyEntities 96 200011 -f SZ_WHY_ENTITY_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_RECORD_DEFINITION
+            why_entities 96 200011
+            why_entities 96 200011 -f SZ_WHY_ENTITY_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_RECORD_DEFINITION
 
         Arguments:
-            ENTITY_ID1 = Identifier for first entity
-            ENTITY_ID2 = Identifier for second entity
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            entity_id_1 = Identifier for first entity
+            entity_id_2 = Identifier for second entity
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
         why_entities = functools.partial(
             self.sz_engine.why_entities,
-            kwargs["parsed_args"].entity_id1,
-            kwargs["parsed_args"].entity_id2,
+            kwargs["parsed_args"].entity_id_1,
+            kwargs["parsed_args"].entity_id_2,
         )
 
         response = why_entities(kwargs["flags"]) if "flags" in kwargs else why_entities()
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_whyRecordInEntity(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_why_record_in_entity(self, **kwargs: Any) -> None:
         """
         Determine why a particular record resolved to an entity
 
         Syntax:
-            whyRecordInEntity DSRC_CODE RECORD_ID [-f FLAG ...]
+            why_record_in_entity data_source_code record_id [-f FLAG ...]
 
         Examples:
-            whyRecordInEntity reference 2121
-            whyRecordInEntity reference 2121 -f SZ_WHY_ENTITY_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_RECORD_DEFINITION
+            why_record_in_entity reference 2121
+            why_record_in_entity reference 2121 -f SZ_WHY_ENTITY_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_RECORD_DEFINITION
 
         Arguments:
-            DSRC_CODE = Data source code
-            RECORD_ID = Record identifier
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            data_source_code = Data source code
+            record_id = Record identifier
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
@@ -1765,33 +1782,33 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
-    def do_whyRecords(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_why_records(self, **kwargs: Any) -> None:
         """
         Determine how two records relate to each other
 
         Syntax:
-            whyRecords DSRC_CODE1 RECORD_ID1 DSRC_CODE2 RECORD_ID1 [-f FLAG ...]
+            why_records data_source_code_1 record_id_1 data_source_code_2 record_id_2 [-f flag ...]
 
         Examples:
-            whyRecords reference 2121 watchlist 2092
-            whyRecords reference 2121 watchlist 2092 -f SZ_WHY_ENTITY_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_RECORD_DEFINITION
+            why_records reference 2121 watchlist 2092
+            why_records reference 2121 watchlist 2092 -f SZ_WHY_ENTITY_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_RECORD_DEFINITION
 
         Arguments:
-            DSRC_CODE1 = Data source code for first record
-            DSRC_CODE2 = Data source code for second record
-            RECORD_ID1 = Identifier for first record
-            RECORD_ID2 = Identifier for second record
-            FLAG = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+            data_source_code_1 = Data source code for first record
+            record_id_1 = Identifier for first record
+            data_source_code_2 = Data source code for second record
+            record_id_2 = Identifier for second record
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
         why_records = functools.partial(
             self.sz_engine.why_records,
-            kwargs["parsed_args"].data_source_code1,
-            kwargs["parsed_args"].record_id1,
-            kwargs["parsed_args"].data_source_code2,
-            kwargs["parsed_args"].record_id2,
+            kwargs["parsed_args"].data_source_code_1,
+            kwargs["parsed_args"].record_id_1,
+            kwargs["parsed_args"].data_source_code_2,
+            kwargs["parsed_args"].record_id_2,
         )
 
         response = why_records(kwargs["flags"]) if "flags" in kwargs else why_records()
@@ -1802,23 +1819,23 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getLicense(self) -> None:  # pylint: disable=invalid-name
+    def do_get_license(self) -> None:
         """
         Get license information
 
         Syntax:
-            getLicense"""
+            get_license"""
 
         response = self.sz_product.get_license()
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator(cmd_has_args=False)
-    def do_getVersion(self) -> None:  # pylint: disable=invalid-name
+    def do_get_version(self) -> None:  # pylint: disable=invalid-name
         """
         Get version information
 
         Syntax:
-            getVersion"""
+            get_version"""
 
         response = self.sz_product.get_version()
         self.last_response = self.output_response(response)
@@ -1867,21 +1884,21 @@ class SzCmdShell(cmd.Cmd):
 
         self.write_config()
 
-    def do_responseToClipboard(self, line: str) -> None:  # pylint: disable=[unused-argument, invalid-name]
+    def do_response_to_clipboard(self, line: str) -> None:  # pylint: disable=[unused-argument]
         """"""
         response_to_clipboard(self.last_response)
 
     @sz_cmds_decorator()
-    def do_responseToFile(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_response_to_file(self, **kwargs: Any) -> None:
         """"""
         response_to_file(kwargs["parsed_args"].file_path, self.last_response)
 
     # TODO - Ant - if copy to clipboard after calling this don't get the reformatted response, get the original response format
-    def do_responseReformatJson(self, line: str) -> None:  # pylint: disable=[unused-argument, invalid-name]
+    def do_response_reformat_json(self, line: str) -> None:  # pylint: disable=[unused-argument]
         """"""
         response_reformat_json(self.last_response, self.color_json, self.format_json, self.color_disabled)
 
-    def do_scrollOutput(self, line: str) -> None:  # pylint: disable=[unused-argument, invalid-name]
+    def do_scroll_output(self, line: str) -> None:  # pylint: disable=[unused-argument]
         # TODO Add to help
         """
         Switch output between using a pager or not
@@ -1895,12 +1912,12 @@ class SzCmdShell(cmd.Cmd):
         self.write_config()
 
     @sz_cmds_decorator()
-    def do_setTheme(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
+    def do_set_theme(self, **kwargs: Any) -> None:
         """
         Switch terminal ANSI colors
 
         Syntax:
-            setTheme default|dark|light|{terminal}
+            set_theme default|dark|light|{terminal}
 
         Note:
             - The default is terminal and recommended
@@ -1981,7 +1998,7 @@ class SzCmdShell(cmd.Cmd):
                 self.color_json = config_parser["CONFIG"].getboolean("outputcolor")
                 self.timer = config_parser["CONFIG"].getboolean("timer")
                 self.theme = config_parser["CONFIG"]["theme"]
-                self.scroll_output = config_parser["CONFIG"].getboolean("scrolloutput")
+                self.scroll_output = config_parser["CONFIG"].getboolean("scroll_output")
             except IOError as err:
                 print_warning(
                     f"Error reading configuration file {self.config_file}: {err}",
@@ -2005,7 +2022,7 @@ class SzCmdShell(cmd.Cmd):
             "outputcolor": f'{"True" if self.color_json else "False"}',
             "timer": f'{"True" if self.timer else "False"}',
             "theme": self.theme,
-            "scrolloutput": f'{"True" if self.scroll_output else "False"}',
+            "scroll_output": f'{"True" if self.scroll_output else "False"}',
         }
 
         try:
@@ -2132,10 +2149,14 @@ class SzCmdShell(cmd.Cmd):
             return self.flags_completes(text, line)
         return []
 
-    def complete_findInterestingEntitiesByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_find_interesting_entities_by_entity_id(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_findInterestingEntitiesByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_find_interesting_entities_by_record_id(
+        self, text: str, line: str, begidx: int, endidx: int
+    ) -> List[str]:
         return self.flags_completes(text, line)
 
     def complete_find_network_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
@@ -2150,50 +2171,53 @@ class SzCmdShell(cmd.Cmd):
     def complete_find_path_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_getEntityByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_get_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_getEntityByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_get_entity_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_getRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_get_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_getVirtualEntityByRecordID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_get_virtual_entity_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_howEntityByEntityID(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_how_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_preprocessRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_preprocess_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.json_and_flags_completes(text, line, begidx, endidx)
 
-    def complete_processRedoRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_process_redo_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_reevaluateEntity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_reevaluate_entity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_reevaluateRecord(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_reevaluate_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_searchByAttributes(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_search_by_attributes(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         # return self.flags_completes(text, line)
         return self.json_and_flags_completes(text, line, begidx, endidx)
 
-    def complete_whyRecordInEntity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_why_record_in_entity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_whyEntities(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+    def complete_why_entities(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    def complete_responseToFile(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        if re.match("responseToFile +", line):
-            return self.path_completes(text, line, begidx, endidx, "responseToFile")
+    def complete_why_records(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        return self.flags_completes(text, line)
+
+    def complete_response_to_file(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        if re.match("response_to_file +", line):
+            return self.path_completes(text, line, begidx, endidx, "response_to_file")
         return []
 
-    def complete_setTheme(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        if re.match("setTheme +", line):
+    def complete_set_theme(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        if re.match("set_theme +", line):
             return [theme for theme in self.themes if theme.lower().startswith(text.lower())]
         return []
 
