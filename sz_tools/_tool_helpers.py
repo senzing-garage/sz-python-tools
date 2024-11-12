@@ -444,14 +444,20 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
 
 
 # TODO colors_list is a string with multiple entries separated by ,
-def colorize_str(string: str, colors_list: str = "") -> str:
+def colorize_str(string: str, colors_list: str = "", color_disabled: bool = False) -> str:
     """# TODO"""
+
+    if color_disabled:
+        return string
 
     return Colors.apply(string, colors_list)
 
 
-def colorize_json(json_str: str) -> str:
+def colorize_json(json_str: str, color_disabled: bool = False) -> str:
     """# TODO"""
+    if color_disabled:
+        return json_str
+
     key_replacer = rf"\1{Colors.JSONKEYCOLOR}\2{Colors.RESET}\3\4"
     value_replacer = rf"\1\2{Colors.JSONVALUECOLOR}\3{Colors.RESET}\4\5"
     # Look for values first to make regex a little easier to construct
@@ -468,6 +474,7 @@ def colorize_output(
     # output: Union[int, str], color_or_type: str, output_color: bool = True
     output: Union[Exception, int, str],
     color_or_type: str,
+    color_disabled: bool = False,
 ) -> str:
     """# TODO"""
 
@@ -476,6 +483,9 @@ def colorize_output(
 
     if not output:
         return ""
+
+    if color_disabled:
+        return output
 
     # if output_color:
     #     return output
@@ -496,13 +506,19 @@ def colorize_output(
     return f"{Colors.apply(output, output_type)}"
 
 
-def colorize_cmd_prompt(prompt: str, color_or_type: str) -> str:
+def colorize_cmd_prompt(prompt: str, color_or_type: str, color_disabled: bool = False) -> str:
     """
     For the Cmd module prompt to be coloured need to add \001 and \002 otherwise readline prints spurious
-    characters when using functions such as reverse search (ctrl-r)
+    characters when using functions such as reverse search (ctrl-r) and navigating through history doesn't
+    display correctly
     """
-    color_prompt = colorize_output(prompt, color_or_type)
-    return f"(\001{color_prompt}\002) "
+    if color_disabled:
+        return f"({prompt}) "
+
+    prompt_step1 = f"\002{prompt}\001"
+    prompt_step2 = colorize_output(prompt_step1, color_or_type)
+    prompt_final = f"\001{prompt_step2}\002"
+    return f"({prompt_final}) "
 
 
 # -------------------------------------------------------------------------
@@ -510,19 +526,19 @@ def colorize_cmd_prompt(prompt: str, color_or_type: str) -> str:
 # -------------------------------------------------------------------------
 
 
-def print_error(msg: Union[Exception, str], end_str: str = "\n\n") -> None:
+def print_error(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('ERROR:', 'error')} {msg}", end=end_str)
+    print(f"\n{colorize_output('ERROR:', 'error', color_disabled=color_disabled)} {msg}", end=end_str)
 
 
-def print_info(msg: Union[Exception, str], end_str: str = "\n\n") -> None:
+def print_info(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
-    print(colorize_output(f"\n{msg}", "info"), end=end_str)
+    print(colorize_output(f"\n{msg}", "info", color_disabled=color_disabled), end=end_str)
 
 
-def print_warning(msg: Union[Exception, str], end_str: str = "\n\n") -> None:
+def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('WARNING:', 'warning')} {msg}", end=end_str)
+    print(f"\n{colorize_output('WARNING:', 'warning', color_disabled=color_disabled)} {msg}", end=end_str)
 
 
 def print_response(
@@ -535,6 +551,7 @@ def print_response(
     cmd_format: bool,
     scroll_output: bool = False,
     color: str = "",
+    color_disabled: bool = False,
 ) -> str:
     """# TODO"""
     strip_colors = True
@@ -544,13 +561,13 @@ def print_response(
         color = "info"
 
     if isinstance(response, int) or not response.startswith("{"):
-        output = colorize_output(response, color)
+        output = colorize_output(response, color, color_disabled)
     else:
         try:
             # Test if data is json and format appropriately
             _ = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
         except (JsonDecodeError, TypeError):
-            output = colorize_output(response, color)
+            output = colorize_output(response, color, color_disabled)
             strip_colors = False
         else:
             # TODO Is this check still needed?
@@ -571,8 +588,9 @@ def print_response(
 
             json_str: str = json_.decode() if ORJSON_AVAIL else json_  # type: ignore
 
+            # TODO - Ant - Clean this up
             # Color JSON if global config or single command formatter specifies
-            if (color_json and not cmd_color) or (cmd_color and color_json_cmd):
+            if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
                 output = colorize_json(json_str)
             else:
                 output = json_str
@@ -589,6 +607,7 @@ def print_response(
 
     # Removing color codes, return output to set last_response for sending
     # to clipboard or file or reformatting JSON
+    # TODO - Ant - Only need to do if color isn't disabled
     if strip_colors:
         return re.sub(r"(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]", "", output)
 
@@ -737,14 +756,18 @@ def response_to_file(file_path: str, last_response: str) -> None:
         print_error(err)
 
 
-def response_reformat_json(last_response: str, color_json: bool, format_json: bool) -> None:
+def response_reformat_json(
+    last_response: str, color_json: bool, format_json: bool, color_disabled: bool = False
+) -> None:
     """# TODO"""
 
     if not last_response.startswith("{"):
         print_warning("The last response isn't JSON")
         return
 
-    print_response(last_response, color_json, False, not format_json, False, False, False)
+    print_response(
+        last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
+    )
 
 
 # -------------------------------------------------------------------------

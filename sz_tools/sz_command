@@ -93,14 +93,104 @@ def sz_cmds_decorator(
                 try:
                     # Parse arguments for a command and add to kwargs to use in calling do_ method
                     # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
+                    # TODO - Ant -
+                    print(f"\nIn decorator: {cmd_args = }", flush=True)
                     kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + self.parse(cmd_args))
-                    cmd_flags = kwargs["parsed_args"].flags
-                    if cmd_flags:
-                        kwargs["flags"] = get_sz_engine_flags(cmd_flags)
+                    # print(f"\n{do_method.__name__[3:] = }", flush=True)
+                    # print(f"\n{[f'{do_method.__name__[3:]}'] + [cmd_args] = }", flush=True)
+                    # NOTE Didn't work lost flags again
+                    # print(f"\n{[f'{do_method.__name__[3   :]}'] + [cmd_args.split()] = }", flush=True)
+                    # NOTE Didn't work lost flags again
+                    # print(f"\n{[f'{do_method.__name__[3:]}'] + [[cmd_args]] = }", flush=True)
+                    # print(f"\n{[f'{do_method.__name__[3:]} ' + cmd_args] = }", flush=True)
+                    # print(f"\n{self.parser.parse_args([f'{do_method.__name__[3:]}']) = }", flush=True)
+                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + cmd_args.split())
+                    # NOTE This one gets to the type=list_of_tuples: [f'{do_method.__name__[3:]}'] + [cmd_args] = ['getVirtualEntityByRecordID', 'REFERENCE 1 customer 2 -f SZ_WITH_INFO']
+                    # NOTE Fudged list_of_tuples to work for now (force the return), rec_keys = 'REFERENCE 1 customer 2 -f SZ_WITH_INFO' - works but lose the flags on the parse
+                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + [cmd_args])
+                    # NOTE Doesn't like this, as if it can't find the parser: [f'{do_method.__name__[3:]} ' + cmd_args] = ['getVirtualEntityByRecordID REFERENCE 1 custgomer 2 -f SZ_WITH_INFO']
+                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]} " + cmd_args])
+                    # NOTE Didn't work lost flags again
+                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + [cmd_args.split()])
+                    # NOTE Didn't work lost flags again
+                    # kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + [[cmd_args]])
+
+                    # NOTE Trying manually to see what parser is happy with
+
+                    # NOTE Didn't work only picked up REFERENCE as a single parm, expected - ERROR: unrecognized arguments: 1 customer 2
+                    # parse_list = ["getVirtualEntityByRecordID", "REFERENCE", "1", "customer", "2", "-f", "SZ_WITH_INFO"]
+
+                    # NOTE Didn't work thinks unknown command? - ERROR: argument {getConfig,replaceDefaultC
+                    # parse_list = ["getVirtualEntityByRecordID REFERENCE 1 customer 2 -f SZ_WITH_INFO"]
+
+                    # NOTE Semi works but lost flags
+                    # NOTE rec_keys = 'REFERENCE 1 customer 2 -f SZ_WITH_INFO'
+                    # NOTE In decorator out of parse: kwargs['parsed_args'] = Namespace(record_list=[('REFERENCE', '2012'), ('CUSTOMERS', '1001')], flags=None)
+                    # parse_list = ["getVirtualEntityByRecordID", "REFERENCE 1 customer 2 -f SZ_WITH_INFO"]
+
+                    # NOTE This works, but need to figure out how to have the ds and rec_ids picked up, nargs?
+                    # NOTE rec_keys = 'REFERENCE 1 customer 2'
+                    # NOTE In decorator out of parse: kwargs['parsed_args'] = Namespace(record_list=[('REFERENCE', '2012'), ('CUSTOMERS', '1001')], flags=['SZ_WITH_INFO'])
+                    # parse_list = ["getVirtualEntityByRecordID", "REFERENCE 1 customer 2", "-f", "SZ_WITH_INFO"]
+
+                    # NOTE
+                    # parse_list = ["getVirtualEntityByRecordID", "REFERENCE 1 customer 2 -f SZ_WITH_INFO"]
+
+                    # parse_list = [f"{do_method.__name__[3:]}"] + self.parse(cmd_args)
+                    # print(f"\n{parse_list = }", flush=True)
+                    # kwargs["parsed_args"] = self.parser.parse_args(parse_list)
+
+                    # TODO - Ant -
+                    print(f"\nIn decorator out of parse: {kwargs['parsed_args'] = }", flush=True)
+                    # If the command has flags build the int value to send on the do_ method
+                    if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
+                        kwargs["flags"] = get_sz_engine_flags(kwargs["parsed_args"].flags)
+
+                    # TODO - Ant -
+                    if hasattr(kwargs["parsed_args"], "record_list"):
+                        record_list = kwargs["parsed_args"].record_list
+                        if len(record_list) % 2 != 0:
+                            print_error(f"Uneven number of data source codes and record IDs: {record_list}")
+                            return None
+
+                        # TODO - Ant -
+                        kwargs["record_keys"] = [tuple(record_list[i : i + 2]) for i in range(0, len(record_list), 2)]
+
+                    # TODO - Ant -
+                    if hasattr(kwargs["parsed_args"], "entity_list"):
+                        entity_list = kwargs["parsed_args"].entity_list
+                        # TODO - Ant -
+                        print(f"\n{entity_list = }", flush=True)
+
+                        # Entity_list from parser was collected as a single string from input like '1 2 3', '1, 2, 3'
+                        # This means all other expected arguments were present on the command
+                        if len(entity_list) == 1:
+                            # Convert to a str and remove any possible commas
+                            entity_list_str = entity_list[0].replace(",", " ")
+                            # Convert back to a list where each string is an elements '1,2,3' -> ['1', '2', '3']
+                            entity_list = entity_list_str.split()
+                            print(f"\n{entity_list = }", flush=True)
+                        else:
+                            # Strip commas out of list elements when argument like 1, 222222, 3
+                            entity_list = [i.replace(",", " ") for i in entity_list]
+
+                        non_ints = [i.strip() for i in entity_list if not i.strip().isdigit()]
+                        print(f"\n{non_ints = }", flush=True)
+                        if non_ints:
+                            print_error(f"Entity IDs should be integers: {non_ints}")
+                            return None
+
+                        entity_ids = [int(i) for i in entity_list]
+                        print(f"\n{entity_ids = }", flush=True)
+
+                        return None
+                        return None
 
                 # Catch argument errors from parser.parse_args and display the commands help
                 # Argparse parser error method is subclassed by SzCommandArgumentParser and displays the error
                 except SystemExit:
+                    # TODO - Ant -
+                    print("\nIn decorator SystemExit...", flush=True)
                     self.do_help(do_method.__name__)
                     return None
                 # Catch parsing errors such as missing single quote around JSON, the error is displayed by parse()
@@ -147,6 +237,10 @@ class SzCommandArgumentParser(argparse.ArgumentParser):
     """Subclass ArgumentParser, override error() with custom message"""
 
     def error(self, message: str) -> NoReturn:
+        # TODO - Ant -
+        print("In argparse error override...")
+        print(f"\n{self = }", flush=True)
+        # print(f"\n{self. = }", flush=True)
         self.exit(
             2,
             print_error(message),
@@ -199,6 +293,9 @@ class SzCmdShell(cmd.Cmd):
             "do_shell",
         )
 
+        # Session wide color disabled?
+        self.color_disabled = self.cli_args.color_disable
+
         # Themes - set early, used for setting cmd prompt, use the default colors set by the terminal
         self.themes = Colors.AVAILABLE_THEMES
         self.theme = "TERMINAL"
@@ -206,7 +303,8 @@ class SzCmdShell(cmd.Cmd):
 
         # Cmd module settings
         self.intro = ""
-        self.prompt = colorize_cmd_prompt("szcmd", "info")
+        self.prompt = colorize_cmd_prompt("szcmd", "info", self.color_disabled)
+        # self.prompt = colorize_cmd_prompt("szcmd", "info", True)
 
         # Readline and history
         self.history_avail = False
@@ -320,41 +418,21 @@ class SzCmdShell(cmd.Cmd):
         findInterestingEntitiesByRecordID_parser.add_argument("record_id")
         findInterestingEntitiesByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        # TODO - Ant -
-        def list_of_ints(ints: str) -> List[int]:
-            # print(list(map(int, ints.split(","))))
-            return list(map(int, ints.split(",")))
-
         findNetworkByEntityID_parser = self.subparsers.add_parser("findNetworkByEntityID", usage=argparse.SUPPRESS)
+        # TODO - Ant -
         # findNetworkByEntityID_parser.add_argument("entity_list")
-        findNetworkByEntityID_parser.add_argument("entity_list", type=list_of_ints)
+        # findNetworkByEntityID_parser.add_argument("entity_list", type=list_of_ints)
+        # findNetworkByEntityID_parser.add_argument("entity_list", nargs="*")
+        findNetworkByEntityID_parser.add_argument("entity_list", nargs="+")
         findNetworkByEntityID_parser.add_argument("max_degrees", type=int)
         findNetworkByEntityID_parser.add_argument("build_out_degree", type=int)
         findNetworkByEntityID_parser.add_argument("max_entities", type=int)
         findNetworkByEntityID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
-        # TODO - Ant -
-        def list_of_tuples(rec_keys: str) -> list[tuple[str, str]]:
-
-            error_msg = "error parsing, expecting: 'DATA_SOURCE:RECORD_ID, DATA_SOURCE:RECORD_ID, ...'"
-
-            if "," not in rec_keys or ":" not in rec_keys:
-                raise argparse.ArgumentTypeError(error_msg)
-
-            try:
-                rec_keys_list = [
-                    (values[0].strip(), values[1].strip())
-                    for values in (aset.split(":") for aset in rec_keys.split(","))
-                ]
-                print(rec_keys_list)
-            except IndexError as err:
-                raise argparse.ArgumentTypeError(error_msg) from err
-
-            return rec_keys_list
-
         findNetworkByRecordID_parser = self.subparsers.add_parser("findNetworkByRecordID", usage=argparse.SUPPRESS)
+        # TODO - Ant -
         # findNetworkByRecordID_parser.add_argument("record_list")
-        findNetworkByRecordID_parser.add_argument("record_list", type=list_of_tuples)
+        findNetworkByRecordID_parser.add_argument("record_list", nargs="*")
         findNetworkByRecordID_parser.add_argument("max_degrees", type=int)
         findNetworkByRecordID_parser.add_argument("build_out_degree", type=int)
         findNetworkByRecordID_parser.add_argument("max_entities", type=int)
@@ -395,8 +473,7 @@ class SzCmdShell(cmd.Cmd):
         getVirtualEntityByRecordID_parser = self.subparsers.add_parser(
             "getVirtualEntityByRecordID", usage=argparse.SUPPRESS
         )
-        # getVirtualEntityByRecordID_parser.add_argument("record_list")
-        getVirtualEntityByRecordID_parser.add_argument("record_list", type=list_of_tuples)
+        getVirtualEntityByRecordID_parser.add_argument("record_list", nargs="+")
         getVirtualEntityByRecordID_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         howEntityByEntityID_parser = self.subparsers.add_parser("howEntityByEntityID", usage=argparse.SUPPRESS)
@@ -484,6 +561,7 @@ class SzCmdShell(cmd.Cmd):
             self.cmd_format,
             self.scroll_output,
             color,
+            self.color_disabled,
         )
 
         return formatted_response
@@ -557,7 +635,7 @@ class SzCmdShell(cmd.Cmd):
             # TODO - Ant - This isn't needed? read_config() will try and create a new one
             self.write_config()
 
-        print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help")
+        print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help", color_disabled=self.color_disabled)
 
     # -------------------------------------------------------------------------
     # Non-interactive input methods
@@ -1464,7 +1542,7 @@ class SzCmdShell(cmd.Cmd):
         Determine how an entity composed of a given set of records would look
 
         Syntax:
-            getVirtualEntityByRecordID RECORD_LIST[-f FLAG ...]
+            getVirtualEntityByRecordID RECORD_LIST [-f FLAG ...]
 
         Example:
             getVirtualEntityByRecordID '{"RECORDS": [{"DATA_SOURCE": "REFERENCE","RECORD_ID": "2071"},{"DATA_SOURCE": "CUSTOMERS","RECORD_ID": "1069"}]}'
@@ -1478,7 +1556,8 @@ class SzCmdShell(cmd.Cmd):
 
         get_virtual = functools.partial(
             self.sz_engine.get_virtual_entity_by_record_id,
-            kwargs["parsed_args"].record_list,
+            # TODO - Ant -
+            kwargs["record_keys"],
         )
 
         response = get_virtual(kwargs["flags"]) if "flags" in kwargs else get_virtual()
@@ -1834,17 +1913,18 @@ class SzCmdShell(cmd.Cmd):
         self.write_config()
 
     def do_responseToClipboard(self, line: str) -> None:  # pylint: disable=[unused-argument, invalid-name]
-        """# TODO"""
+        """"""
         response_to_clipboard(self.last_response)
 
     @sz_cmds_decorator()
     def do_responseToFile(self, **kwargs: Any) -> None:  # pylint: disable=invalid-name
-        """# TODO"""
+        """"""
         response_to_file(kwargs["parsed_args"].file_path, self.last_response)
 
+    # TODO - Ant - if copy to clipboard after calling this don't get the reformatted response, get the original response format
     def do_responseReformatJson(self, line: str) -> None:  # pylint: disable=[unused-argument, invalid-name]
-        """# TODO"""
-        response_reformat_json(self.last_response, self.color_json, self.format_json)
+        """"""
+        response_reformat_json(self.last_response, self.color_json, self.format_json, self.color_disabled)
 
     def do_scrollOutput(self, line: str) -> None:  # pylint: disable=[unused-argument, invalid-name]
         # TODO Add to help
@@ -2217,6 +2297,13 @@ def parse_cli_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="output debug information",
+    )
+    arg_parser.add_argument(
+        "-cd",
+        "--color_disable",
+        action="store_true",
+        default=False,
+        help="disable coloring of output, color formatting commands will have no effect in the session",
     )
     arg_parser.add_argument(
         "-H",
