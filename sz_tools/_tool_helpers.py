@@ -23,6 +23,8 @@ from pathlib import Path
 from signal import SIGALRM, alarm, signal
 from typing import TYPE_CHECKING, Any, Dict, List, TextIO, Union
 
+from senzing import SzEngineFlags
+
 READLINE_AVAIL = False
 with suppress(ImportError):
     import atexit
@@ -408,6 +410,29 @@ def get_engine_config(ini_file_name: Union[str, None] = None) -> str:
 
 
 # -------------------------------------------------------------------------
+# Engine helpers
+# -------------------------------------------------------------------------
+
+
+def get_engine_flag_names() -> List[str]:
+    """# TODO"""
+    return list(SzEngineFlags.__members__.keys())
+
+
+def get_engine_flags_integer(flags: List[str]) -> int:
+    """Detect if int or named flags are used and convert to int"""
+    if flags[0] == "-1":
+        return -1
+
+    # When using an int there should only be one value, not combined like named flags
+    if flags[0].isdigit():
+        return int(flags[0])
+
+    # Named engine flag(s) used, combine and return the int value
+    return SzEngineFlags.combine_flags(flags)
+
+
+# -------------------------------------------------------------------------
 # File helper functions
 # -------------------------------------------------------------------------
 
@@ -540,8 +565,6 @@ def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", color_disab
     """# TODO"""
     print(f"\n{colorize_output('WARNING:', 'warning', color_disabled=color_disabled)} {msg}", end=end_str)
 
-
-last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
 
 def print_response(
     response: Union[int, str],
@@ -758,22 +781,22 @@ def response_to_file(file_path: str, last_response: str) -> None:
         print_error(err)
 
 
-def response_reformat_json(
-    last_response: str, color_json: bool, format_json: bool, color_disabled: bool = False
-) -> None:
+def response_reformat_json(last_response: str, color_json: bool, color_disabled: bool = False) -> str:
     """# TODO"""
 
     if not last_response.startswith("{"):
         print_warning("The last response isn't JSON")
-        return
+        return ""
 
     # TODO - Ant -
     # print_response(
     #     last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
     # )
-    print_response(
-        last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
-    )
+    # return print_response(
+    #     last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
+    # )
+    jsonl = False if "\n" in last_response else True
+    return print_response(last_response, color_json, False, jsonl, False, False, False, color_disabled=color_disabled)
 
 
 # -------------------------------------------------------------------------

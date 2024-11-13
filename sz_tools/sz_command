@@ -2,8 +2,6 @@
 
 """ # TODO """
 
-# TODO - Ant - Partial functions instead of the if/else
-
 
 import argparse
 import cmd
@@ -31,6 +29,8 @@ from _tool_helpers import (
     do_history,
     do_shell,
     get_engine_config,
+    get_engine_flag_names,
+    get_engine_flags_integer,
     history_setup,
     print_error,
     print_info,
@@ -40,7 +40,7 @@ from _tool_helpers import (
     response_to_clipboard,
     response_to_file,
 )
-from senzing import SzAbstractFactory, SzEngineFlags, SzError
+from senzing import SzAbstractFactory, SzError
 
 WrappedFunc = TypeVar("WrappedFunc", bound=Callable[..., Any])
 
@@ -95,7 +95,7 @@ def sz_cmds_decorator(
 
                     # If the command has flags build the int value for the do_ method
                     if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
-                        kwargs["flags"] = get_sz_engine_flags(kwargs["parsed_args"].flags)
+                        kwargs["flags"] = get_engine_flags_integer(kwargs["parsed_args"].flags)
 
                     # If the command uses *_record_keys build the expected list of tuples for the SDK
                     if hasattr(kwargs["parsed_args"], "record_keys") or hasattr(
@@ -152,7 +152,7 @@ def sz_cmds_decorator(
             if self.timer:
                 timer_start = time.perf_counter()
 
-            # Run the decorated method passing back kwargs for use in API call
+            # Run the decorated method passing back kwargs for use in SDK call
             try:
                 result = do_method(self, **kwargs)
             except (SzError, IOError) as err:
@@ -164,12 +164,6 @@ def sz_cmds_decorator(
                     print_info(
                         f"Approximate execution time (s): {exec_time:.5f}",
                     )
-
-                # TODO - Ant - Do these belong here or in post cmd?
-                self.format_json_cmd = False
-                self.color_json_cmd = False
-                self.cmd_color = False
-                self.cmd_format = False
 
             return result
 
@@ -218,12 +212,13 @@ class SzCmdShell(cmd.Cmd):
             print_error(err)
             sys.exit(1)
 
-        # TODO - Ant -  Move to helpers
-        # Get Senzing engine flags for use in auto completion
-        self.engine_flags_list = list(SzEngineFlags.__members__.keys())
+        # Get Senzing engine flag names for use in auto completion
+        self.engine_flags_list = get_engine_flag_names()
 
         # Collect attributes from configuration
-        self.attrs = self.get_sz_config_attrs()
+        self.attrs = self.get_config_attr_codes()
+        # TODO - Ant -
+        print(f"\n{self.attrs = }", flush=True)
 
         # Could be deprecated, undocumented, not supported, experimental or not relevant
         self.__hidden_cmds = (
@@ -283,8 +278,6 @@ class SzCmdShell(cmd.Cmd):
         # -------------------------------------------------------------------------
         # do_* method parsers
         # -------------------------------------------------------------------------
-
-        # pylint: disable=invalid-name
 
         self.parser = SzCommandArgumentParser(
             add_help=False,
@@ -494,23 +487,16 @@ class SzCmdShell(cmd.Cmd):
             nargs=1,
         )
 
-    # pylint: enable=invalid-name
-
-    def get_sz_config_attrs(self) -> List[str]:
+    def get_config_attr_codes(self) -> List[str]:
         # TODO - Work in progress for JSON autocomplete
         # TODO - Ant - Move to __init__ / post_cmd and only get once and then reinit if config changes from methods like replace_default_config_id
         config_id = self.sz_engine.get_active_config_id()
         config = self.sz_configmgr.get_config(config_id)
         config_json = json.loads(config)
         cfg_attr = config_json["G2_CONFIG"]["CFG_ATTR"]
-        attr_list = []
-        # TODO - Ant - comprehension
-        for attr in cfg_attr:
-            # print(attr["ATTR_CODE"] + "-" + attr["INTERNAL"])
-            if attr["INTERNAL"].lower() == "no":
-                attr_list.append(attr["ATTR_CODE"])
+        attr_codes = [attr["ATTR_CODE"] for attr in cfg_attr if attr["INTERNAL"].lower() == "no"]
 
-        return attr_list
+        return attr_codes
 
     # Call helper function to format and print command responses with constant values
     def output_response(self, response: Union[int, str], color: str = "") -> str:
@@ -566,6 +552,12 @@ class SzCmdShell(cmd.Cmd):
         return list(dir(self.__class__))
 
     def postcmd(self, stop: bool, line: str) -> bool:
+
+        self.format_json_cmd = False
+        self.color_json_cmd = False
+        self.cmd_color = False
+        self.cmd_format = False
+
         if self.capture_file and self.last_response:
             self.capture_file.write(f"{self.prompt}{line}\n\n")
             self.capture_file.write(f"{self.last_response}\n\n")
@@ -667,20 +659,19 @@ class SzCmdShell(cmd.Cmd):
     def help_all(self) -> None:
         self.do_help()
 
-    # TODO - Ant - Check this
     @staticmethod
     def help_overview() -> None:
         print(
             textwrap.dedent(
                 f"""
-        {colorize_str('This utility allows you to interact with the Senzing APIs.', 'dim')}
+        {colorize_str('This utility allows you to interact with the Senzing SDK', 'dim')}
 
         {colorize_str('Help', 'highlight2')}
             {colorize_str('- View help for a command:', 'dim')} help COMMAND
             {colorize_str('- View all commands:', 'dim')} help all
 
         {colorize_str('Tab Completion', 'highlight2')}
-            {colorize_str('- Tab completion is available for commands, files and engine flags', 'dim')}
+            {colorize_str('- Tab completion is available for commands, files, engine flags, etc', 'dim')}
             {colorize_str('- Hit tab on a blank line to see all commands', 'dim')}
 
         {colorize_str('JSON Formatting', 'highlight2')}
@@ -690,9 +681,9 @@ class SzCmdShell(cmd.Cmd):
             {colorize_str('- Can be combined with color formatting options', 'dim')}
                 - get_entity_by_entity_id 1001 jsonl nocolor
 
-            {colorize_str('- Set the JSON format for the session, saves the preference to a configuration file for use across sessions', 'dim')}
-            {colorize_str('- Specifying the JSON and color formatting options at the end of a command override this setting for that command', 'dim')}
-                - setOutputFormat json|jsonl
+            {colorize_str('- Toggle between json and jsonl output for the session, saves the preference to a configuration file for use across sessions', 'dim')}
+            {colorize_str('- Specifying the JSON and color formatting options at the end of a command override this setting only for that command', 'dim')}
+                - json_format
 
             {colorize_str('- Convert last response output between json and jsonl', 'dim')}
                 - response_reformat_json
@@ -704,15 +695,14 @@ class SzCmdShell(cmd.Cmd):
             {colorize_str('- Can be combined with JSON formatting options', 'dim')}
                 - get_entity_by_entity_id 1001 color jsonl
 
-            {colorize_str('- Set the color formatting for the session, saves the preference to a configuration file for use across sessions', 'dim')}
+            {colorize_str('- Toggle between color or no color for JSON output for the session, saves the preference to a configuration file for use across sessions', 'dim')}
             {colorize_str('- Specifying the JSON and color formatting options at the end of a command override this setting for that command', 'dim')}
-                - setOutputColor color|colour|nocolor|nocolour
+                - json_color
 
         {colorize_str('Capturing Output', 'highlight2')}
             {colorize_str('- Capture the last response output to a file or the clipboard', 'dim')}
                 - response_to_clipboard
                 - response_to_file /tmp/myoutput.json
-            {colorize_str('- response_to_clipboard does not work in containers or SSH sessions', 'dim')}
 
         {colorize_str('History', 'highlight2')}
             {colorize_str('- Arrow keys to cycle through history of commands', 'dim')}
@@ -731,7 +721,7 @@ class SzCmdShell(cmd.Cmd):
         {colorize_str('Support', 'highlight2')}
             {colorize_str('- Senzing Support:', 'dim')} {colorize_str('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight1,underline')}
             {colorize_str('- Senzing Knowledge Center:', 'dim')} {colorize_str('https://senzing.zendesk.com/hc/en-us', 'highlight1,underline')}
-            {colorize_str('- API Docs:', 'dim')} {colorize_str('https://docs.senzing.com', 'highlight1,underline')}
+            {colorize_str('- SDK Docs:', 'dim')} {colorize_str('https://docs.senzing.com', 'highlight1,underline')}
 
         """
             )
@@ -830,9 +820,7 @@ class SzCmdShell(cmd.Cmd):
         self.sz_factory.reinitialize(kwargs["parsed_args"].new_default_config_id)
 
         # Configuration has changed, update attributes from configuration
-        self.attrs = self.get_sz_config_attrs()
-        # TODO Test this, resetting last_response in pre/-cmd
-        # self.last_response = ""
+        self.attrs = self.get_config_attr_codes()
 
     @sz_cmds_decorator()
     def do_set_default_config_id(self, **kwargs: Any) -> None:
@@ -855,7 +843,7 @@ class SzCmdShell(cmd.Cmd):
         # TODO - Ant - reinit
         self.output_response("Default config set, reinitializing...", "success")
         # Configuration has changed, update attributes from configuration
-        self.attrs = self.get_sz_config_attrs()
+        self.attrs = self.get_config_attr_codes()
         # self.last_response = ""
 
     # -----------------------------------------------------------------------------
@@ -944,8 +932,6 @@ class SzCmdShell(cmd.Cmd):
                 return
 
         self.sz_diagnostic.purge_repository()
-        # TODO Test this, resetting last_response in pre/-cmd
-        # self.last_response = ""
         print("\nSenzing repository purged\n")
 
     # -----------------------------------------------------------------------------
@@ -1169,14 +1155,6 @@ class SzCmdShell(cmd.Cmd):
             else find_interesting_entities_by_entity_id()
         )
 
-        # TODO - Ant -
-        # if "flags" in kwargs:
-        #     response = self.sz_engine.find_interesting_entities_by_entity_id(
-        #         kwargs["parsed_args"].entity_id, kwargs["flags"]
-        #     )
-        # else:
-        #     response = self.sz_engine.find_interesting_entities_by_entity_id(kwargs["parsed_args"].entity_id)
-
         self.last_response = self.output_response(response)
 
     @sz_cmds_decorator()
@@ -1201,17 +1179,17 @@ class SzCmdShell(cmd.Cmd):
             - Experimental feature requires additional configuration, contact support@senzing.com
         """
 
-        if "flags" in kwargs:
-            response = self.sz_engine.find_interesting_entities_by_record_id(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.find_interesting_entities_by_record_id(
-                kwargs["parsed_args"].data_source_code,
-                kwargs["parsed_args"].record_id,
-            )
+        find_interesting_entities_by_record_id = functools.partial(
+            self.sz_engine.find_interesting_entities_by_record_id,
+            kwargs["parsed_args"].data_source_code,
+            kwargs["parsed_args"].record_id,
+        )
+
+        response = (
+            find_interesting_entities_by_record_id(kwargs["flags"])
+            if "flags" in kwargs
+            else find_interesting_entities_by_record_id()
+        )
 
         self.last_response = self.output_response(response)
 
@@ -1236,21 +1214,15 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        if "flags" in kwargs:
-            response = self.sz_engine.find_network_by_entity_id(
-                kwargs["entity_ids"],
-                kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].build_out_degrees,
-                kwargs["parsed_args"].build_out_max_entities,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.find_network_by_entity_id(
-                kwargs["entity_ids"],
-                kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].build_out_degrees,
-                kwargs["parsed_args"].build_out_max_entities,
-            )
+        find_network_by_entity_id = functools.partial(
+            self.sz_engine.find_network_by_entity_id,
+            kwargs["entity_ids"],
+            kwargs["parsed_args"].max_degrees,
+            kwargs["parsed_args"].build_out_degrees,
+            kwargs["parsed_args"].build_out_max_entities,
+        )
+
+        response = find_network_by_entity_id(kwargs["flags"]) if "flags" in kwargs else find_network_by_entity_id()
 
         self.last_response = self.output_response(response)
 
@@ -1275,21 +1247,15 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        if "flags" in kwargs:
-            response = self.sz_engine.find_network_by_record_id(
-                kwargs["record_keys"],
-                kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].build_out_degrees,
-                kwargs["parsed_args"].build_out_max_entities,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.find_network_by_record_id(
-                kwargs["record_keys"],
-                kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].build_out_degrees,
-                kwargs["parsed_args"].build_out_max_entities,
-            )
+        find_network_by_record_id = functools.partial(
+            self.sz_engine.find_network_by_record_id,
+            kwargs["record_keys"],
+            kwargs["parsed_args"].max_degrees,
+            kwargs["parsed_args"].build_out_degrees,
+            kwargs["parsed_args"].build_out_max_entities,
+        )
+
+        response = find_network_by_record_id(kwargs["flags"]) if "flags" in kwargs else find_network_by_record_id()
 
         self.last_response = self.output_response(response)
 
@@ -1317,27 +1283,19 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        if "flags" in kwargs:
-            response = self.sz_engine.find_path_by_entity_id(
-                kwargs["parsed_args"].start_entity_id,
-                kwargs["parsed_args"].end_entity_id,
-                kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].avoid_entity_ids,
-                kwargs["parsed_args"].required_data_sources,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.find_path_by_entity_id(
-                kwargs["parsed_args"].start_entity_id,
-                kwargs["parsed_args"].end_entity_id,
-                kwargs["parsed_args"].max_degrees,
-                kwargs["parsed_args"].avoid_entity_ids,
-                kwargs["parsed_args"].required_data_sources,
-            )
+        find_path_by_entity_id = functools.partial(
+            self.sz_engine.find_path_by_entity_id,
+            kwargs["parsed_args"].start_entity_id,
+            kwargs["parsed_args"].end_entity_id,
+            kwargs["parsed_args"].max_degrees,
+            kwargs["parsed_args"].avoid_entity_ids,
+            kwargs["parsed_args"].required_data_sources,
+        )
+
+        response = find_path_by_entity_id(kwargs["flags"]) if "flags" in kwargs else find_path_by_entity_id()
 
         self.last_response = self.output_response(response)
 
-    # TODO Wording on exclusions
     @sz_cmds_decorator()
     def do_find_path_by_record_id(self, **kwargs: Any) -> None:
         """
@@ -1362,31 +1320,20 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        if "flags" in kwargs:
-            response = self.sz_engine.find_path_by_record_id(
-                kwargs["parsed_args"].start_data_source_code,
-                kwargs["parsed_args"].start_record_id,
-                kwargs["parsed_args"].end_data_source_code,
-                kwargs["parsed_args"].end_record_id,
-                kwargs["parsed_args"].max_degrees,
-                # Although the SDK and parser argument is avoid_record_keys, the sz_cmds_decorator detects
-                # avoid_record_keys but always adds record_keys back to kwargs
-                kwargs["record_keys"],
-                kwargs["parsed_args"].required_data_sources,
-                kwargs["flags"],
-            )
-        else:
-            response = self.sz_engine.find_path_by_record_id(
-                kwargs["parsed_args"].start_data_source_code,
-                kwargs["parsed_args"].start_record_id,
-                kwargs["parsed_args"].end_data_source_code,
-                kwargs["parsed_args"].end_record_id,
-                kwargs["parsed_args"].max_degrees,
-                # Although the SDK and parser argument is avoid_record_keys, the sz_cmds_decorator detects
-                # avoid_record_keys but always adds record_keys back to kwargs
-                kwargs["record_keys"],
-                kwargs["parsed_args"].required_data_sources,
-            )
+        find_path_by_record_id = functools.partial(
+            self.sz_engine.find_path_by_record_id,
+            kwargs["parsed_args"].start_data_source_code,
+            kwargs["parsed_args"].start_record_id,
+            kwargs["parsed_args"].end_data_source_code,
+            kwargs["parsed_args"].end_record_id,
+            kwargs["parsed_args"].max_degrees,
+            # Although the SDK and parser argument is avoid_record_keys, the sz_cmds_decorator detects
+            # avoid_record_keys but always adds record_keys back to kwargs
+            kwargs["record_keys"],
+            kwargs["parsed_args"].required_data_sources,
+        )
+
+        response = find_path_by_record_id(kwargs["flags"]) if "flags" in kwargs else find_path_by_record_id()
 
         self.last_response = self.output_response(response)
 
@@ -1859,9 +1806,8 @@ class SzCmdShell(cmd.Cmd):
         do_history()
 
     def do_json_color(self, line: str) -> None:  # pylint: disable=unused-argument
-        # TODO Add to help this saves to config file and about per cmd changes
         """
-        Enables/disables adding colors to JSON responses
+        Enables/disables adding colors to JSON responses for the session and saves preference
 
         Syntax:
             json_color
@@ -1872,9 +1818,8 @@ class SzCmdShell(cmd.Cmd):
         self.write_config()
 
     def do_json_format(self, line: str) -> None:  # pylint: disable=unused-argument
-        # TODO Add to help this saves to config file
         """
-        Switch output between json (tall json) and jsonl (json lines) for JSON responses
+        Switch output between json (tall json) and jsonl (json lines) for JSON responses for the session and saves preference
 
         Syntax:
             json_format
@@ -1885,21 +1830,37 @@ class SzCmdShell(cmd.Cmd):
         self.write_config()
 
     def do_response_to_clipboard(self, line: str) -> None:  # pylint: disable=[unused-argument]
-        """"""
+        """
+        Attempt to copy the last command response to the clipboard
+
+        Syntax:
+            response_to_clipboard
+        """
         response_to_clipboard(self.last_response)
 
     @sz_cmds_decorator()
     def do_response_to_file(self, **kwargs: Any) -> None:
-        """"""
+        """
+        Attempt to copy the last command response to a file
+
+        Syntax:
+            response_to_file output_file
+
+        Arguments:
+            output_file = File to save response to
+        """
         response_to_file(kwargs["parsed_args"].file_path, self.last_response)
 
-    # TODO - Ant - if copy to clipboard after calling this don't get the reformatted response, get the original response format
     def do_response_reformat_json(self, line: str) -> None:  # pylint: disable=[unused-argument]
-        """"""
-        response_reformat_json(self.last_response, self.color_json, self.format_json, self.color_disabled)
+        """
+        Convert the last response between json and jsonl formatting
+
+        Syntax:
+            response_reformat_json
+        """
+        self.last_response = response_reformat_json(self.last_response, self.color_json, self.color_disabled)
 
     def do_scroll_output(self, line: str) -> None:  # pylint: disable=[unused-argument]
-        # TODO Add to help
         """
         Switch output between using a pager or not
 
@@ -1927,7 +1888,13 @@ class SzCmdShell(cmd.Cmd):
         self.write_config()
 
     def do_timer(self, line: str) -> None:  # pylint: disable=unused-argument
-        """# TODO"""
+        """
+        Toggle on/off displaying an approximate time for commands to complete
+
+        Syntax:
+            timer
+
+        """
         self.timer = not self.timer
         print_info(f'Timer {"enabled" if self.timer else "disabled"}')
         self.write_config()
@@ -2045,7 +2012,7 @@ class SzCmdShell(cmd.Cmd):
     # Auto completers
     # -------------------------------------------------------------------------
 
-    # pylint: disable=[unused-argument, invalid-name]
+    # pylint: disable=[unused-argument]
 
     # Auto complete engine flags from self.szengineflags
     def flags_completes(self, text: str, line: str) -> List[str]:
@@ -2221,25 +2188,11 @@ class SzCmdShell(cmd.Cmd):
             return [theme for theme in self.themes if theme.lower().startswith(text.lower())]
         return []
 
-    # pylint: enable=[unused-argument, invalid-name]
-
-
-# TODO - Ant - Move to helpers
-def get_sz_engine_flags(flags: List[str]) -> int:
-    """Detect if int or named flags are used and convert to int"""
-    if flags[0] == "-1":
-        return -1
-
-    # When using an int there should only be one value, not combined like named flags
-    if flags[0].isdigit():
-        return int(flags[0])
-
-    # Named engine flag(s) used, combine and return the int value
-    return SzEngineFlags.combine_flags(flags)
+    # pylint: enable=[unused-argument]
 
 
 def parse_cli_args() -> argparse.Namespace:
-    """# TODO"""
+    """Parse the CLI arguments"""
     arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description="Utility to interact with Senzing APIs",
@@ -2250,19 +2203,19 @@ def parse_cli_args() -> argparse.Namespace:
         "--ini-file",
         help="optional path and file name of G2Module.ini to use",
     )
-    # TODO Make mutually exclusive with file
-    arg_parser.add_argument(
+    non_interactive_group = arg_parser.add_mutually_exclusive_group()
+    non_interactive_group.add_argument(
         "-C",
         "--command",
         action="append",
         nargs="+",
         help="run command(s) without starting an interactive session",
     )
-    arg_parser.add_argument(
+    non_interactive_group.add_argument(
         "-f",
         "--file-to-process",
         default=None,
-        help="path and file name of file with commands to process",
+        help="path and file name of file with commands to run",
         nargs="?",
     )
     arg_parser.add_argument(
