@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   pytest-darwin:
-    name: "pytest Senzing: ${{ matrix.senzingapi-version }}; OS: ${{ matrix.os }}; Python ${{ matrix.python-version }}"
+    name: "pytest Senzing: ${{ matrix.senzingsdk-version }}; OS: ${{ matrix.os }}; Python ${{ matrix.python-version }}"
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -20,7 +20,7 @@ jobs:
         os: [macos-latest]
         # 3.9 is unsupported on the darwin runner
         python-version: ["3.10", "3.11", "3.12"]
-        senzingapi-version: [staging-v4]
+        senzingsdk-version: [staging-v4]
 
     steps:
       - name: Checkout repository
@@ -46,10 +46,10 @@ jobs:
           source ./venv/bin/activate
           python -m pip install typing_extensions
 
-      - name: Install Senzing API
-        uses: senzing-factory/github-action-install-senzing-api@v4
+      - name: Install Senzing SDK
+        uses: senzing-factory/github-action-install-senzing-sdk@v1
         with:
-          senzingapi-version: ${{ matrix.senzingapi-version }}
+          senzingsdk-version: ${{ matrix.senzingsdk-version }}
 
       - name: Copy /etc files
         run: |
