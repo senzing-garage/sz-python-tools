@@ -18,7 +18,7 @@ from contextlib import suppress
 from typing import Any, Dict, List, Union
 import textwrap
 
-from _tool_helpers import Colors, Node, get_engine_config
+from _tool_helpers import Colors, get_engine_config
 from senzing import (
     SzConfigManager,
     SzDiagnostic,
@@ -34,6 +34,68 @@ except ImportError:
     print("\nPlease install the Python prettytable module (e.g. pip install prettytable)")
     sys.exit(1)
 
+class Node(object):
+
+    def __init__(self, node_id):
+        self.node_id = node_id
+        self.node_desc = node_id
+        self.node_text = None
+        self.node_data = None
+        self.children = []
+        self.parents = []
+
+    def add_child(self, obj):
+        self.children.append(obj)
+
+    def add_parent(self, obj):
+        self.parents.append(obj)
+
+    def render_tree(self, filter_str=None):
+        tree = ""
+        tree += self.node_desc + "\n"
+        if self.node_text:
+            tree += self.node_text + "\n"
+        parents = [{"node": self, "next_child": 0, 'display_children': self.children}]
+        while parents:
+            if parents[-1]["next_child"] == len(parents[-1]["display_children"]):
+                parents.pop()
+                continue
+
+            next_node = parents[-1]["display_children"][parents[-1]["next_child"]]
+            parents[-1]["next_child"] += 1
+            prefix = ""
+            for i, _ in enumerate(parents):
+                last_child = parents[i]["next_child"] == len(parents[i]["display_children"])
+                if i < len(parents) - 1:  # prior level
+                    prefix += "    " if last_child else "\u2502   "
+                else:
+                    prefix += "\u2514\u2500\u2500 " if last_child else "\u251c\u2500\u2500 "   
+
+            node_desc = next_node.node_desc
+            for line in node_desc.split("\n"):
+                tree += prefix + line + "\n"
+                if prefix[-4:] == "\u251c\u2500\u2500 ":
+                    prefix = prefix[0:-4] + "\u2502   "
+                elif prefix[-4:] == "\u2514\u2500\u2500 ":
+                    prefix = prefix[0:-4] + "    "
+
+            if next_node.node_text:
+                node_text = next_node.node_text
+                for line in node_text.split("\n"):
+                    tree += prefix + line + "\n"
+
+            if next_node.children:
+                prior_parents = []
+                for i, _ in enumerate(parents):
+                    prior_parents.append(parents[i]['node'].node_id)
+                # don't display prior parents in this tree
+                display_children = []
+                for child in next_node.children:
+                    if child.node_id not in prior_parents: 
+                        display_children.append(child)
+                parents.append({"node": next_node, "next_child": 0, 'display_children': display_children})
+
+        return tree
 
 # ---------------------------
 def execute_sz_api(
@@ -102,6 +164,11 @@ def colorize_attr(attr_str, attr_color="attr_color"):
     return colorize(attr_str, attr_color)
 
 def colorize_match_key(match_key):
+    if " (Ambiguous)" in match_key:
+        match_key = match_key.replace(" (Ambiguous)", "")
+        ambiguous_tag = " " + colorize("(Ambiguous)", "bad")
+    else:
+        ambiguous_tag = ""
     plus_keys = []
     minus_keys = []
     rel_keys = []
@@ -126,8 +193,7 @@ def colorize_match_key(match_key):
     if rel_keys:
         colored_key += colorize("+" + "+".join(rel_keys), "disclosed")
 
-    return colored_key
-
+    return colored_key + ambiguous_tag
 
 def colorize_match_data(matchDict):
     if not matchDict["matchKey"]:
@@ -514,6 +580,8 @@ class G2CmdShell(cmd.Cmd):
         return entities
 
     def get_why_key(self, match_info):
+        if "MATCH_KEY" in match_info:
+            return match_info
         why_key = {
             "MATCH_KEY": match_info["WHY_KEY"],
             "ERRULE_CODE": match_info["WHY_ERRULE_CODE"],
@@ -524,7 +592,7 @@ class G2CmdShell(cmd.Cmd):
 
     def get_why_scores(self, match_info):
         scores_by_id = {}
-        for ftype_code in match_info["CANDIDATE_KEYS"]:
+        for ftype_code in match_info.get("CANDIDATE_KEYS", {}): 
             for score_record in match_info["CANDIDATE_KEYS"][ftype_code]:
                 lib_feat_id = score_record["FEAT_ID"]
                 scores_by_id[lib_feat_id] = {
@@ -554,46 +622,129 @@ class G2CmdShell(cmd.Cmd):
         return scores_by_id
 
 
+    def combine_json(self, records):
+        search_json = {}
+        for record in records:
+            if not search_json:
+                search_json = record["JSON_DATA"]
+            else:
+                root_attributes = {}
+                for root_attribute in record["JSON_DATA"]:
+                    if not isinstance(record["JSON_DATA"][root_attribute], list):
+                        root_attributes[root_attribute] = record["JSON_DATA"][root_attribute]
+                    else:
+                        if root_attribute not in search_json:
+                            search_json[root_attribute] = []
+                        for sub_record in record["JSON_DATA"][root_attribute]:
+                            search_json[root_attribute].append(sub_record)
+                if root_attributes:
+                    if "ROOT_ATTRIBUTES" not in search_json:
+                        search_json["ROOT_ATTRIBUTES"] = []
+                    search_json["ROOT_ATTRIBUTES"].append(root_attributes)
 
+        return search_json
 
-        # scores_by_id = {}
-        # for ftype_code in match_info["FEATURE_SCORES"]:
-        #     for feat_record in match_info["CANDIDATE_KEYS"][ftype_code]:
-        #         lib_feat_id = feat_record["ID"]
-        #         scores_by_id[lib_feat_id] = {
-        #             best_score_record["libFeatId"] = lib_feat_id
-        #             best_score_record["matchScore"] = match_score
-        #             best_score_record["matchScoreDisplay"] = match_score_display
-        #             best_score_record["matchLevel"] = match_level
-        #             best_score_record["matchedFeatId"] = matched_feat_id
-        #             best_score_record["matchedFeatDesc"] = matched_feat_desc
-        #             best_score_record["featBehavior"] = feat_behavior
+    # ---------------------------
+    def get_how_data(self, how_data, entity_data):
+        entity_features = self.get_entity_features(entity_data["RESOLVED_ENTITY"]['FEATURES'])["BY_ID"]
+        entity_records = entity_data["RESOLVED_ENTITY"]["RECORDS"]
 
+        how_steps = how_data["HOW_RESULTS"]["RESOLUTION_STEPS"]
+        result_key = {}
+        steps = {}
+        for step in how_steps:
+            step_num = step["STEP"]
+            result_id = step["RESULT_VIRTUAL_ENTITY_ID"]
+            result_key[result_id] = step_num
+            entity_list = []
+            for ve_num in ["VIRTUAL_ENTITY_1", "VIRTUAL_ENTITY_2"]:
+                record_list = []
+                features = {}
+                for member_record in step[ve_num]["MEMBER_RECORDS"]:
+                    for record in member_record["RECORDS"]:
+                        record_list.append(record)
+                        data_source = record["DATA_SOURCE"]
+                        record_id = record["RECORD_ID"] 
+                        entity_record = next(x for x in entity_records if x["DATA_SOURCE"] == data_source and x["RECORD_ID"] == record_id)
+                        features.update(self.get_record_features(entity_features, entity_record["FEATURES"])["BY_ID"])
+                entity_list.append({
+                    "VIRTUAL_ID": step[ve_num]["VIRTUAL_ENTITY_ID"],
+                    "MEMBER_COUNT": len(step[ve_num]["MEMBER_RECORDS"]),
+                    "RECORDS": record_list,
+                    "FEATURES": features
+                })
+            entity_list = sorted(entity_list, key=lambda k: k["MEMBER_COUNT"])
+            if entity_list[0]["MEMBER_COUNT"] + entity_list[1]["MEMBER_COUNT"] == 2:
+                step_type = "Create virtual entity"
+            elif entity_list[0]["MEMBER_COUNT"] > 1:
+                step_type = "Combine virtual entities"
+            else:
+                step_type = "Add record to virtual entity"
+            steps[step_num] = {
+                "STEP_TYPE": step_type,
+                "ENTITY_LIST": entity_list,
+                "MATCH_INFO": step["MATCH_INFO"],
+                "RESULT_ID": result_id
+            }
 
-        #             ""
-        #             "SCORE_TYPE": "CANDIDATE",
-        #             "SCORE": 100
-        #             "SCORE_CATEGORY": "EXACT"
-        #         }
+        final_entities = how_data["HOW_RESULTS"]["FINAL_STATE"]["VIRTUAL_ENTITIES"]
+        if how_data["HOW_RESULTS"]["FINAL_STATE"]["NEED_REEVALUATION"]:
+            reevaluation_msg = f"Needs reevaluation: resulted in {len(final_entities)} entities!"
+        else:
+            reevaluation_msg = ""
 
+        # start from the end and combine the prior steps that just add another singleton
+        root_node = Node("root")
+        #root_node.node_desc = self.fmt_entity_desc(entities[root_entity_id])
+        parent_nodes = []
+        for final_entity in final_entities:
+            final_id = final_entity["VIRTUAL_ENTITY_ID"]
+            final_node = Node(final_id)
+            final_node.node_desc = f"{final_id} is a final entity"
+            root_node.add_child(final_node)
+            parent_nodes.append(final_node)
 
-        #         feat_record = self.why_set_match_score(feat_record)
-        #         match_score = feat_record["MATCH_SCORE"]
-        #         match_score_display = feat_record["MATCH_SCORE_DISPLAY"]
-        #         match_level = feat_record["SCORE_BUCKET"]
-        #         feat_behavior = feat_record["SCORE_BEHAVIOR"]
+        #debug_print(result_key)
+        #debug_print(step_data.heys())
 
-        #         if (
-        #             "matchScore" not in best_score_record
-        #             or match_score > best_score_record["matchScore"]
-        #         ):
-        #             best_score_record["libFeatId"] = lib_feat_id
-        #             best_score_record["matchScore"] = match_score
-        #             best_score_record["matchScoreDisplay"] = match_score_display
-        #             best_score_record["matchLevel"] = match_level
-        #             best_score_record["matchedFeatId"] = matched_feat_id
-        #             best_score_record["matchedFeatDesc"] = matched_feat_desc
-        #             best_score_record["featBehavior"] = feat_behavior
+        while parent_nodes:
+            current_node = parent_nodes[-1]
+            result_id = current_node.node_id
+            if result_id not in result_key:
+                current_node.node_desc += " and was orphaned!"
+                parent_nodes.pop()
+                continue
+            #print('-' * 10)
+            #print(current_node.node_desc)
+            while True:
+                step_num = result_key[result_id]
+                step_data = steps[step_num]
+                if step_data["STEP_TYPE"] == "Combine virtual entities":
+                    parent_nodes.pop() # done with this parent
+                    # must add the other two as interim nodes
+                    break
+                step_node = Node(step_num)
+                step_node.node_desc = f"Step {step_num} is {step_data["STEP_TYPE"]} to create {result_id}"
+                #print(step_node.node_desc)
+                current_node.add_child(step_node)
+                if step_data["STEP_TYPE"] == "Create virtual entity":
+                    parent_nodes.pop() # end of the line
+                    break
+                else: # its an add record to virtual ID
+                    result_id = step_data["ENTITY_LIST"][1]["VIRTUAL_ID"]
+                #input('wait')
+
+        how_data = {
+            "REEVALUTION_MSG": reevaluation_msg,
+            "FINAL_COUNT": len(final_entities),
+            "STEPS": steps,
+            "RESULT_KEY": result_key
+        }
+
+        print(root_node.render_tree())
+        input('wait')
+
+        return how_data
 
 
     #-------------------
@@ -1077,7 +1228,10 @@ class G2CmdShell(cmd.Cmd):
             {"name": "ActualRecordCount", "width": 20, "align": "right"},
             {"name": "DistinctRecordCount", "width": 20, "align": "right"}
         ]
-        sql = "select DSRC_ID, count(*) as RECORD_COUNT, count(distinct ENT_SRC_KEY) as UNIQUE_COUNT from DSRC_RECORD"
+        sql = """
+              select DSRC_ID, count(*) as RECORD_COUNT, count(distinct ENT_SRC_KEY) as UNIQUE_COUNT 
+              from DSRC_RECORD GROUP BY DSRC_ID
+              """
         tbl_rows = []
         actual_count = distinct_count = 0
         for row in sz_dbo.fetchAllDicts(sz_dbo.sqlExec(sql)):
@@ -3627,10 +3781,10 @@ class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
     def do_why(self, arg):
-        calledDirect = sys._getframe().f_back.f_code.co_name != "onecmd"
+        caller = sys._getframe().f_back.f_code.co_name
         if not arg:
             self.help_why()
-            return -1 if calledDirect else 0
+            return -1 if caller != "onecmd" else 0
 
         # see if already a list ... it will be if it came from audit
         if isinstance(arg, list):
@@ -3663,25 +3817,23 @@ class G2CmdShell(cmd.Cmd):
                 return -1 if calledDirect else 0
 
         if len(entity_list) == 1:
-            why_type = "whyEntity"
-            tbl_title = f"Why for entity: {colorize_entity(entity_list[0])}"
-            row1_title = "INTERNAL_ID"
-            entity_data = self.why_entity(entity_list)
+            entity_id = entity_list[0]
+            tbl_title = f"How for entity: {colorize_entity(entity_id)}"
+            row1_title = "VIRTUAL_ID"
+            entity_data, how_data = self.why_how(entity_id)
+            tbl_title += f' resulted in {how_data["FINAL_COUNT"]} entities!'
 
         elif len(entity_list) == 2 and not old_why_not:
-            why_type = "whyNot1"
             tbl_title = "Why not for listed entities"
             row1_title = "ENTITY_ID"
             entity_data = self.why_not(entity_list)
 
         elif len(entity_list) == 4 and entity_list[0].upper() in self.dsrc_code_lookup:
-            why_type = "whyRecords"
             tbl_title = f"Why for listed records"
             row1_title = "INTERNAL_ID"
             entity_data = self.why_records(entity_list)
 
         else:
-            why_type = "whyNot2"
             tbl_title = "Why not for listed entities"
             row1_title = "ENTITY_ID"
             entity_data = self.why_not_many(entity_list)
@@ -3689,9 +3841,10 @@ class G2CmdShell(cmd.Cmd):
         if not entity_data:
             return -1 if calledDirect else 0
 
-        self.why_display2(tbl_title, row1_title, entity_data)
+        self.why_display2(entity_data, row1_title, tbl_title)
 
-    def why_display2(self, report_title, row1_title, entity_data):
+    def why_display2(self, entity_data, row1_title, report_title):
+        caller = sys._getframe().f_back.f_code.co_name
         attr_width = 80
         attr_limit = 20
         tbl_title = report_title
@@ -3699,17 +3852,26 @@ class G2CmdShell(cmd.Cmd):
         tbl_rows = []
         source_row = ["DATA_SOURCES"]
         why_row = ["WHY_RESULT"]
-        entity_list = sorted(entity_data.keys())
+        entity_list = entity_data.keys()
 
         ftype_codes_used = []
         for _id in entity_list:
             records = entity_data[_id]["RECORDS"]
             source_row.append(self.fmt_record_list(records, 1, attr_width))
 
-            match_info = entity_data[_id]["MATCH_INFO"]
-            why_key = self.get_why_key(match_info)
-            scores_by_id = self.get_why_scores(match_info)
-            why_row.append(self.fmt_match_key(why_key))
+            if "MATCH_INFO_LIST" in entity_data[_id]: # for why not many
+                scores_by_id = {}
+                why_list = []
+                for match_info in entity_data[_id]["MATCH_INFO_LIST"]:
+                    scores_by_id.update(self.get_why_scores(match_info))
+                    why_list.append(self.fmt_relation(match_info))
+                why_row.append("\n".join(why_list))
+
+            else:
+                match_info = entity_data[_id]["MATCH_INFO"]
+                why_key = self.get_why_key(match_info)
+                scores_by_id = self.get_why_scores(match_info)
+                why_row.append(self.fmt_match_key(why_key))
 
             features_by_id = entity_data[_id]["FEATURES"]
             for lib_feat_id in features_by_id:
@@ -3728,7 +3890,7 @@ class G2CmdShell(cmd.Cmd):
         any_cross_rels = False
         for entity_id in entity_list:
             cross_rels = []
-            for related_id in entity_data[entity_id]["RELATIONS"]:
+            for related_id in entity_data[entity_id].get("RELATIONS", {}):
                 if related_id in entity_list:
                     relation = entity_data[entity_id]["RELATIONS"][related_id]
                     cross_rels.append(self.fmt_relation(relation))
@@ -3747,8 +3909,10 @@ class G2CmdShell(cmd.Cmd):
                     feat_row.append("")
             tbl_rows.append(feat_row)
 
-
-        self.show_report2(self.render_table2(tbl_title, tbl_columns, tbl_rows))
+        why_report = self.render_table2(tbl_title, tbl_columns, tbl_rows)
+        if caller == 'do_how':
+            return why_report
+        self.show_report2(why_report, auto_scroll=True)
 
         return
 
@@ -3809,9 +3973,10 @@ class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
     def why_not(self, entity_list):
+        entity_list = [int(x) for x in entity_list]
         why_flag_list = ["SZ_WHY_ENTITIES_DEFAULT_FLAGS"]
         try:
-            parms = [int(entity_list[0]), int(entity_list[1])]
+            parms = [entity_list[0], entity_list[1]]
             json_data = execute_sz_api("why_entities", why_flag_list, parms)
         except SzError as err:
             print_message(err, "error")
@@ -3837,17 +4002,20 @@ class G2CmdShell(cmd.Cmd):
         return entities
 
     def why_not_many(self, entity_list):
+        entity_list = [int(x) for x in entity_list]
         get_flag_list = [
             "SZ_ENTITY_INCLUDE_ENTITY_NAME",
+            "SZ_ENTITY_INCLUDE_ALL_FEATURES",
+            "SZ_ENTITY_INCLUDE_INTERNAL_FEATURES",
+            "SZ_ENTITY_INCLUDE_FEATURE_STATS",
             "SZ_ENTITY_INCLUDE_RECORD_DATA",
-            "SZ_ENTITY_INCLUDE_RECORD_MATCHING_INFO",
+            "SZ_ENTITY_INCLUDE_RECORD_JSON_DATA",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+            "SZ_ENTITY_INCLUDE_RECORD_UNMAPPED_DATA",
             "SZ_ENTITY_INCLUDE_ALL_RELATIONS",
             "SZ_ENTITY_INCLUDE_RELATED_ENTITY_NAME",
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
-            "SZ_ENTITY_INCLUDE_RELATED_RECORD_SUMMARY",
-            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
-            "SZ_ENTITY_INCLUDE_ALL_FEATURES",
-            "SZ_ENTITY_INCLUDE_RECORD_UNMAPPED_DATA",
+            "SZ_ENTITY_INCLUDE_RELATED_RECORD_SUMMARY"
         ]
         entities = {}
         for entity_id in entity_list:
@@ -3861,15 +4029,77 @@ class G2CmdShell(cmd.Cmd):
             entity_features = self.get_entity_features(json_data    ["RESOLVED_ENTITY"]['FEATURES'])["BY_ID"]
             records = json_data["RESOLVED_ENTITY"]["RECORDS"]
             relations = self.get_related_entities(json_data["RELATED_ENTITIES"])["BY_ID"]
+
+            search_str = json.dumps(self.combine_json(records))
+            search_flag_list = [
+                "SZ_SEARCH_INCLUDE_ALL_ENTITIES",
+                "SZ_INCLUDE_FEATURE_SCORES",
+                "SZ_ENTITY_INCLUDE_FEATURE_STATS",
+                "SZ_ENTITY_INCLUDE_ENTITY_NAME",
+                "SZ_ENTITY_INCLUDE_RECORD_DATA"
+            ]
+            try:
+                json_data2 = execute_sz_api("search_by_attributes", search_flag_list, search_str)
+            except SzError as err:
+                print_message(err, "error")
+                return
+            match_info_list = []
+            for matched_entity in json_data2["RESOLVED_ENTITIES"]:
+                matched_id = matched_entity["ENTITY"]["RESOLVED_ENTITY"]["ENTITY_ID"]
+                if matched_id in entity_list and matched_id != entity_id:
+                    match_info = matched_entity["MATCH_INFO"]
+                    match_info["ENTITY_ID"] = matched_id
+                    match_info["ENTITY_NAME"] = matched_entity["ENTITY"]["RESOLVED_ENTITY"]["ENTITY_NAME"]
+                    match_info_list.append(match_info)
+
             entities[entity_id] = {
                 "ENTITY_ID": entity_id,
                 "ENTITY_NAME": entity_name,
                 "FEATURES": entity_features,
                 "RECORDS": records,
-                "RELATIONS": relations
+                "RELATIONS": relations,
+                "MATCH_INFO_LIST": match_info_list
             }
 
         return entities
+
+    def why_how(self, entity_id):
+        entity_id = int(entity_id)
+        get_flag_list = [
+            "SZ_ENTITY_INCLUDE_ENTITY_NAME",
+            "SZ_ENTITY_INCLUDE_ALL_FEATURES",
+            "SZ_ENTITY_INCLUDE_INTERNAL_FEATURES",
+            "SZ_ENTITY_INCLUDE_FEATURE_STATS",
+            "SZ_ENTITY_INCLUDE_RECORD_DATA",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS"
+        ]
+        try:
+            entity_json = execute_sz_api("get_entity_by_entity_id", get_flag_list, entity_id)
+        except SzError as err:
+            print_message(err, "error")
+            return
+        how_flag_list = ["SZ_HOW_ENTITY_DEFAULT_FLAGS"]
+        try:
+            how_json = execute_sz_api("how_entity_by_entity_id", how_flag_list, entity_id)
+        except SzError as err:
+            print_message(err, "error")
+            return -1 if caller else 0
+        how_data = self.get_how_data(how_json, entity_json)
+        entities = {}
+        step_data = how_data["STEPS"]
+        for step_num in sorted(step_data.keys()):
+            for entity in step_data[step_num]["ENTITY_LIST"]:
+                if entity["MEMBER_COUNT"] == 1:
+                    virtual_id = f'Step {step_num}-{entity["VIRTUAL_ID"]}'
+                    entities[virtual_id] = {
+                        "ENTITY_ID": virtual_id,
+                        "ENTITY_NAME": "foo",
+                        "FEATURES": entity["FEATURES"],
+                        "RECORDS": entity["RECORDS"],
+                        "MATCH_INFO": step_data[step_num]["MATCH_INFO"]
+                    }
+
+        return entities, how_data
 
 
     def why_display(self, entity_data, tbl_title, row1_title):
@@ -4889,12 +5119,72 @@ class G2CmdShell(cmd.Cmd):
             )
         )
 
-    #def do_how2why(self, arg):
+    def do_how(self, arg):
+        caller = sys._getframe().f_back.f_code.co_name != "onecmd"
+        if not arg:
+            self.help_how()
+            return -1 if caller else 0
+
+        display_level = "overview"
+        for level in ["stats", "columnar", "brief", "table", "verbose"]:
+            if level in arg:
+                display_level = level
+                arg = arg.replace(level, "").strip()
+
+        try:
+            entity_id = int(arg)
+        except:
+            print_message("Invalid parameter: expected a numeric entity ID", "warning")
+            return -1 if caller else 0
+
+        get_flag_list = [
+            "SZ_ENTITY_INCLUDE_ENTITY_NAME",
+            "SZ_ENTITY_INCLUDE_ALL_FEATURES",
+            "SZ_ENTITY_INCLUDE_INTERNAL_FEATURES",
+            "SZ_ENTITY_INCLUDE_FEATURE_STATS",
+            "SZ_ENTITY_INCLUDE_RECORD_DATA",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS"
+        ]
+        try:
+            entity_json = execute_sz_api("get_entity_by_entity_id", get_flag_list, entity_id)
+        except SzError as err:
+            print_message(err, "error")
+            return
+        how_flag_list = ["SZ_HOW_ENTITY_DEFAULT_FLAGS"]
+        try:
+            how_json = execute_sz_api("how_entity_by_entity_id", how_flag_list, entity_id)
+        except SzError as err:
+            print_message(err, "error")
+            return -1 if caller else 0
+        how_data = self.get_how_data(how_json, entity_json)
+        print(how_data["ROOT_NODE"].render_tree())
+        print('wait2')
 
 
+        step_data = how_data["ALL_STEPS"]
+
+        how_report = "How report"
+
+        if display_level == 'table':
+            for step_num in sorted(step_data.keys()):
+                how_report += f'\nStep {step_num}\n'
+                entities = {}
+                for entity in step_data[step_num]["ENTITY_LIST"]:
+                    virtual_id = entity["VIRTUAL_ID"]
+                    #debug_print(entity["FEATURES"])
+                    features = {x: entity["FEATURES"][x] for x in entity["FEATURES"].keys() if entity["FEATURES"][x]["USED_FOR_SCORING"] == "Y"}
+                    entities[virtual_id] = {
+                        "ENTITY_ID": virtual_id,
+                        "FEATURES": features,
+                        "RECORDS": entity["RECORDS"],
+                        "MATCH_INFO": step_data[step_num]["MATCH_INFO"]
+                    }
+                how_report += self.why_display2(entities, "VIRTUAL ID", "")
+
+        self.show_report2(how_report, auto_scroll=True)
 
     # ---------------------------
-    def do_how(self, arg):
+    def do_how2(self, arg):
         caller = sys._getframe().f_back.f_code.co_name != "onecmd"
         if not arg:
             self.help_how()
@@ -6708,10 +6998,11 @@ class G2CmdShell(cmd.Cmd):
         print()
 
     def show_report2(self, report, **kwargs):
+        auto_scroll = kwargs.get("auto_scroll")
         print()
         self.current_report = report
         from_how_or_why = kwargs.get("from_how_or_why")
-        if self.current_settings["auto_scroll"] == "off" and not from_how_or_why:
+        if self.current_settings["auto_scroll"] == "off" and not auto_scroll:
             screen_width = os.get_terminal_size()[0] - 1
             for line in report.split("\n"):
                 if len(re.sub(r"\\x1b\[\d*;\d*;\d*m", "", line)) < screen_width:
@@ -6733,10 +7024,10 @@ class G2CmdShell(cmd.Cmd):
                     print(f" {nline}{Colors.RESET}")
             return
 
-        if arg == "auto":
-            less_options = "-FMXSR"
-        else:
-            less_options = "-MXSR"
+        #if arg == "auto":
+        less_options = "-FMXSR"
+        #else:
+        #    less_options = "-MXSR"
 
         # --start with a search
         search = kwargs.get("search")
