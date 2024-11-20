@@ -1885,7 +1885,7 @@ class SzCmdShell(cmd.Cmd):
         """
         response_to_clipboard(self.last_response)
 
-    # TODO - Ant - Add append and command options?
+    # TODO - Ant - Add append and command options
     @sz_cmds_decorator()
     def do_response_to_file(self, **kwargs: Any) -> None:
         """
