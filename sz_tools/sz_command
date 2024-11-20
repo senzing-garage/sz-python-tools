@@ -1,7 +1,11 @@
 #! /usr/bin/env python3
 
 """ # TODO """
-
+# History isn't saved when do_quit is used?
+# TODO Check all outputs using appropriate print_ helper
+# TODO Test all completers work
+# TODO Check all help
+# TODO Check all examples work with truthset
 
 import argparse
 import cmd
@@ -48,6 +52,7 @@ WrappedFunc = TypeVar("WrappedFunc", bound=Callable[..., Any])
 MODULE_NAME = pathlib.Path(__file__).stem
 
 # Per command JSON formatting options
+# TODO - Ant - Add timer?
 PER_CMD_FORMATTERS = [
     "json",
     "jsonl",
@@ -84,6 +89,9 @@ def sz_cmds_decorator(
     def decorator(do_method: WrappedFunc) -> Any:
         @functools.wraps(do_method)
         def wrapped_func(self: "SzCmdShell", *args: Any, **kwargs: Any) -> Any:
+            # Remove do_ from wrapped method
+            sdk_method = do_method.__name__[3:]
+
             # Apply and remove any command formatters such as jsonl, nocolor, etc
             cmd_args = self.apply_formats(args[0])
 
@@ -91,7 +99,7 @@ def sz_cmds_decorator(
                 try:
                     # Parse arguments for a command and add to kwargs to use in calling do_ method
                     # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
-                    kwargs["parsed_args"] = self.parser.parse_args([f"{do_method.__name__[3:]}"] + self.parse(cmd_args))
+                    kwargs["parsed_args"] = self.parser.parse_args([f"{sdk_method}"] + self.parse(cmd_args))
 
                     # If the command has flags build the int value for the do_ method
                     if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
@@ -155,6 +163,8 @@ def sz_cmds_decorator(
             # Run the decorated method passing back kwargs for use in SDK call
             try:
                 result = do_method(self, **kwargs)
+                # TODO - Ant -
+                self.last_command = f"{sdk_method} {cmd_args}"
             except (SzError, IOError) as err:
                 result = None
                 print_error(err)
@@ -215,6 +225,10 @@ class SzCmdShell(cmd.Cmd):
         # Get Senzing engine flag names for use in auto completion
         self.engine_flags_list = get_engine_flag_names()
 
+        # TODO - Ant -
+        # If default config ID changes reinitialize
+        self.reinitialize = False
+
         # Collect attributes from configuration
         self.attrs = self.get_config_attr_codes()
         # TODO - Ant -
@@ -262,6 +276,8 @@ class SzCmdShell(cmd.Cmd):
         self.format_json_cmd = False
 
         # General
+        # TODO - Ant -
+        self.last_command = ""
         self.last_response = ""
         self.scroll_output = False
         self.timer = False
@@ -489,12 +505,16 @@ class SzCmdShell(cmd.Cmd):
 
     def get_config_attr_codes(self) -> List[str]:
         # TODO - Work in progress for JSON autocomplete
-        # TODO - Ant - Move to __init__ / post_cmd and only get once and then reinit if config changes from methods like replace_default_config_id
-        config_id = self.sz_engine.get_active_config_id()
-        config = self.sz_configmgr.get_config(config_id)
-        config_json = json.loads(config)
-        cfg_attr = config_json["G2_CONFIG"]["CFG_ATTR"]
-        attr_codes = [attr["ATTR_CODE"] for attr in cfg_attr if attr["INTERNAL"].lower() == "no"]
+        # TODO - Ant - If anything goes wrong, don't care as this is only used for autocomplete, if bigger issues with Sz would
+        #              show up before this
+        try:
+            config_id = self.sz_engine.get_active_config_id()
+            config = self.sz_configmgr.get_config(config_id)
+            config_json = json.loads(config)
+            cfg_attr = config_json["G2_CONFIG"]["CFG_ATTR"]
+            attr_codes = [attr["ATTR_CODE"] for attr in cfg_attr if attr["INTERNAL"].lower() == "no"]
+        except (SzError, json.JSONDecodeError):
+            attr_codes = []
 
         return attr_codes
 
@@ -558,10 +578,32 @@ class SzCmdShell(cmd.Cmd):
         self.cmd_color = False
         self.cmd_format = False
 
+        # TODO - Ant - Test. Is it needed?
+        # TODO - Ant - If using add to config_tool and explorer?
+        # TODO - Ant - Instead of capture session append to response to file, what about command output? Only add command if appending? -c and -a ?
+        # TODO - Ant - explorer =  export <entity_id>, <entity_id> degree <n> to <fileName> additive
+        # TODO - Ant -             export search to <fileName>
+        # TODO - Ant -             export search <search index> to <fileName>
         if self.capture_file and self.last_response:
             self.capture_file.write(f"{self.prompt}{line}\n\n")
             self.capture_file.write(f"{self.last_response}\n\n")
             self.capture_file.flush()
+
+        # TODO - Ant -
+        # Default configuration ID was changed by set_default_config_id or replace_default_config_id, sz_command
+        # doesn't modify the configuration so reinitialize. Update attributes from the new default configuration
+        # for auto-completion
+        if self.reinitialize:
+            print_info("Default configuration ID has changed, reinitializing...")
+            try:
+                config_id = self.sz_configmgr.get_default_config_id()
+                self.sz_factory.reinitialize(config_id)
+                self.reinitialize = False
+            except SzError as err:
+                print_error(err)
+                sys.exit(1)
+
+            self.attrs = self.get_config_attr_codes()
 
         return cmd.Cmd.postcmd(self, stop, line)
 
@@ -816,11 +858,13 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].current_default_config_id,
             kwargs["parsed_args"].new_default_config_id,
         )
-        self.output_response("New default config set, reinitializing...", "success")
-        self.sz_factory.reinitialize(kwargs["parsed_args"].new_default_config_id)
+        self.output_response("Default config ID replaced", "success")
+        # TODO - Ant -
+        self.reinitialize = True
+        # self.sz_factory.reinitialize(kwargs["parsed_args"].new_default_config_id)
 
-        # Configuration has changed, update attributes from configuration
-        self.attrs = self.get_config_attr_codes()
+        # # Configuration has changed, update attributes from configuration
+        # self.attrs = self.get_config_attr_codes()
 
     @sz_cmds_decorator()
     def do_set_default_config_id(self, **kwargs: Any) -> None:
@@ -841,10 +885,13 @@ class SzCmdShell(cmd.Cmd):
 
         self.sz_configmgr.set_default_config_id(kwargs["parsed_args"].config_id)
         # TODO - Ant - reinit
-        self.output_response("Default config set, reinitializing...", "success")
-        # Configuration has changed, update attributes from configuration
-        self.attrs = self.get_config_attr_codes()
-        # self.last_response = ""
+        self.output_response("Default config ID set", "success")
+        # TODO - Ant -
+        self.reinitialize = True
+        # self.sz_factory.reinitialize(kwargs["parsed_args"].config_id)
+        # # Configuration has changed, update attributes from configuration
+        # self.attrs = self.get_config_attr_codes()
+        # # self.last_response = ""
 
     # -----------------------------------------------------------------------------
     # szdiagnostic commands
@@ -1838,6 +1885,7 @@ class SzCmdShell(cmd.Cmd):
         """
         response_to_clipboard(self.last_response)
 
+    # TODO - Ant - Add append and command options
     @sz_cmds_decorator()
     def do_response_to_file(self, **kwargs: Any) -> None:
         """

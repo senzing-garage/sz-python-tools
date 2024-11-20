@@ -777,6 +777,7 @@ def response_to_file(file_path: str, last_response: str) -> None:
         with open(file_path, "w", encoding="utf-8") as out:
             out.write(last_response)
             out.write("\n")
+            out.flush()
     except IOError as err:
         print_error(err)
 
@@ -788,13 +789,6 @@ def response_reformat_json(last_response: str, color_json: bool, color_disabled:
         print_warning("The last response isn't JSON")
         return ""
 
-    # TODO - Ant -
-    # print_response(
-    #     last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
-    # )
-    # return print_response(
-    #     last_response, color_json, False, not format_json, False, False, False, color_disabled=color_disabled
-    # )
     jsonl = False if "\n" in last_response else True
     return print_response(last_response, color_json, False, jsonl, False, False, False, color_disabled=color_disabled)
 
