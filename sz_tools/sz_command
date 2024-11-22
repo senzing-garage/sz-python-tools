@@ -1,11 +1,6 @@
 #! /usr/bin/env python3
 
 """ # TODO """
-# History isn't saved when do_quit is used?
-# TODO Check all outputs using appropriate print_ helper
-# TODO Test all completers work
-# TODO Check all help
-# TODO Check all examples work with truthset
 
 import argparse
 import cmd
@@ -52,7 +47,6 @@ WrappedFunc = TypeVar("WrappedFunc", bound=Callable[..., Any])
 MODULE_NAME = pathlib.Path(__file__).stem
 
 # Per command JSON formatting options
-# TODO - Ant - Add timer?
 PER_CMD_FORMATTERS = [
     "json",
     "jsonl",
@@ -163,7 +157,6 @@ def sz_cmds_decorator(
             # Run the decorated method passing back kwargs for use in SDK call
             try:
                 result = do_method(self, **kwargs)
-                # TODO - Ant -
                 self.last_command = f"{sdk_method} {cmd_args}"
             except (SzError, IOError) as err:
                 result = None
@@ -225,14 +218,11 @@ class SzCmdShell(cmd.Cmd):
         # Get Senzing engine flag names for use in auto completion
         self.engine_flags_list = get_engine_flag_names()
 
-        # TODO - Ant -
         # If default config ID changes reinitialize
         self.reinitialize = False
 
         # Collect attributes from configuration
         self.attrs = self.get_config_attr_codes()
-        # TODO - Ant -
-        print(f"\n{self.attrs = }", flush=True)
 
         # Could be deprecated, undocumented, not supported, experimental or not relevant
         self.__hidden_cmds = (
@@ -276,7 +266,6 @@ class SzCmdShell(cmd.Cmd):
         self.format_json_cmd = False
 
         # General
-        # TODO - Ant -
         self.last_command = ""
         self.last_response = ""
         self.scroll_output = False
@@ -578,18 +567,11 @@ class SzCmdShell(cmd.Cmd):
         self.cmd_color = False
         self.cmd_format = False
 
-        # TODO - Ant - Test. Is it needed?
-        # TODO - Ant - If using add to config_tool and explorer?
-        # TODO - Ant - Instead of capture session append to response to file, what about command output? Only add command if appending? -c and -a ?
-        # TODO - Ant - explorer =  export <entity_id>, <entity_id> degree <n> to <fileName> additive
-        # TODO - Ant -             export search to <fileName>
-        # TODO - Ant -             export search <search index> to <fileName>
         if self.capture_file and self.last_response:
             self.capture_file.write(f"{self.prompt}{line}\n\n")
             self.capture_file.write(f"{self.last_response}\n\n")
             self.capture_file.flush()
 
-        # TODO - Ant -
         # Default configuration ID was changed by set_default_config_id or replace_default_config_id, sz_command
         # doesn't modify the configuration so reinitialize. Update attributes from the new default configuration
         # for auto-completion
@@ -859,7 +841,6 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].new_default_config_id,
         )
         self.output_response("Default config ID replaced", "success")
-        # TODO - Ant -
         self.reinitialize = True
         # self.sz_factory.reinitialize(kwargs["parsed_args"].new_default_config_id)
 
@@ -884,13 +865,8 @@ class SzCmdShell(cmd.Cmd):
             - Retrieve a list of configurations and identifiers with get_configList"""
 
         self.sz_configmgr.set_default_config_id(kwargs["parsed_args"].config_id)
-        # TODO - Ant - reinit
         self.output_response("Default config ID set", "success")
-        # TODO - Ant -
         self.reinitialize = True
-        # self.sz_factory.reinitialize(kwargs["parsed_args"].config_id)
-        # # Configuration has changed, update attributes from configuration
-        # self.attrs = self.get_config_attr_codes()
         # # self.last_response = ""
 
     # -----------------------------------------------------------------------------
@@ -1885,7 +1861,6 @@ class SzCmdShell(cmd.Cmd):
         """
         response_to_clipboard(self.last_response)
 
-    # TODO - Ant - Add append and command options
     @sz_cmds_decorator()
     def do_response_to_file(self, **kwargs: Any) -> None:
         """
@@ -2101,25 +2076,26 @@ class SzCmdShell(cmd.Cmd):
             if not text and line[begidx - 1 :] == '"':
                 return ["}' "]
 
-            if not text and line[begidx : begidx + 1] not in [
-                '"',
-                ":",
-                " ",
-                ",",
-                "' ",
-                "}",
-            ]:
-                if not re.search("\"}' *$", line):
-                    print(f"{line = }")
-                    print(f"{text = }")
-                    print(f"begidx: {line[begidx:begidx] = }")
-                    print(f"begidx + 1: {line[begidx:begidx+1] = }")
-                    print(f"begidx + 2: {line[begidx:begidx+2] = }")
-                    print(f"begidx - 1: {line[begidx-1:] = }")
-                    print(f"begidx - 2: {line[begidx-2:] = }")
-                    print(f"begidx - 3: {line[begidx-3:] = }")
-                    print(f"begidx - 4: {line[begidx-4:] = }")
-                    return ['"": "", ']
+            # TODO - Work in progress
+            # if not text and line[begidx : begidx + 1] not in [
+            #     '"',
+            #     ":",
+            #     " ",
+            #     ",",
+            #     "' ",
+            #     "}",
+            # ]:
+            #     if not re.search("\"}' *$", line):
+            #         print(f"{line = }")
+            #         print(f"{text = }")
+            #         print(f"begidx: {line[begidx:begidx] = }")
+            #         print(f"begidx + 1: {line[begidx:begidx+1] = }")
+            #         print(f"begidx + 2: {line[begidx:begidx+2] = }")
+            #         print(f"begidx - 1: {line[begidx-1:] = }")
+            #         print(f"begidx - 2: {line[begidx-2:] = }")
+            #         print(f"begidx - 3: {line[begidx-3:] = }")
+            #         print(f"begidx - 4: {line[begidx-4:] = }")
+            #         return ['"": "", ']
 
         return []
 

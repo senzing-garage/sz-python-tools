@@ -76,7 +76,6 @@ class TimedOut(Exception):
 # -------------------------------------------------------------------------
 
 
-# TODO - Ant -  Make a dataclass
 @dataclass
 class Colors:
     """# TODO"""
@@ -468,7 +467,6 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
 # -------------------------------------------------------------------------
 
 
-# TODO colors_list is a string with multiple entries separated by ,
 def colorize_str(string: str, colors_list: str = "", color_disabled: bool = False) -> str:
     """# TODO"""
 
@@ -494,7 +492,6 @@ def colorize_json(json_str: str, color_disabled: bool = False) -> str:
     return json_color
 
 
-# TODO Used to color normal output messages
 def colorize_output(
     # output: Union[int, str], color_or_type: str, output_color: bool = True
     output: Union[Exception, int, str],
@@ -503,7 +500,6 @@ def colorize_output(
 ) -> str:
     """# TODO"""
 
-    # TODO Test tools work
     output = str(output) if isinstance(output, int) else output
 
     if not output:
@@ -613,7 +609,6 @@ def print_response(
 
             json_str: str = json_.decode() if ORJSON_AVAIL else json_  # type: ignore
 
-            # TODO - Ant - Clean this up
             # Color JSON if global config or single command formatter specifies
             if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
                 output = colorize_json(json_str)
@@ -632,7 +627,6 @@ def print_response(
 
     # Removing color codes, return output to set last_response for sending
     # to clipboard or file or reformatting JSON
-    # TODO - Ant - Only need to do if color isn't disabled
     if strip_colors:
         return re.sub(r"(\x9B|\x1B\[)[0-?]*[ -/]*[@-~]", "", output)
 
