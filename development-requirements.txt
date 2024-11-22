@@ -1,7 +1,7 @@
 bandit==1.7.10
 black==24.10.0
 build==1.2.2.post1
-coverage==7.6.4
+coverage==7.6.7
 flake8==7.1.1
 fpvs==0.3.0
 isort==5.13.2
@@ -15,7 +15,7 @@ sphinx-autodoc-typehints==2.5.0
 sphinx-gallery==0.18.0
 sphinx-jinja2-compat==0.3.0
 sphinx-prompt==1.9.0
-sphinx-rtd-theme==3.0.1
+sphinx-rtd-theme==3.0.2
 sphinx-tabs==3.4.7
 sphinx-toolbox==3.8.0
 sphinx==8.1.3
