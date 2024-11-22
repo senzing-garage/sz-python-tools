@@ -18,9 +18,12 @@ import textwrap
 import time
 import tty
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from signal import SIGALRM, alarm, signal
 from typing import TYPE_CHECKING, Any, Dict, List, TextIO, Union
+
+from senzing import SzEngineFlags
 
 READLINE_AVAIL = False
 with suppress(ImportError):
@@ -73,8 +76,11 @@ class TimedOut(Exception):
 # -------------------------------------------------------------------------
 
 
+@dataclass
 class Colors:
     """# TODO"""
+
+    AVAILABLE_THEMES = ["DEFAULT", "LIGHT", "DARK", "TERMINAL"]
 
     @classmethod
     def apply(cls, to_color: Union[int, str], colors_list: str = "") -> Union[int, str]:
@@ -90,8 +96,9 @@ class Colors:
     @classmethod
     def set_theme(cls, theme: str) -> None:
         """# TODO"""
+        theme = theme.upper()
         # best for dark backgrounds
-        if theme.upper() == "DEFAULT":
+        if theme == "DEFAULT":
             cls.TABLE_TITLE = cls.FG_GREY42
             cls.ROW_TITLE = cls.FG_GREY42
             cls.COLUMN_HEADER = cls.FG_GREY42
@@ -108,9 +115,9 @@ class Colors:
             cls.POSSIBLE = cls.SZ_ORANGE
             cls.RELATED = cls.SZ_GREEN
             cls.DISCLOSED = cls.SZ_PURPLE
-            cls.JSONKEYCOLOR = cls.FG_BLUE
-            cls.JSONVALUECOLOR = cls.FG_YELLOW
-        elif theme.upper() == "LIGHT":
+            cls.JSONKEYCOLOR = cls.SZ_BLUE
+            cls.JSONVALUECOLOR = cls.SZ_YELLOW
+        elif theme == "LIGHT":
             cls.TABLE_TITLE = cls.FG_LIGHTBLACK
             cls.ROW_TITLE = cls.FG_LIGHTBLACK
             cls.COLUMN_HEADER = cls.FG_LIGHTBLACK  # + cls.ITALICS
@@ -128,7 +135,7 @@ class Colors:
             cls.DISCLOSED = cls.FG_LIGHTMAGENTA
             cls.JSONKEYCOLOR = cls.FG_LIGHTBLUE
             cls.JSONVALUECOLOR = cls.FG_LIGHTYELLOW
-        elif theme.upper() == "DARK":
+        elif theme == "DARK":
             cls.TABLE_TITLE = cls.FG_BLACK
             cls.ROW_TITLE = cls.FG_BLACK
             cls.COLUMN_HEADER = cls.FG_BLACK  # + cls.ITALICS
@@ -151,7 +158,7 @@ class Colors:
         # Other tools need to do basic coloring of text, setting this theme uses
         # the colors set by the terminal preferences so a user will see the colors
         # they expect and set in their terminal in the output from tools
-        elif theme.upper() == "TERMINAL":
+        elif theme == "TERMINAL":
             cls.GOOD = cls.FG_GREEN  # Green
             cls.BAD = cls.FG_RED  # Red
             cls.CAUTION = cls.FG_YELLOW  # Yellow
@@ -267,8 +274,8 @@ class Colors:
     POSSIBLE = SZ_ORANGE
     RELATED = SZ_GREEN
     DISCLOSED = SZ_PURPLE
-    JSONKEYCOLOR = FG_BLUE
-    JSONVALUECOLOR = FG_YELLOW
+    JSONKEYCOLOR = SZ_BLUE
+    JSONVALUECOLOR = SZ_YELLOW
 
 
 # -------------------------------------------------------------------------
@@ -402,6 +409,29 @@ def get_engine_config(ini_file_name: Union[str, None] = None) -> str:
 
 
 # -------------------------------------------------------------------------
+# Engine helpers
+# -------------------------------------------------------------------------
+
+
+def get_engine_flag_names() -> List[str]:
+    """# TODO"""
+    return list(SzEngineFlags.__members__.keys())
+
+
+def get_engine_flags_integer(flags: List[str]) -> int:
+    """Detect if int or named flags are used and convert to int"""
+    if flags[0] == "-1":
+        return -1
+
+    # When using an int there should only be one value, not combined like named flags
+    if flags[0].isdigit():
+        return int(flags[0])
+
+    # Named engine flag(s) used, combine and return the int value
+    return SzEngineFlags.combine_flags(flags)
+
+
+# -------------------------------------------------------------------------
 # File helper functions
 # -------------------------------------------------------------------------
 
@@ -437,15 +467,20 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
 # -------------------------------------------------------------------------
 
 
-# TODO colors_list is a string with multiple entries separated by ,
-def colorize_str(string: str, colors_list: str = "") -> str:
+def colorize_str(string: str, colors_list: str = "", color_disabled: bool = False) -> str:
     """# TODO"""
+
+    if color_disabled:
+        return string
 
     return Colors.apply(string, colors_list)
 
 
-def colorize_json(json_str: str) -> str:
+def colorize_json(json_str: str, color_disabled: bool = False) -> str:
     """# TODO"""
+    if color_disabled:
+        return json_str
+
     key_replacer = rf"\1{Colors.JSONKEYCOLOR}\2{Colors.RESET}\3\4"
     value_replacer = rf"\1\2{Colors.JSONVALUECOLOR}\3{Colors.RESET}\4\5"
     # Look for values first to make regex a little easier to construct
@@ -457,19 +492,21 @@ def colorize_json(json_str: str) -> str:
     return json_color
 
 
-# TODO Used to color normal output messages
 def colorize_output(
     # output: Union[int, str], color_or_type: str, output_color: bool = True
     output: Union[Exception, int, str],
     color_or_type: str,
+    color_disabled: bool = False,
 ) -> str:
     """# TODO"""
 
-    # TODO Test tools work
     output = str(output) if isinstance(output, int) else output
 
     if not output:
         return ""
+
+    if color_disabled:
+        return output
 
     # if output_color:
     #     return output
@@ -490,24 +527,39 @@ def colorize_output(
     return f"{Colors.apply(output, output_type)}"
 
 
+def colorize_cmd_prompt(prompt: str, color_or_type: str, color_disabled: bool = False) -> str:
+    """
+    For the Cmd module prompt to be coloured need to add \001 and \002 otherwise readline prints spurious
+    characters when using functions such as reverse search (ctrl-r) and navigating through history doesn't
+    display correctly
+    """
+    if color_disabled:
+        return f"({prompt}) "
+
+    prompt_step1 = f"\002{prompt}\001"
+    prompt_step2 = colorize_output(prompt_step1, color_or_type)
+    prompt_final = f"\001{prompt_step2}\002"
+    return f"({prompt_final}) "
+
+
 # -------------------------------------------------------------------------
 # Text output helper functions
 # -------------------------------------------------------------------------
 
 
-def print_error(msg: Union[Exception, str], end_str: str = "\n") -> None:
+def print_error(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('ERROR:', 'error')} {msg}", end=end_str)
+    print(f"\n{colorize_output('ERROR:', 'error', color_disabled=color_disabled)} {msg}", end=end_str)
 
 
-def print_info(msg: Union[Exception, str], end_str: str = "\n") -> None:
+def print_info(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
-    print(colorize_output(f"\n{msg}", "info"), end=end_str)
+    print(colorize_output(f"\n{msg}", "info", color_disabled=color_disabled), end=end_str)
 
 
-def print_warning(msg: Union[Exception, str], end_str: str = "\n") -> None:
+def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
-    print(colorize_output(f"\nWARNING: {msg}", "warning"), end=end_str)
+    print(f"\n{colorize_output('WARNING:', 'warning', color_disabled=color_disabled)} {msg}", end=end_str)
 
 
 def print_response(
@@ -520,6 +572,7 @@ def print_response(
     cmd_format: bool,
     scroll_output: bool = False,
     color: str = "",
+    color_disabled: bool = False,
 ) -> str:
     """# TODO"""
     strip_colors = True
@@ -529,13 +582,13 @@ def print_response(
         color = "info"
 
     if isinstance(response, int) or not response.startswith("{"):
-        output = colorize_output(response, color)
+        output = colorize_output(response, color, color_disabled)
     else:
         try:
             # Test if data is json and format appropriately
             _ = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
         except (JsonDecodeError, TypeError):
-            output = colorize_output(response, color)
+            output = colorize_output(response, color, color_disabled)
             strip_colors = False
         else:
             # TODO Is this check still needed?
@@ -557,7 +610,7 @@ def print_response(
             json_str: str = json_.decode() if ORJSON_AVAIL else json_  # type: ignore
 
             # Color JSON if global config or single command formatter specifies
-            if (color_json and not cmd_color) or (cmd_color and color_json_cmd):
+            if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
                 output = colorize_json(json_str)
             else:
                 output = json_str
@@ -687,7 +740,7 @@ def capture_file(file_path: str) -> TextIO:
     try:
         out_file = open(file_path, "w", encoding="utf-8")
     except IOError as err:
-        print_warning(f"Can't write to capture file, continuing without capturing: {err}")
+        print_warning(f"Can't write to capture file, continuing without capturing: {err}", end_str="\n")
         raise IOError from err
 
     return out_file
@@ -718,18 +771,20 @@ def response_to_file(file_path: str, last_response: str) -> None:
         with open(file_path, "w", encoding="utf-8") as out:
             out.write(last_response)
             out.write("\n")
+            out.flush()
     except IOError as err:
         print_error(err)
 
 
-def response_reformat_json(last_response: str, color_json: bool, format_json: bool) -> None:
+def response_reformat_json(last_response: str, color_json: bool, color_disabled: bool = False) -> str:
     """# TODO"""
 
     if not last_response.startswith("{"):
         print_warning("The last response isn't JSON")
-        return
+        return ""
 
-    print_response(last_response, color_json, False, not format_json, False, False, False)
+    jsonl = False if "\n" in last_response else True
+    return print_response(last_response, color_json, False, jsonl, False, False, False, color_disabled=color_disabled)
 
 
 # -------------------------------------------------------------------------
