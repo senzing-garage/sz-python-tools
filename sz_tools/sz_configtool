@@ -233,18 +233,22 @@ def colorize_json(json_str):
 
 
 # class SzCmdShell(cmd.Cmd, object):
-class SzCfgShell(cmd.Cmd, object):
+class SzCfgShell(cmd.Cmd):
 
     def __init__(
-        self,
-        sz_abstract_factory: SzAbstractFactory,
-        hist_disable,
-        force_mode,
-        file_to_process,
+        self, sz_abstract_factory: SzAbstractFactory, hist_disable, force_mode, file_to_process, engine_config
     ):
-        cmd.Cmd.__init__(self)
+        # cmd.Cmd.__init__(self)
+        super().__init__()
 
         # Create Senzing engines
+        self.engine_config = engine_config
+        try:
+            self.sz_factory2 = SzAbstractFactory("sz_command", self.engine_config)
+        except SzError as err:
+            print(err)
+            sys.exit(1)
+
         self.sz_factory = sz_abstract_factory
         self.sz_config = self.sz_factory.create_sz_config()
         self.sz_configmgr = self.sz_factory.create_sz_configmanager()
@@ -6222,10 +6226,7 @@ def main() -> None:
         sys.exit(1)
 
     cmd_obj = SzCfgShell(
-        sz_abstract_factory,
-        cli_args.hist_disable,
-        cli_args.force_mode,
-        cli_args.file_to_process,
+        sz_abstract_factory, cli_args.hist_disable, cli_args.force_mode, cli_args.file_to_process, engine_config
     )
 
     if cli_args.file_to_process:

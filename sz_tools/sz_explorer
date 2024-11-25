@@ -4119,7 +4119,7 @@ class SzCmdShell(cmd.Cmd):
         {colorize('Bracket legend:', 'highlight2')}
             [99] indicates how many entities share this value
             [~] indicates that this value was not used to find candidates as too many entities share it
-            [!] indicates that this value was not not even scored as too many entities share it
+            [!] indicates that this value was not even scored as too many entities share it
             [#] indicates that this value was suppressed in favor of a more complete value\n
         """
             )

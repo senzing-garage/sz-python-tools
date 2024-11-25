@@ -744,7 +744,6 @@ def erCompare(fileName1, fileName2, outputRoot):
 
 # ===== The main function =====
 if __name__ == "__main__":
-    # TODO - Event
     global shut_down
     shut_down = False
     signal.signal(signal.SIGINT, signal_handler)
