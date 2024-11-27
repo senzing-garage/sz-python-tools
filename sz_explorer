@@ -36,6 +36,172 @@ except ImportError:
     sys.exit(1)
 
 
+# -------------------
+# colorizers
+# -------------------
+
+
+def colorize(in_string, color_list="None"):
+    return Colors.apply(in_string, color_list) if color_list else in_string
+
+
+def colorize_attr(attr_str, attr_color="attr_color"):
+    if ":" in attr_str:
+        attr_name = attr_str[0 : attr_str.find(":") + 1]
+        attr_value = attr_str[attr_str.find(":") + 1 :].strip()
+        return colorize(attr_name, attr_color) + " " + attr_value
+    return colorize(attr_str, attr_color)
+
+
+def colorize_dsrc(dsrc_str):
+    if ":" in dsrc_str:
+        return colorize_attr(dsrc_str, "dsrc_color")
+    return colorize(dsrc_str, "dsrc_color")
+
+
+def colorize_entity(entity_str, added_color=None):
+    entity_color = "entity_color" + ("," + added_color if added_color else "")
+    if ":" in str(entity_str):
+        return colorize_attr(entity_str, entity_color)
+    return colorize(entity_str, entity_color)
+
+
+def colorize_dsrc1(dsrc_str):
+    return colorize(dsrc_str, "dsrc_color")
+
+
+def colorize_match_key(match_key):
+    if " (Ambiguous)" in match_key:
+        match_key = match_key.replace(" (Ambiguous)", "")
+        ambiguous_tag = " " + colorize("(Ambiguous)", "bad")
+    else:
+        ambiguous_tag = ""
+    plus_keys = []
+    minus_keys = []
+    rel_keys = []
+    prior_key = ""
+    for key in re.split(r"(\+|\-)", match_key):
+        if key in ("+", ""):
+            prior_key = "+"
+        elif key == "-":
+            prior_key = "-"
+        elif prior_key == "-":
+            minus_keys.append(key)
+        else:
+            if "(" in key:
+                rel_keys.append(key)
+            else:
+                plus_keys.append(key)
+    colored_key = ""
+    if plus_keys:
+        colored_key += colorize("+".join(plus_keys), "good")
+    if minus_keys:
+        colored_key += colorize("-" + "-".join(minus_keys), "bad")
+    if rel_keys:
+        colored_key += colorize("+" + "+".join(rel_keys), "disclosed")
+
+    return colored_key + ambiguous_tag
+
+
+def colorize_match_data(matchDict):
+    if not matchDict["matchKey"]:
+        if matchDict.get("anyCandidates", False):
+            if matchDict.get("ruleCode"):
+                matchStr = colorize(matchDict.get("ruleCode"), "dim")
+            else:
+                matchStr = colorize("scored too low!", "bad")
+        else:
+            match_str = colorize("no matching keys", "bad")
+    else:
+        good_segments = []
+        bad_segments = []
+        prior_key = ""
+        key_color = "fg_green"
+        for key in re.split(r"(\+|\-)", matchDict["matchKey"]):
+            if key in ("+", ""):
+                prior_key = "+"
+            elif key == "-":
+                prior_key = "-"
+            elif prior_key == "-":
+                bad_segments.append(key)
+            else:
+                good_segments.append(key)
+        if good_segments:
+            match_str = colorize("+".join(good_segments), "good")
+        else:
+            match_str = ""
+        if bad_segments:
+            match_str += colorize("-" + "-".join(bad_segments), "bad")
+
+        if matchDict.get("ruleCode"):
+            match_str += f"\n {colorize(matchDict['ruleCode'], 'dim')}"
+        # else:
+        #    matchStr += f"\n {colorize('no principles satisfied!', 'bad')}"
+
+    if "entityId" in matchDict and "entityName" in matchDict:
+        match_str += f"\n to {colorize_entity(matchDict['entityId'])} {matchDict['entityName']}"
+    elif "entityId" in matchDict:
+        match_str += f" to {colorize_entity(matchDict['entityId'])}"
+
+    return match_str
+
+
+def wrap_text(_str, _width, _color=None):
+    if len(_str) < _width:
+        return [colorize(_str, _color)]
+    else:
+        _list = []
+        wrapper = textwrap.TextWrapper(width=_width - 1)
+        for line in wrapper.wrap(text=_str):
+            prefix = " " if len(_list) else ""
+            _list.append(colorize(prefix + line, _color))
+        return _list
+
+
+def view_report(report, **kwargs):
+    no_scroll = kwargs.get("no_scroll")
+    print()
+    if kwargs.get("no_scroll"):
+        screen_width = os.get_terminal_size()[0] - 1
+        for line in report.split("\n"):
+            if len(re.sub(r"\\x1b\[\d*;\d*;\d*m", "", line)) < screen_width:
+                print(f" {line}")
+            else:
+                nline = ""
+                nline_len = 1
+                formatting = False
+                for char in line:
+                    nline += char
+                    if char == "\033":
+                        formatting = True
+                    elif formatting and char == "m":
+                        formatting = False
+                    elif not formatting:
+                        nline_len += 1
+                    if nline_len >= screen_width:
+                        break
+                print(f" {nline}{Colors.RESET}")
+        return
+
+    # if arg == "auto":
+    less_options = "-FMXSR"
+    # else:
+    #    less_options = "-MXSR"
+
+    # --start with a search
+    search = kwargs.get("search")
+    if search:
+        less_options + " /" + search
+
+    # try pipe to less on small enough files (pipe buffer usually 1mb and fills up on large entity displays)
+    less = subprocess.Popen(["less", less_options], stdin=subprocess.PIPE)
+    with suppress(Exception):
+        less.stdin.write(report.encode())
+        less.stdin.close()
+        less.wait()
+    print()
+
+
 class Node(object):
 
     def __init__(self, node_id):
@@ -98,6 +264,146 @@ class Node(object):
                 parents.append({"node": next_node, "next_child": 0, "display_children": display_children})
 
         return tree
+
+
+class sz_pretty_table:
+    def __init__(self):
+        self.title = ""
+        self.columns = []
+        self.rows = []
+
+    def render_table(self, **kwargs):
+
+        title_color = kwargs.get("titleColor", "table_title")
+        super_header = kwargs.get("super_header", False)
+
+        table_object = PrettyTable()
+        table_object.hrules = PRETTY_TABLE_ALL
+        table_object.horizontal_char = "\u2500"
+        table_object.vertical_char = "\u2502"
+        table_object.junction_char = "\u253C"
+
+        field_name_list = []
+        column_header_list = []
+        for column_data in self.columns:
+            field_name_list.append(column_data["name"])
+            column_header_list.append(
+                "\n".join(Colors.apply(str(x), "column_header") for x in str(column_data["name"]).split("\n"))
+            )
+        table_object.field_names = field_name_list
+        table_object.header = False
+        table_object.add_row(column_header_list)
+
+        total_row_cnt = 0
+        for row in self.rows:
+            total_row_cnt += 1
+            row[0] = "\n".join([i for i in str(row[0]).split("\n")])
+            table_object.add_row(row)
+
+        for column_data in self.columns:
+            table_object.align[column_data["name"]] = column_data["align"][0:1].lower()
+
+        table_str = table_object.get_string()
+        if super_header:
+            table_str = self.combine_table_headers(table_str)
+        if self.title:
+            table_str = f"{Colors.apply(self.title, "table_title")}\n{table_str}"
+
+        return table_str + "\n"
+
+    def combine_table_headers(self, report_str):
+        report = report_str.split("\n")
+        col_sep = report[1][0]
+        old_header1 = report[1].replace(Colors.COLUMN_HEADER, "").replace(Colors.RESET, "")
+        colorize_characters_width = len(Colors.apply("", "column_header"))
+        headers1 = old_header1.split(col_sep)
+        prior_header_len = 0
+        new_header1 = col_sep
+        new_header1_colored = col_sep
+        for i in range(len(headers1)):
+            if i > 0 and i < len(headers1) - 1:
+                if (
+                    i == len(headers1) - 2
+                    or headers1[i].strip() != headers1[i - 1].strip()
+                    or len(headers1[i - 1].strip()) == 0
+                ):
+                    if i == len(headers1) - 2:
+                        prior_header_len += len(headers1[i]) + 1
+                    if prior_header_len > 0:
+                        new_header1 += f"{headers1[i-1]:^{prior_header_len-1}}{col_sep}"
+                        new_header1_colored += f"{Colors.apply(headers1[i-1], 'column_header'):^{prior_header_len-1+colorize_characters_width}}{col_sep}"
+                        prior_header_len = 0
+                prior_header_len += len(headers1[i]) + 1
+        new_header0 = report[0]
+        for i in range(len(old_header1)):
+            if old_header1[i] == col_sep and new_header1[i] != col_sep:
+                new_header0 = new_header0[0:i] + new_header0[i - 1] + new_header0[i + 1 :]
+        new_report = [new_header0, new_header1_colored]
+        new_report.extend(report[2:])
+        return "\n".join(new_report)
+
+
+class sz_report_viewer:
+    def __init__(self, report_data, report_file):
+        self.report_data = report_data
+        self.report_file = report_file
+
+    def load_dss(self):
+
+        self.naster_report = tbl.render_table(super_header=True)
+
+        self.sub_report_data = {}
+
+        arg_tokens = arg.split()
+        if len(arg_tokens) != 2:
+            print_message(
+                "Arguments missing: data source and match level are required",
+                "warning",
+            )
+            return
+
+        data_source = arg_tokens[0].upper()
+        if data_source not in self.snapshot_data["DATA_SOURCES"]:
+            print_message("Invalid data source", "error")
+            return
+
+        match_level = arg_tokens[1].upper()
+        match_level_code = None
+        for match_level_parm in self.valid_match_level_parameters:
+            if match_level.startswith(match_level_parm):
+                match_level_code = self.valid_match_level_parameters[match_level_parm]
+                break
+        if not match_level_code:
+            print_message("Invalid match level", "error")
+            return
+
+        try:
+            sample_records = sorted(
+                self.snapshot_data["DATA_SOURCES"][data_source][match_level_code],
+                key=lambda x: int(str(x).split()[0]),
+            )
+        except:
+            sample_records = []
+        if len(sample_records) == 0:
+            print_message("No records found", "warning")
+            return
+
+        match_level_base = match_level_code.replace("_SAMPLE", "")
+        if not self.snapshot_data["DATA_SOURCES"][data_source].get(match_level_code.replace("_SAMPLE", "_PRINCIPLES")):
+            print_message(
+                "Outdated snapshot, please create a new one using the latest G2Snapshot.py",
+                "error",
+            )
+            return
+
+        while True:
+            header = f"Matching statistics for {match_level_base} in {data_source}"
+            report_row = self.select_matching_category(
+                self.snapshot_data["DATA_SOURCES"][data_source][match_level_code.replace("_SAMPLE", "_PRINCIPLES")],
+                header,
+            )
+            if not report_row:
+                break
 
 
 class sz_pretty_sdk:
@@ -496,119 +802,6 @@ class sz_pretty_sdk:
         return how_data
 
     # -------------------
-    # colorizers
-    # -------------------
-
-    def colorize(self, in_string, color_list="None"):
-        return Colors.apply(in_string, color_list) if color_list else in_string
-
-    def colorize_attr(self, attr_str, attr_color="attr_color"):
-        if ":" in attr_str:
-            attr_name = attr_str[0 : attr_str.find(":") + 1]
-            attr_value = attr_str[attr_str.find(":") + 1 :].strip()
-            return self.colorize(attr_name, attr_color) + " " + attr_value
-        return self.colorize(attr_str, attr_color)
-
-    def colorize_dsrc(self, dsrc_str):
-        if ":" in dsrc_str:
-            return self.self.colorize_attr(dsrc_str, "dsrc_color")
-        return self.colorize(dsrc_str, "dsrc_color")
-
-    def colorize_entity(self, entity_str, added_color=None):
-        entity_color = "entity_color" + ("," + added_color if added_color else "")
-        if ":" in str(entity_str):
-            return self.colorize_attr(entity_str, entity_color)
-        return self.colorize(entity_str, entity_color)
-
-    def colorize_dsrc1(self, dsrc_str):
-        return self.colorize(dsrc_str, "dsrc_color")
-
-    def colorize_match_key(self, match_key):
-        if " (Ambiguous)" in match_key:
-            match_key = match_key.replace(" (Ambiguous)", "")
-            ambiguous_tag = " " + self.colorize("(Ambiguous)", "bad")
-        else:
-            ambiguous_tag = ""
-        plus_keys = []
-        minus_keys = []
-        rel_keys = []
-        prior_key = ""
-        for key in re.split(r"(\+|\-)", match_key):
-            if key in ("+", ""):
-                prior_key = "+"
-            elif key == "-":
-                prior_key = "-"
-            elif prior_key == "-":
-                minus_keys.append(key)
-            else:
-                if "(" in key:
-                    rel_keys.append(key)
-                else:
-                    plus_keys.append(key)
-        colored_key = ""
-        if plus_keys:
-            colored_key += self.colorize("+".join(plus_keys), "good")
-        if minus_keys:
-            colored_key += self.colorize("-" + "-".join(minus_keys), "bad")
-        if rel_keys:
-            colored_key += self.colorize("+" + "+".join(rel_keys), "disclosed")
-
-        return colored_key + ambiguous_tag
-
-    def colorize_match_data(self, matchDict):
-        if not matchDict["matchKey"]:
-            if matchDict.get("anyCandidates", False):
-                if matchDict.get("ruleCode"):
-                    matchStr = self.colorize(matchDict.get("ruleCode"), "dim")
-                else:
-                    matchStr = self.colorize("scored too low!", "bad")
-            else:
-                match_str = self.colorize("no matching keys", "bad")
-        else:
-            good_segments = []
-            bad_segments = []
-            prior_key = ""
-            key_color = "fg_green"
-            for key in re.split(r"(\+|\-)", matchDict["matchKey"]):
-                if key in ("+", ""):
-                    prior_key = "+"
-                elif key == "-":
-                    prior_key = "-"
-                elif prior_key == "-":
-                    bad_segments.append(key)
-                else:
-                    good_segments.append(key)
-            if good_segments:
-                match_str = self.colorize("+".join(good_segments), "good")
-            else:
-                match_str = ""
-            if bad_segments:
-                match_str += self.colorize("-" + "-".join(bad_segments), "bad")
-
-            if matchDict.get("ruleCode"):
-                match_str += f"\n {self.colorize(matchDict['ruleCode'], 'dim')}"
-            # else:
-            #    matchStr += f"\n {self.colorize('no principles satisfied!', 'bad')}"
-
-        if "entityId" in matchDict and "entityName" in matchDict:
-            match_str += f"\n to {self.colorize_entity(matchDict['entityId'])} {matchDict['entityName']}"
-        elif "entityId" in matchDict:
-            match_str += f" to {self.colorize_entity(matchDict['entityId'])}"
-
-        return match_str
-
-    def wrap_text(self, _str, _width, _color=None):
-        if len(_str) < _width:
-            return [self.colorize(_str, _color)]
-        else:
-            _list = []
-            wrapper = textwrap.TextWrapper(width=_width - 1)
-            for line in wrapper.wrap(text=_str):
-                prefix = " " if len(_list) else ""
-                _list.append(self.colorize(prefix + line, _color))
-            return _list
-
-    # -------------------
     # display formatters
     # -------------------
 
@@ -621,7 +814,7 @@ class sz_pretty_sdk:
                 dsrc_counts[record["DATA_SOURCE"]] = count
             else:
                 dsrc_counts[record["DATA_SOURCE"]] += count
-        return sep.join([f"{self.colorize_dsrc(k)} ({v})" for k, v in dsrc_counts.items()])
+        return sep.join([f"{colorize_dsrc(k)} ({v})" for k, v in dsrc_counts.items()])
 
     def fmt_record_list(self, record_list, attr_limit, attr_width):
         source_data = {}
@@ -632,7 +825,7 @@ class sz_pretty_sdk:
                 source_data[record["DATA_SOURCE"]].append(record["RECORD_ID"])
         display_list = []
         for data_source in sorted(source_data.keys()):
-            colored_source = self.colorize_dsrc(data_source)
+            colored_source = colorize_dsrc(data_source)
             if attr_limit == 1:
                 if len(source_data[data_source]) == 1:
                     display_list.append(f"{colored_source}: {source_data[data_source][0]}")
@@ -661,8 +854,8 @@ class sz_pretty_sdk:
                 line_cnt += 1
                 if line_cnt == attr_limit:
                     continue
-                colored_ftype = self.colorize_attr(ftype_code) + ": " if include_feature_code else ""
-                colored_utype = self.colorize(usage_type, "dim, italics")
+                colored_ftype = colorize_attr(ftype_code) + ": " if include_feature_code else ""
+                colored_utype = colorize(usage_type, "dim, italics")
                 if len(ftype_code + feat_desc + usage_type) + 2 < attr_width:
                     display_list.append(f"{colored_ftype}{feat_desc}{colored_utype}")
                 elif len(feat_desc + usage_type) + 1 < attr_width - 1:
@@ -719,7 +912,7 @@ class sz_pretty_sdk:
             if any(x in stats for x in ("~", "!", "#")):
                 feat_color += ",dim" if feat_color else "dim"
 
-            display_list.extend(self.wrap_text(f"{feat_desc} {stats}", attr_width, feat_color))
+            display_list.extend(wrap_text(f"{feat_desc} {stats}", attr_width, feat_color))
 
             if feature.get("MATCHED_FEAT_DESC"):
                 if feature["FTYPE_CODE"] != "NAME":
@@ -736,7 +929,7 @@ class sz_pretty_sdk:
                         score_list.append(f"GIV:{feature["ALL_SCORES"].get("GNR_GN")}")
                     score = "|".join(score_list)
                 matched_desc = f"\u2514\u2500\u2500 {feature["MATCHED_FEAT_DESC"]} ({score})"
-                display_list.extend(self.wrap_text(matched_desc, attr_width, feat_color))
+                display_list.extend(wrap_text(matched_desc, attr_width, feat_color))
 
         if attr_limit > 0 and line_cnt > attr_limit:
             display_list.append(f"{colored_ftype}: +{line_cnt - attr_limit} more")
@@ -755,7 +948,7 @@ class sz_pretty_sdk:
                 attr_data[attr].append(str(value))
         display_list = []
         for attr in sorted(attr_data.keys()):
-            colored_attr = self.colorize_attr(attr) + ":"
+            colored_attr = colorize_attr(attr) + ":"
             attr_value_list = sorted(set(attr_data[attr]))
 
             line_cnt = 0
@@ -779,11 +972,11 @@ class sz_pretty_sdk:
         sep = kwargs.get("sep", "\n")
         colored_key = ""
         if match_data.get("MATCH_KEY"):
-            colored_key = self.colorize_match_key(match_data["MATCH_KEY"])
+            colored_key = colorize_match_key(match_data["MATCH_KEY"])
         colored_rule = ""
         if match_data.get("ERRULE_CODE"):
             rule_id = match_data.get("ERRULE_ID", self.errule_code_lookup[match_data["ERRULE_CODE"]]["ERRULE_ID"])
-            colored_rule = self.colorize(f'Principle {rule_id}: {match_data["ERRULE_CODE"]}', "dim")
+            colored_rule = colorize(f'Principle {rule_id}: {match_data["ERRULE_CODE"]}', "dim")
             if not colored_key:
                 colored_key = colored_rule
             else:
@@ -832,66 +1025,24 @@ class sz_pretty_sdk:
             i += 1
 
         if rel_keys:
-            match_group = self.colorize("+".join(sorted(rel_keys)), "disclosed")
+            match_group = colorize("+".join(sorted(rel_keys)), "disclosed")
         else:
-            match_group = self.colorize("+".join(plus_keys), "good") if plus_keys else ""
+            match_group = colorize("+".join(plus_keys), "good") if plus_keys else ""
             if match_category == "POSSIBLE_MATCH":
-                match_group += self.colorize("-" + "-".join(minus_keys), "bad") if minus_keys else ""
+                match_group += colorize("-" + "-".join(minus_keys), "bad") if minus_keys else ""
 
         return match_group
 
     def fmt_relation(self, relation):
         colored_key = self.fmt_match_key(relation)
-        colored_key += f'\n to {self.colorize_entity(relation.get("ENTITY_ID"))} {relation.get("ENTITY_NAME")}'
+        colored_key += f'\n to {colorize_entity(relation.get("ENTITY_ID"))} {relation.get("ENTITY_NAME")}'
         return colored_key
 
     def fmt_entity_desc(self, entity):
-        entity_desc = f'{self.colorize_entity(entity["ENTITY_ID"])}: {entity["ENTITY_NAME"]}'
+        entity_desc = f'{colorize_entity(entity["ENTITY_ID"])}: {entity["ENTITY_NAME"]}'
         if entity.get("RECORD_SUMMARY"):
             entity_desc += " " + self.fmt_record_summary(entity["RECORD_SUMMARY"], sep=" | ")
         return entity_desc
-
-    # ---------------------------
-    def render_table(self, tbl_title, tbl_columns, tbl_rows, **kwargs):
-
-        title_color = kwargs.get("titleColor", "table_title")
-        # title_justify = kwargs.get("titleJustify", "l")
-        # header_color = kwargs.get("headerColor", "column_header")
-        combine_headers = kwargs.get("combineHeaders", False)
-
-        table_object = PrettyTable()
-        table_object.hrules = PRETTY_TABLE_ALL
-        table_object.horizontal_char = "\u2500"
-        table_object.vertical_char = "\u2502"
-        table_object.junction_char = "\u253C"
-
-        field_name_list = []
-        column_header_list = []
-        for column_data in tbl_columns:
-            field_name_list.append(column_data["name"])
-            column_header_list.append(
-                "\n".join(self.colorize(str(x), "column_header") for x in str(column_data["name"]).split("\n"))
-            )
-        table_object.field_names = field_name_list
-        table_object.header = False
-        table_object.add_row(column_header_list)
-
-        total_row_cnt = 0
-        for row in tbl_rows:
-            total_row_cnt += 1
-            row[0] = "\n".join([i for i in str(row[0]).split("\n")])
-            table_object.add_row(row)
-
-        for column_data in tbl_columns:
-            table_object.align[column_data["name"]] = column_data["align"][0:1].lower()
-
-        table_str = table_object.get_string()
-        if combine_headers:
-            table_str = self.combine_table_headers(table_str)
-        if tbl_title:
-            table_str = f"{self.colorize(tbl_title, title_color)}\n{table_str}"
-
-        return table_str + "\n"
 
     # -------------------
     # reports
@@ -918,13 +1069,14 @@ class sz_pretty_sdk:
         entity_name = json_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
         entity_features = self.get_entity_features(json_data["RESOLVED_ENTITY"]["FEATURES"])["BY_ID"]
 
-        tbl_title = f"Features of entity {self.colorize_entity(entity_id)}: {entity_name}"
-        tbl_columns = [
+        tbl = sz_pretty_table()
+        tbl.title = f"Features of entity {colorize_entity(entity_id)}: {entity_name}"
+        tbl.columns = [
             {"name": "Feature", "width": 30, "align": "left"},
             {"name": "Description", "width": 100, "align": "left"},
             {"name": "Elements", "width": 100, "align": "left"},
         ]
-        tbl_rows = []
+        tbl.rows = []
         for lib_feat_id in sorted(
             set(entity_features.keys()), key=lambda k: self.ftype_code_order[entity_features[k]["FTYPE_CODE"]]
         ):
@@ -942,7 +1094,7 @@ class sz_pretty_sdk:
             for felem_data in sorted(
                 feature_data["ELEMENTS"], key=lambda k: self.felem_code_lookup[k["FELEM_CODE"]]["FELEM_ID"]
             ):
-                felem_code = f'{self.colorize_attr(felem_data["FELEM_CODE"])}'
+                felem_code = f'{colorize_attr(felem_data["FELEM_CODE"])}'
                 felem_value = felem_data["FELEM_VALUE"]
                 if felem_data["FELEM_CODE"] == "LIBPOSTAL_PARSE":
                     # with suppress(Exception):
@@ -950,24 +1102,25 @@ class sz_pretty_sdk:
                     value_data = json.loads(felem_value)
                     value_list = []
                     for key in sorted(value_data.keys()):
-                        value_list.append(f"  {self.colorize(key, "highlight2,dim")}: {json.dumps(value_data[key])}")
+                        value_list.append(f"  {colorize(key, "highlight2,dim")}: {json.dumps(value_data[key])}")
                     felem_value = "\n" + "\n".join(value_list)
                 felem_values.append(f"{felem_code}: {felem_value}")
 
-            tbl_rows.append(
+            tbl.rows.append(
                 [
-                    f'{self.colorize_attr(feature_data["FTYPE_CODE"])}\n  {self.colorize("id: " + str(lib_feat_id), "dim")}',
+                    f'{colorize_attr(feature_data["FTYPE_CODE"])}\n  {colorize("id: " + str(lib_feat_id), "dim")}',
                     entity_features[lib_feat_id]["FEAT_DESC"],
                     "\n".join(felem_values),
                 ]
             )
 
-        return self.render_table(tbl_title, tbl_columns, tbl_rows)
+        return tbl.render_table()
 
     def get_entity(self, arg_tokens, **kwargs):
         show_detail = kwargs.get("show_detail")
-        attr_limit = kwargs.get("attr_limit", -1)
-        show_relations_on_get = kwargs.get("show_relations_on_get", "grid")
+        attr_limit = kwargs.get("attr_limit", 20)
+        attr_width = kwargs.get("attr_width", 80)
+        show_relations_on_get = kwargs.get("show_relations_on_get", "none")
         get_flag_list = [
             "SZ_ENTITY_INCLUDE_ENTITY_NAME",
             "SZ_ENTITY_INCLUDE_RECORD_DATA",
@@ -995,14 +1148,14 @@ class sz_pretty_sdk:
         entity_features = self.get_entity_features(json_data["RESOLVED_ENTITY"]["FEATURES"])["BY_ID"]
         self.last_entity_id = entity_id
 
-        attr_width = 80
         report_type = "detail" if show_detail else "summary"
-        tbl_title = f"Entity {report_type} for entity {self.colorize_entity(entity_id)}: {entity_name}"
+        tbl = sz_pretty_table()
+        tbl.title = f"Entity {report_type} for entity {colorize_entity(entity_id)}: {entity_name}"
         if args.webapp_url:
-            tbl_title += f"  {self.colorize('WebApp:', 'dim')} " + self.colorize(
+            tbl.title += f"  {colorize('WebApp:', 'dim')} " + colorize(
                 f"{args.webapp_url}/graph/{entity_id}", "highlight1,underline"
             )
-        tbl_columns = [
+        tbl.columns = [
             {"name": "Sources", "width": 50, "align": "left"},
             {"name": "Features", "width": attr_width, "align": "left"},
             {"name": "Additional Data", "width": attr_width, "align": "left"},
@@ -1030,14 +1183,13 @@ class sz_pretty_sdk:
                 table_data[table_key]["FEATURES"].update(record_features)
                 table_data[table_key]["UNMAPPED"].extend(unmapped_items)
 
-        tbl_rows = []
         for table_key in table_data:
             features_by_type = self.regroup_by_type(table_data[table_key]["FEATURES"])
             source_display = self.fmt_record_list(table_data[table_key]["RECORDS"], attr_limit, attr_width)
             feature_display = self.fmt_features(features_by_type, attr_limit, attr_width)
             unmapped_display = self.fmt_unmapped(table_data[table_key]["UNMAPPED"], attr_limit, attr_width)
-            tbl_rows.append([source_display, feature_display, unmapped_display])
-        report = self.render_table(tbl_title, tbl_columns, tbl_rows)
+            tbl.rows.append([source_display, feature_display, unmapped_display])
+        report = tbl.render_table()
 
         if related_entity_count == 0 or show_relations_on_get == "none":
             # rel_count_str = f"{'No' if related_entity_count == 0 else related_entity_count}"
@@ -1049,27 +1201,27 @@ class sz_pretty_sdk:
 
         elif related_entity_count:
             related_entities = self.get_related_entities(json_data["RELATED_ENTITIES"])["LIST"]
-            tbl_title = f"{related_entity_count} related entities"
-            tbl_columns = []
-            tbl_columns.append({"name": "Entity ID", "width": 25, "align": "center"})
-            tbl_columns.append({"name": "Entity Name", "width": 100, "align": "left"})
-            tbl_columns.append({"name": "Data Sources", "width": 100, "align": "left"})
-            tbl_columns.append({"name": "Match Level", "width": 15, "align": "left"})
-            tbl_columns.append({"name": "Match Key", "width": 100, "align": "left"})
-            tbl_rows = []
+            tbl = sz_pretty_table()
+            tbl.title = f"{related_entity_count} related entities"
+            tbl.columns = [
+                {"name": "Entity ID", "width": 25, "align": "center"},
+                {"name": "Entity Name", "width": 100, "align": "left"},
+                {"name": "Data Sources", "width": 100, "align": "left"},
+                {"name": "Match Level", "width": 15, "align": "left"},
+                {"name": "Match Key", "width": 100, "align": "left"},
+            ]
             for relationship in sorted(
                 related_entities, key=lambda k: (k["MATCH_CATEGORY_SORT"], k["ERRULE_ID"], k["ENTITY_ID"])
             ):
-                tbl_rows.append(
-                    [
-                        self.colorize_entity(relationship["ENTITY_ID"]),
-                        relationship["ENTITY_NAME"],
-                        self.fmt_record_summary(relationship["RECORD_SUMMARY"]),
-                        self.match_category_desc[relationship["MATCH_CATEGORY"]],
-                        self.fmt_match_key(relationship),
-                    ]
-                )
-            report += self.render_table(tbl_title, tbl_columns, tbl_rows)
+                row = [
+                    colorize_entity(relationship["ENTITY_ID"]),
+                    relationship["ENTITY_NAME"],
+                    self.fmt_record_summary(relationship["RECORD_SUMMARY"]),
+                    self.match_category_desc[relationship["MATCH_CATEGORY"]],
+                    self.fmt_match_key(relationship),
+                ]
+                tbl.rows.append(row)
+            report += tbl.render_table()
 
         return report
 
@@ -1241,13 +1393,14 @@ class sz_pretty_sdk:
         ]
 
         attr_limit = kwargs.get("attr_limit", 20)
-        attr_width = 80
+        attr_width = kwargs.get("attr_width", 80)
+        tbl = sz_pretty_table()
         if kwargs.get("compare_to_1"):
-            tbl_title = "Comparison of relationships"
+            tbl.title = "Comparison of relationships"
         else:
-            tbl_title = "Comparison of listed entities"
-        tbl_columns = [{"name": "Entity", "width": 15, "align": "left"}]
-        tbl_rows = []
+            tbl.title = "Comparison of listed entities"
+        tbl.columns = [{"name": "Entity", "width": 15, "align": "left"}]
+        tbl.rows = []
         ftype_codes = []
         entities = {}
         source_row = ["DATA_SOURCES"]
@@ -1264,10 +1417,10 @@ class sz_pretty_sdk:
 
             source_row.append(self.fmt_record_list(records, 1, attr_width))
             entities[entity_id] = {"RECORDS": records, "FEATURES": features, "RELATIONS": relations}
-            column_header = f"{self.colorize_entity(entity_id)}"
-            tbl_columns.append({"name": column_header, "width": attr_width, "align": "left"})
+            column_header = f"{colorize_entity(entity_id)}"
+            tbl.columns.append({"name": column_header, "width": attr_width, "align": "left"})
             ftype_codes.extend(list(features.keys()))
-        tbl_rows.append(source_row)
+        tbl.rows.append(source_row)
 
         if kwargs.get("compare_to_1"):
             cross_row = ["RELATIONSHIP"]
@@ -1304,9 +1457,9 @@ class sz_pretty_sdk:
             common_row.append("\n".join(common_rels))
 
         if any_cross_rels:
-            tbl_rows.append(cross_row)
+            tbl.rows.append(cross_row)
         if any_common_rels:
-            tbl_rows.append(common_row)
+            tbl.rows.append(common_row)
 
         for ftype_code in sorted(set(ftype_codes), key=lambda k: self.ftype_code_order[k]):
             feat_row = [ftype_code]
@@ -1316,7 +1469,7 @@ class sz_pretty_sdk:
                     feat_row.append(self.fmt_features({ftype_code: feat_list}, attr_limit, attr_width))
                 else:
                     feat_row.append("")
-            tbl_rows.append(feat_row)
+            tbl.rows.append(feat_row)
 
         any_unmapped = False
         unmapped_row = ["ADDITIONAL_DATA"]
@@ -1327,17 +1480,18 @@ class sz_pretty_sdk:
                 any_unmapped = True
             unmapped_row.append(self.fmt_unmapped(unmapped_list, attr_limit, attr_width))
         if any_unmapped:
-            tbl_rows.append(unmapped_row)
+            tbl.rows.append(unmapped_row)
 
-        return self.render_table(tbl_title, tbl_columns, tbl_rows)
+        return tbl.render_table()
 
     def why_display(self, entity_data, row1_title, report_title):
         caller = sys._getframe().f_back.f_code.co_name
         attr_width = 80
         attr_limit = 20
-        tbl_title = report_title
-        tbl_columns = [{"name": row1_title, "width": 15, "align": "left"}]
-        tbl_rows = []
+        tbl = sz_pretty_table()
+        tbl.title = report_title
+        tbl.columns = [{"name": row1_title, "width": 15, "align": "left"}]
+        tbl.rows = []
         source_row = ["DATA_SOURCES"]
         why_row = ["WHY_RESULT"]
         entity_list = entity_data.keys()
@@ -1369,10 +1523,10 @@ class sz_pretty_sdk:
                         features_by_id[lib_feat_id].update(scores_by_id[lib_feat_id])
             entity_data[_id]["FEATURES"] = self.regroup_by_type(features_by_id)
 
-            column_header = self.colorize(_id, "dim" if row1_title == "Internal ID" else "entity_color")
-            tbl_columns.append({"name": column_header, "width": attr_width, "align": "left"})
-        tbl_rows.append(source_row)
-        tbl_rows.append(why_row)
+            column_header = colorize(_id, "dim" if row1_title == "Internal ID" else "entity_color")
+            tbl.columns.append({"name": column_header, "width": attr_width, "align": "left"})
+        tbl.rows.append(source_row)
+        tbl.rows.append(why_row)
 
         cross_row = ["CROSS_RELATIONS"]
         any_cross_rels = False
@@ -1385,7 +1539,7 @@ class sz_pretty_sdk:
                     any_cross_rels = True
             cross_row.append("\n".join(cross_rels))
         if any_cross_rels:
-            tbl_rows.append(cross_row)
+            tbl.rows.append(cross_row)
 
         for ftype_code in sorted(set(ftype_codes_used), key=lambda k: self.ftype_code_order[k]):
             feat_row = [ftype_code]
@@ -1395,9 +1549,9 @@ class sz_pretty_sdk:
                     feat_row.append(self.fmt_why_features(feat_list, attr_limit, attr_width))
                 else:
                     feat_row.append("")
-            tbl_rows.append(feat_row)
+            tbl.rows.append(feat_row)
 
-        return self.render_table(tbl_title, tbl_columns, tbl_rows)
+        return tbl.render_table()
 
     # ---------------------------
     def why_records(self, entity_list):
@@ -1587,8 +1741,8 @@ class sz_pretty_sdk:
                         "RECORDS": entity["RECORDS"],
                         "MATCH_INFO": step_data[step_num]["MATCH_INFO"],
                     }
-        #entities, how_data = self.why_how(entity_id)
-        tbl_title = f"How for entity: {self.colorize_entity(entity_id)}"
+        # entities, how_data = self.why_how(entity_id)
+        tbl_title = f"How for entity: {colorize_entity(entity_id)}"
         row1_title = "VIRTUAL_ID"
         tbl_title += f' resulted in {how_data["FINAL_COUNT"]} entities!'
 
@@ -1769,38 +1923,38 @@ class G2CmdShell(cmd.Cmd):
                 textwrap.dedent(
                     f"""\
 
-            {self.colorize('Adhoc entity commands:', 'highlight2')}
-                search {self.colorize('- search for entities by name and/or other attributes.', 'dim')}
-                get {self.colorize('- get an entity by entity ID or record_id.', 'dim')}
-                compare {self.colorize('- place two or more entities side by side for easier comparison.', 'dim')}
-                how {self.colorize('- get a step by step replay of how an entity came together.', 'dim')}
-                why {self.colorize('- see why entities or records either did or did not resolve.', 'dim')}
-                tree {self.colorize("- see a tree view of an entity's relationships through 1 or 2 degrees.", 'dim')}
-                export {self.colorize("- export the json records for an entity for debugging or correcting and reloading.", 'dim')}
+            {colorize('Adhoc entity commands:', 'highlight2')}
+                search {colorize('- search for entities by name and/or other attributes.', 'dim')}
+                get {colorize('- get an entity by entity ID or record_id.', 'dim')}
+                compare {colorize('- place two or more entities side by side for easier comparison.', 'dim')}
+                how {colorize('- get a step by step replay of how an entity came together.', 'dim')}
+                why {colorize('- see why entities or records either did or did not resolve.', 'dim')}
+                tree {colorize("- see a tree view of an entity's relationships through 1 or 2 degrees.", 'dim')}
+                export {colorize("- export the json records for an entity for debugging or correcting and reloading.", 'dim')}
 
-            {self.colorize('Snapshot reports:', 'highlight2')} {self.colorize('(requires a json file created with G2Snapshot)', 'italics')}
-                dataSourceSummary {self.colorize('– shows how many duplicates were detected within each data source, as well as ', 'dim')}
-                {self.colorize('the possible matches and relationships that were derived. For example, how many duplicate customers ', 'dim')}
-                {self.colorize('there are, and are any of them related to each other.', 'dim')}
-                crossSourceSummary {self.colorize('– shows how many matches were made across data sources.  For example, how many ', 'dim')}
-                {self.colorize('employees are related to customers.', 'dim')}
-                entitySizeBreakdown {self.colorize("– shows how many entities of what size were created.  For instance, some entities ", 'dim')}
-                {self.colorize("are singletons, some might have connected 2 records, some 3, etc.  This report is primarily used to", 'dim')}
-                {self.colorize("ensure there are no instances of over matching.   For instance, it’s ok for an entity to have hundreds", 'dim')}
-                {self.colorize("of records as long as there are not too many different names, addresses, identifiers, etc.", 'dim')}
+            {colorize('Snapshot reports:', 'highlight2')} {colorize('(requires a json file created with G2Snapshot)', 'italics')}
+                dataSourceSummary {colorize('– shows how many duplicates were detected within each data source, as well as ', 'dim')}
+                {colorize('the possible matches and relationships that were derived. For example, how many duplicate customers ', 'dim')}
+                {colorize('there are, and are any of them related to each other.', 'dim')}
+                crossSourceSummary {colorize('– shows how many matches were made across data sources.  For example, how many ', 'dim')}
+                {colorize('employees are related to customers.', 'dim')}
+                entitySizeBreakdown {colorize("– shows how many entities of what size were created.  For instance, some entities ", 'dim')}
+                {colorize("are singletons, some might have connected 2 records, some 3, etc.  This report is primarily used to", 'dim')}
+                {colorize("ensure there are no instances of over matching.   For instance, it’s ok for an entity to have hundreds", 'dim')}
+                {colorize("of records as long as there are not too many different names, addresses, identifiers, etc.", 'dim')}
 
-            {self.colorize('Audit report:', 'highlight2')} {self.colorize('(requires a json file created with G2Audit)', 'italics')}
-                auditSummary {self.colorize("- shows the precision, recall and F1 scores with the ability to browse the entities that", 'dim')}
-                {self.colorize("were split or merged.", 'dim')}
+            {colorize('Audit report:', 'highlight2')} {colorize('(requires a json file created with G2Audit)', 'italics')}
+                auditSummary {colorize("- shows the precision, recall and F1 scores with the ability to browse the entities that", 'dim')}
+                {colorize("were split or merged.", 'dim')}
 
-            {self.colorize('Other commands:', 'highlight2')}
-                quickLook {self.colorize("- show the number of records in the repository by data source without a snapshot.", 'dim')}
-                load {self.colorize("- load a snapshot or audit report json file.", 'dim')}
-                score {self.colorize("- show the scores of any two names, addresses, identifiers, or combination thereof.", 'dim')}
-                set {self.colorize("- various settings affecting how entities are displayed.", 'dim')}
+            {colorize('Other commands:', 'highlight2')}
+                quickLook {colorize("- show the number of records in the repository by data source without a snapshot.", 'dim')}
+                load {colorize("- load a snapshot or audit report json file.", 'dim')}
+                score {colorize("- show the scores of any two names, addresses, identifiers, or combination thereof.", 'dim')}
+                set {colorize("- various settings affecting how entities are displayed.", 'dim')}
 
-            {self.colorize('Senzing Knowledge Center:', 'dim')} {self.colorize('https://senzing.zendesk.com/hc/en-us', 'highlight2, underline')}
-            {self.colorize('Senzing Support Request:', 'dim')} {self.colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight2, underline')}
+            {colorize('Senzing Knowledge Center:', 'dim')} {colorize('https://senzing.zendesk.com/hc/en-us', 'highlight2, underline')}
+            {colorize('Senzing Support Request:', 'dim')} {colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight2, underline')}
 
              """
                 )
@@ -1811,13 +1965,13 @@ class G2CmdShell(cmd.Cmd):
     # ---------------------------
     def help_knowledgeCenter(self):
         print(
-            f"\nSenzing Knowledge Center: {self.colorize('https://senzing.zendesk.com/hc/en-us', 'highlight2, underline')}\n"
+            f"\nSenzing Knowledge Center: {colorize('https://senzing.zendesk.com/hc/en-us', 'highlight2, underline')}\n"
         )
 
     # ---------------------------
     def help_support(self):
         print(
-            f"\nSenzing Support Request: {self.colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight2, underline')}\n"
+            f"\nSenzing Support Request: {colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight2, underline')}\n"
         )
 
     # ---------------------------
@@ -1886,19 +2040,19 @@ class G2CmdShell(cmd.Cmd):
             textwrap.dedent(
                 f"""\
 
-        {self.colorize('Syntax:', 'highlight2')}
+        {colorize('Syntax:', 'highlight2')}
             set <setting> <value>
 
-        {self.colorize('settings:', 'highlight2')} 
+        {colorize('settings:', 'highlight2')} 
         """
             )
         )
 
-        print(self.colorize(f"    {'setting':<23} {'[possible values]':<22} {'current':<13} {'description'}", "dim"))
+        print(colorize(f"    {'setting':<23} {'[possible values]':<22} {'current':<13} {'description'}", "dim"))
         for setting_data in self.configurable_settings_list:
-            current_value = self.colorize(self.current_settings[setting_data["setting"]], "bold")
+            current_value = colorize(self.current_settings[setting_data["setting"]], "bold")
             print(
-                f"    {setting_data['setting']:<23} {'[' + ', '.join(setting_data['values']) + ']':<22} {current_value:<22} {self.colorize(setting_data['description'], 'dim')}"
+                f"    {setting_data['setting']:<23} {'[' + ', '.join(setting_data['values']) + ']':<22} {current_value:<22} {colorize(setting_data['description'], 'dim')}"
             )
         print()
 
@@ -1952,9 +2106,9 @@ class G2CmdShell(cmd.Cmd):
             textwrap.dedent(
                 f"""\
 
-        {self.colorize('Syntax:', 'highlight2')}
-            load <snapshotFile.json>  {self.colorize('loads a snapshot file for review', 'dim')}
-            load <auditFile.json>     {self.colorize('loads an audit file for review', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            load <snapshotFile.json>  {colorize('loads a snapshot file for review', 'dim')}
+            load <auditFile.json>     {colorize('loads an audit file for review', 'dim')}
 
         """
             )
@@ -2008,8 +2162,9 @@ class G2CmdShell(cmd.Cmd):
         if not sz_dbo:
             print_message(f"Direct database access is required, database drivers must be installed", "error")
             return
-        tbl_title = "Data source counts"
-        tbl_columns = [
+        tbl = sz_pretty_table()
+        tbl.title = "Data source counts"
+        tbl.columns = [
             {"name": "id", "width": 5, "align": "center"},
             {"name": "DataSource", "width": 30, "align": "left"},
             {"name": "ActualRecordCount", "width": 20, "align": "right"},
@@ -2018,30 +2173,30 @@ class G2CmdShell(cmd.Cmd):
         sql = """
               select DSRC_ID, count(*) as RECORD_COUNT, count(distinct ENT_SRC_KEY) as UNIQUE_COUNT 
               from DSRC_RECORD GROUP BY DSRC_ID
-              """
-        tbl_rows = []
+        """
+        tbl.rows = []
         actual_count = distinct_count = 0
         for row in sz_dbo.fetchAllDicts(sz_dbo.sqlExec(sql)):
-            tbl_rows.append(
+            tbl.rows.append(
                 [
-                    self.colorize(row["DSRC_ID"], "row_title"),
-                    self.colorize_dsrc(self.dsrc_lookup[row["DSRC_ID"]]["DSRC_CODE"]),
+                    colorize(row["DSRC_ID"], "row_title"),
+                    colorize_dsrc(self.dsrc_lookup[row["DSRC_ID"]]["DSRC_CODE"]),
                     "{:,}".format(row["RECORD_COUNT"]),
                     "{:,}".format(row["UNIQUE_COUNT"]),
                 ]
             )
             actual_count += row["RECORD_COUNT"]
             distinct_count += row["UNIQUE_COUNT"]
-        if len(tbl_rows) > 1:
-            tbl_rows.append(
+        if len(tbl.rows) > 1:
+            tbl.rows.append(
                 [
                     "",
-                    self.colorize("  Totals", "row_title"),
-                    self.colorize("{:,}".format(actual_count), "row_title"),
-                    self.colorize("{:,}".format(distinct_count), "row_title"),
+                    colorize("  Totals", "row_title"),
+                    colorize("{:,}".format(actual_count), "row_title"),
+                    colorize("{:,}".format(distinct_count), "row_title"),
                 ]
             )
-        self.show_report2(self.render_table2(tbl_title, tbl_columns, tbl_rows))
+        self.show_report2(self.render_table2(tbl.title, tbl.columns, tbl.rows))
 
     # ---------------------------
     # support for reports
@@ -2089,13 +2244,13 @@ class G2CmdShell(cmd.Cmd):
 
         Displays audit statistics and examples.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            auditSummary                        {self.colorize('with no parameters displays the overall stats', 'dim')}
-            auditSummary merge                  {self.colorize('shows a list of merge sub-categories', 'dim')}
-            auditSummary merge 1                {self.colorize('shows examples of merges in sub-category 1', 'dim')}
-            auditSummary split                  {self.colorize('shows a list of split sub-categories', 'dim')}
-            auditSummary split 1                {self.colorize('shows examples of splits in sub-category 1', 'dim')}
-            auditSummary save to <filename.csv> {self.colorize('saves the entire audit report to a csv file', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            auditSummary                        {colorize('with no parameters displays the overall stats', 'dim')}
+            auditSummary merge                  {colorize('shows a list of merge sub-categories', 'dim')}
+            auditSummary merge 1                {colorize('shows examples of merges in sub-category 1', 'dim')}
+            auditSummary split                  {colorize('shows a list of split sub-categories', 'dim')}
+            auditSummary split 1                {colorize('shows examples of splits in sub-category 1', 'dim')}
+            auditSummary save to <filename.csv> {colorize('saves the entire audit report to a csv file', 'dim')}
 
         """
             )
@@ -2141,8 +2296,8 @@ class G2CmdShell(cmd.Cmd):
         ):
             category_color = self.audit_colors.get(category, self.audit_colors.get("unknown"))
             category_data = [
-                self.colorize(category, category_color),
-                self.colorize(fmt_statistic(self.audit_data["AUDIT"][category]["COUNT"]), "bold"),
+                colorize(category, category_color),
+                colorize(fmt_statistic(self.audit_data["AUDIT"][category]["COUNT"]), "bold"),
             ]
             audit_categories.append(category_data)
         while len(audit_categories) < 3:
@@ -2156,83 +2311,83 @@ class G2CmdShell(cmd.Cmd):
             audit_measure = "RECORDS"
             audit_header = "Matches"
 
-        tbl_title = f"Audit Summary from {self.audit_file}"
-        tbl_columns = [
+        tbl.title = f"Audit Summary from {self.audit_file}"
+        tbl.columns = [
             {"name": "Statistic1", "width": 25, "align": "left"},
             {"name": "Entities", "width": 25, "align": "right"},
             {"name": audit_header, "width": 25, "align": "right"},
-            {"name": self.colorize("-", "invisible"), "width": 5, "align": "center"},
+            {"name": colorize("-", "invisible"), "width": 5, "align": "center"},
             {"name": "Statistic2", "width": 25, "align": "left"},
             {"name": "Accuracy", "width": 25, "align": "right"},
         ]
-        tbl_rows = []
-        tbl_rows.append(
+        tbl.rows = []
+        tbl.rows.append(
             [
-                self.colorize("Prior Count", "highlight2"),
+                colorize("Prior Count", "highlight2"),
                 fmt_statistic(self.audit_data["ENTITY"].get("PRIOR_COUNT", -1)),
                 fmt_statistic(self.audit_data[audit_measure].get("PRIOR_COUNT", -1)),
                 "",
-                self.colorize("Same Positives", "highlight2"),
-                self.colorize(fmt_statistic(self.audit_data[audit_measure]["SAME_POSITIVE"]), None),
+                colorize("Same Positives", "highlight2"),
+                colorize(fmt_statistic(self.audit_data[audit_measure]["SAME_POSITIVE"]), None),
             ]
         )
-        tbl_rows.append(
+        tbl.rows.append(
             [
-                self.colorize("Newer Count", "highlight2"),
+                colorize("Newer Count", "highlight2"),
                 fmt_statistic(self.audit_data["ENTITY"].get("NEWER_COUNT", -1)),
                 fmt_statistic(self.audit_data[audit_measure].get("NEWER_COUNT", -1)),
                 "",
-                self.colorize("New Positives", self.audit_colors["MERGE"]),
-                self.colorize(fmt_statistic(self.audit_data[audit_measure]["NEW_POSITIVE"]), None),
+                colorize("New Positives", self.audit_colors["MERGE"]),
+                colorize(fmt_statistic(self.audit_data[audit_measure]["NEW_POSITIVE"]), None),
             ]
         )
-        tbl_rows.append(
+        tbl.rows.append(
             [
-                self.colorize("Common Count", "highlight2"),
+                colorize("Common Count", "highlight2"),
                 fmt_statistic(self.audit_data["ENTITY"].get("COMMON_COUNT", -1)),
                 fmt_statistic(self.audit_data[audit_measure].get("COMMON_COUNT", -1)),
                 "",
-                self.colorize("New Negatives", self.audit_colors["SPLIT"]),
-                self.colorize(fmt_statistic(self.audit_data[audit_measure]["NEW_NEGATIVE"]), None),
+                colorize("New Negatives", self.audit_colors["SPLIT"]),
+                colorize(fmt_statistic(self.audit_data[audit_measure]["NEW_NEGATIVE"]), None),
             ]
         )
-        tbl_rows.append(
+        tbl.rows.append(
             [
                 audit_categories[0][0],
                 audit_categories[0][1],
                 "",
                 "",
-                self.colorize("Precision", "highlight2"),
-                self.colorize(self.audit_data[audit_measure]["PRECISION"], None),
+                colorize("Precision", "highlight2"),
+                colorize(self.audit_data[audit_measure]["PRECISION"], None),
             ]
         )
-        tbl_rows.append(
+        tbl.rows.append(
             [
                 audit_categories[1][0],
                 audit_categories[1][1],
                 "",
                 "",
-                self.colorize("Recall", "highlight2"),
-                self.colorize(self.audit_data[audit_measure]["RECALL"], None),
+                colorize("Recall", "highlight2"),
+                colorize(self.audit_data[audit_measure]["RECALL"], None),
             ]
         )
-        tbl_rows.append(
+        tbl.rows.append(
             [
                 audit_categories[2][0],
                 audit_categories[2][1],
                 "",
                 "",
-                self.colorize("F1 Score", "highlight2"),
-                self.colorize(self.audit_data[audit_measure]["F1-SCORE"], None),
+                colorize("F1 Score", "highlight2"),
+                colorize(self.audit_data[audit_measure]["F1-SCORE"], None),
             ]
         )
         # add any extra categories (which will occur if there were missing records)
         if len(audit_categories) > 3:
             i = 3
             while i < len(audit_categories):
-                tbl_rows.append([audit_categories[i][0], audit_categories[i][1], "", "", "", ""])
+                tbl.rows.append([audit_categories[i][0], audit_categories[i][1], "", "", "", ""])
                 i += 1
-        self.render_table(tbl_title, tbl_columns, tbl_rows)
+        tbl.render_table()
 
     def audit_summary_save(self, arg):
         if not " " in arg:
@@ -2312,24 +2467,24 @@ class G2CmdShell(cmd.Cmd):
                 ]
 
         if len(arg_list) == 1:
-            tbl_title = category + " Categories"
-            tbl_columns = [
+            tbl.title = category + " Categories"
+            tbl.columns = [
                 {"name": "Index", "width": 10, "align": "center"},
                 {"name": "Category", "width": 25, "align": "left"},
                 {"name": "Sub-category", "width": 75, "align": "left"},
                 {"name": "Count", "width": 25, "align": "right"},
             ]
-            tbl_rows = []
+            tbl.rows = []
             for sub_category_row in sub_category_list:
-                tbl_rows.append(
+                tbl.rows.append(
                     [
-                        self.colorize(sub_category_row["INDEX"], "row_title"),
-                        self.colorize(category, category_color),
+                        colorize(sub_category_row["INDEX"], "row_title"),
+                        colorize(category, category_color),
                         sub_category_row["NAME"],
                         fmt_statistic(sub_category_row["COUNT"]),
                     ]
                 )
-            self.render_table(tbl_title, tbl_columns, tbl_rows)
+            tbl.render_table()
             return
 
         # find the detail records to display
@@ -2356,16 +2511,14 @@ class G2CmdShell(cmd.Cmd):
             while True:
                 if len(current_records) == 1:
                     reply = input(
-                        self.colorize_prompt(
+                        colorize_prompt(
                             "Select (P)revious, (N)ext, (G)oto, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ... "
                         )
                     )
                     special_actions = "HWE"
                 else:
                     reply = input(
-                        self.colorize_prompt(
-                            "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ... "
-                        )
+                        colorize_prompt("Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ... ")
                     )
                     special_actions = "WE"
                 if reply:
@@ -2419,8 +2572,8 @@ class G2CmdShell(cmd.Cmd):
                 ftypes_used.extend(list(record["FEATURES_BY_TYPE"].keys()))
         ftypes_used = sorted(set(ftypes_used))
 
-        tbl_title = f'Audit Result ID {audit_records[0]["audit_id"]} {audit_records[0]["audit_category"]}'
-        tbl_columns = [
+        tbl.title = f'Audit Result ID {audit_records[0]["audit_id"]} {audit_records[0]["audit_category"]}'
+        tbl.columns = [
             {"name": "DataSource", "width": 30, "align": "left"},
             {"name": "Record ID", "width": 30, "align": "left"},
             {"name": "Prior ID", "width": 20, "align": "left"},
@@ -2431,7 +2584,7 @@ class G2CmdShell(cmd.Cmd):
         ]
         for ftype_id in ftypes_used:
             ftype_code = self.ftype_lookup[ftype_id]["FTYPE_CODE"]
-            tbl_columns.append({"name": ftype_code, "width": 50, "align": "left"})
+            tbl.columns.append({"name": ftype_code, "width": 50, "align": "left"})
 
         sort_order = {"same": 1, "new negative": 3, "new positive": 2, "missing": 4}
         local_colors = {
@@ -2442,19 +2595,19 @@ class G2CmdShell(cmd.Cmd):
             "MISSING": self.audit_colors["unknown"] if use_color else None,
         }
 
-        tbl_rows = []
+        tbl.rows = []
         for audit_record in sorted(
             audit_records, key=lambda k: [sort_order[k["audit_result"]], str(k["prior_id"]), k["newer_id"]]
         ):
             result_color = local_colors.get(audit_record["audit_result"].upper(), "bold") if use_color else None
             row = [
-                self.colorize(audit_record.get("data_source", ""), local_colors["DSRC_COLOR"]),
+                colorize(audit_record.get("data_source", ""), local_colors["DSRC_COLOR"]),
                 audit_record["record_id"],
                 audit_record["prior_id"],
                 audit_record["prior_score"],
-                self.colorize(audit_record["newer_id"], local_colors["ENTITY_COLOR"]),
+                colorize(audit_record["newer_id"], local_colors["ENTITY_COLOR"]),
                 audit_record["newer_score"],
-                self.colorize(audit_record["audit_result"], result_color),
+                colorize(audit_record["audit_result"], result_color),
             ]
 
             if audit_record.get("DATA_SOURCE"):
@@ -2472,11 +2625,11 @@ class G2CmdShell(cmd.Cmd):
                     row.append("\n".join([x["FEAT_DESC"] for x in matching_features[ftype_id]]))
                 else:
                     row.append("")
-            tbl_rows.append(row)
+            tbl.rows.append(row)
 
         if not use_color:  # if exporting report
-            return tbl_columns, tbl_rows
-        self.render_table(tbl_title, tbl_columns, tbl_rows)
+            return tbl.columns, tbl.rows
+        tbl.render_table()
 
     # ---------------------------
     def help_entitySizeBreakdown(self):
@@ -2486,13 +2639,13 @@ class G2CmdShell(cmd.Cmd):
 
         Displays the number of entities by how many records they contain.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            entitySizeBreakdown                    {self.colorize('with no parameters displays the overall stats', 'dim')}
-            entitySizeBreakdown = 3                {self.colorize('use =, > or < # to select examples of entities of a certain size', 'dim')}
-            entitySizeBreakdown > 10 review        {self.colorize('to just browse the review items of entities greater than size 10', 'dim')}
-            entitySizeBreakdown = review name+addr {self.colorize('to just browse the name+addr review items of any size', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            entitySizeBreakdown                    {colorize('with no parameters displays the overall stats', 'dim')}
+            entitySizeBreakdown = 3                {colorize('use =, > or < # to select examples of entities of a certain size', 'dim')}
+            entitySizeBreakdown > 10 review        {colorize('to just browse the review items of entities greater than size 10', 'dim')}
+            entitySizeBreakdown = review name+addr {colorize('to just browse the name+addr review items of any size', 'dim')}
 
-        {self.colorize('review items:', 'highlight2')}
+        {colorize('review items:', 'highlight2')}
             Review items are suggestions of records to look at because they contain multiple names, addresses, dobs, etc.
             They may be overmatches or they may just be large entities with lots of values.
 
@@ -2510,23 +2663,23 @@ class G2CmdShell(cmd.Cmd):
             self.compute_entitySizeBreakdown()
 
         if not arg:
-            tbl_title = "Entity Size Breakdown from %s" % self.snapshot_file
-            tbl_columns = []
-            tbl_columns.append({"name": "Entity Size", "width": 10, "align": "center"})
-            tbl_columns.append({"name": "Entity Count", "width": 10, "align": "center"})
-            tbl_columns.append({"name": "Review Count", "width": 10, "align": "center"})
-            tbl_columns.append({"name": "Review Features", "width": 75, "align": "left"})
-            tbl_rows = []
+            tbl.title = "Entity Size Breakdown from %s" % self.snapshot_file
+            tbl.columns = []
+            tbl.columns.append({"name": "Entity Size", "width": 10, "align": "center"})
+            tbl.columns.append({"name": "Entity Count", "width": 10, "align": "center"})
+            tbl.columns.append({"name": "Review Count", "width": 10, "align": "center"})
+            tbl.columns.append({"name": "Review Features", "width": 75, "align": "left"})
+            tbl.rows = []
             for entity_size_data in sorted(
                 self.snapshot_data["ENTITY_SIZE_BREAKDOWN"], key=lambda k: k["ENTITY_SIZE"], reverse=True
             ):
                 row = []
-                row.append(self.colorize(entity_size_data["ENTITY_SIZE_GROUP"], "row_title"))
+                row.append(colorize(entity_size_data["ENTITY_SIZE_GROUP"], "row_title"))
                 row.append(fmt_statistic(entity_size_data["ENTITY_COUNT"]))
                 row.append(fmt_statistic(entity_size_data["REVIEW_COUNT"]))
-                row.append(" | ".join(self.colorize(x, "caution") for x in sorted(entity_size_data["REVIEW_FEATURES"])))
-                tbl_rows.append(row)
-            self.render_table(tbl_title, tbl_columns, tbl_rows)
+                row.append(" | ".join(colorize(x, "caution") for x in sorted(entity_size_data["REVIEW_FEATURES"])))
+                tbl.rows.append(row)
+            tbl.render_table()
 
         else:
             sign = "="
@@ -2601,7 +2754,7 @@ class G2CmdShell(cmd.Cmd):
                         print_message("This entity no longer exists", "error")
                     while True:
                         reply = input(
-                            self.colorize_prompt(
+                            colorize_prompt(
                                 "Select (P)revious, (N)ext, (G)oto, (D)etail, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
                             )
                         )
@@ -2718,9 +2871,9 @@ class G2CmdShell(cmd.Cmd):
 
         Displays the statistics for the different match levels within each data source.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            multiSourceSummary                               {self.colorize('with no parameters displays all the combinations', 'dim')}
-            multiSourceSummary <dataSourceCode>              {self.colorize('displays the stats for a particular data source', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            multiSourceSummary                               {colorize('with no parameters displays all the combinations', 'dim')}
+            multiSourceSummary <dataSourceCode>              {colorize('displays the stats for a particular data source', 'dim')}
         """
             )
         )
@@ -2759,11 +2912,11 @@ class G2CmdShell(cmd.Cmd):
         filter_str = arg
         while True:
             filter_display = f', filtered for "{filter_str}"' if filter_str else ""
-            tbl_title = f"Multi Source Summary from {self.snapshot_file}{filter_display}"
-            tbl_columns = []
-            tbl_columns.append({"name": "Index", "width": 5, "align": "center"})
-            tbl_columns.append({"name": "Data Sources", "width": 100, "align": "left"})
-            tbl_columns.append({"name": "Records", "width": 15, "align": "right"})
+            tbl.title = f"Multi Source Summary from {self.snapshot_file}{filter_display}"
+            tbl.columns = []
+            tbl.columns.append({"name": "Index", "width": 5, "align": "center"})
+            tbl.columns.append({"name": "Data Sources", "width": 100, "align": "left"})
+            tbl.columns.append({"name": "Records", "width": 15, "align": "right"})
 
             report_rows = []
             for data_sources_list in sorted(self.snapshot_data["MULTI_SOURCE"]):
@@ -2783,27 +2936,27 @@ class G2CmdShell(cmd.Cmd):
                 continue
 
             report_rows = sorted(report_rows, key=lambda k: k[1], reverse=True)
-            tbl_rows = []
+            tbl.rows = []
             for row in report_rows:
-                tbl_rows.append(
+                tbl.rows.append(
                     [
-                        len(tbl_rows) + 1,
-                        self.colorize(" | ", "dim").join(self.colorize_dsrc(x) for x in row[0].split("|")),
+                        len(tbl.rows) + 1,
+                        colorize(" | ", "dim").join(colorize_dsrc(x) for x in row[0].split("|")),
                         fmt_statistic(row[1]),
                     ]
                 )
 
-            self.render_table(tbl_title, tbl_columns, tbl_rows)
+            tbl.render_table()
 
             sample_records = None
-            prompt = self.colorize_prompt("Select Index # to review, data source filter expression, (Q)uit ... ")
+            prompt = colorize_prompt("Select Index # to review, data source filter expression, (Q)uit ... ")
             reply = input(prompt)
             if reply:
                 remove_from_history()
                 if reply.upper().startswith("Q"):
                     return
-                if reply.isdigit() and int(reply) > 0 and int(reply) <= len(tbl_rows):
-                    data_sources_list = tbl_rows[int(reply) - 1][1]
+                if reply.isdigit() and int(reply) > 0 and int(reply) <= len(tbl.rows):
+                    data_sources_list = tbl.rows[int(reply) - 1][1]
                     sample_records = report_rows[int(reply) - 1][2]
 
                 else:
@@ -2826,7 +2979,7 @@ class G2CmdShell(cmd.Cmd):
 
                 while True:
                     reply = input(
-                        self.colorize_prompt(
+                        colorize_prompt(
                             "Select (P)revious, (N)ext, (G)oto, (D)etail, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
                         )
                     )
@@ -2894,32 +3047,32 @@ class G2CmdShell(cmd.Cmd):
                     report_rows[-1][4].extend(row[3])
 
             filter_display = f', filtered for "{filter_str}"' if filter_str else ""
-            tbl_title = f"{prior_header}{filter_display}"
-            tbl_columns = []
-            tbl_columns.append({"name": "Index", "width": 5, "align": "center"})
-            tbl_columns.append({"name": "Match key", "width": 50, "align": "left"})
-            tbl_columns.append({"name": "Count", "width": 10, "align": "right"})
-            tbl_rows = []
+            tbl.title = f"{prior_header}{filter_display}"
+            tbl.columns = []
+            tbl.columns.append({"name": "Index", "width": 5, "align": "center"})
+            tbl.columns.append({"name": "Match key", "width": 50, "align": "left"})
+            tbl.columns.append({"name": "Count", "width": 10, "align": "right"})
+            tbl.rows = []
             for row in report_rows:
                 if row[1] != "remaining principles":
-                    color_match_key = self.colorize_match_data({"matchKey": row[2], "ruleCode": row[1]})
+                    color_match_key = colorize_match_data({"matchKey": row[2], "ruleCode": row[1]})
                 else:
                     color_match_key = f"{len(all_rows)-max_rows} more match keys"
-                tbl_rows.append([row[0], color_match_key, fmt_statistic(row[3])])
+                tbl.rows.append([row[0], color_match_key, fmt_statistic(row[3])])
 
-            self.render_table(tbl_title, tbl_columns, tbl_rows)
+            tbl.render_table()
             if len(report_rows) < len(all_rows):
-                prompt = self.colorize_prompt(
+                prompt = colorize_prompt(
                     "Select Index # to review, show (A)ll matchkeys, matchkey filter expression, (Q)uit... "
                 )
             else:
-                prompt = self.colorize_prompt("Select Index # to review, matchkey filter expression, (Q)uit ... ")
+                prompt = colorize_prompt("Select Index # to review, matchkey filter expression, (Q)uit ... ")
             reply = input(prompt)
             if reply:
                 remove_from_history()
                 if reply.upper() in ("Q", "QUIT"):
                     return None
-                if reply.isdigit() and int(reply) > 0 and int(reply) <= len(tbl_rows):
+                if reply.isdigit() and int(reply) > 0 and int(reply) <= len(tbl.rows):
                     return report_rows[int(reply) - 1]
                 if reply.upper() == "A":
                     max_rows = 0
@@ -2940,11 +3093,11 @@ class G2CmdShell(cmd.Cmd):
 
         Displays the statistics for the principles used.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            principlesUsed                    {self.colorize('with no parameters displays the stats by category', 'dim')}
-            principlesUsed <category>         {self.colorize('displays the matchkey stats for a certain category such as match, possible_match, etc', 'dim')}
-            principlesUsed principles         {self.colorize('displays the stats for all principles', 'dim')}
-            principlesUsed 100                {self.colorize('displays the matchkey stats for a certain rule', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            principlesUsed                    {colorize('with no parameters displays the stats by category', 'dim')}
+            principlesUsed <category>         {colorize('displays the matchkey stats for a certain category such as match, possible_match, etc', 'dim')}
+            principlesUsed principles         {colorize('displays the stats for all principles', 'dim')}
+            principlesUsed 100                {colorize('displays the matchkey stats for a certain rule', 'dim')}
 
         """
             )
@@ -3023,37 +3176,37 @@ class G2CmdShell(cmd.Cmd):
 
         report_data = ""
         if not arg:
-            tbl_columns = []
-            tbl_rows = []
-            tbl_title = f"Principles Used Report from {self.snapshot_file}"
-            tbl_columns.append({"name": "Category", "width": 25, "align": "left"})
-            tbl_columns.append({"name": "Count", "width": 25, "align": "right"})
+            tbl.columns = []
+            tbl.rows = []
+            tbl.title = f"Principles Used Report from {self.snapshot_file}"
+            tbl.columns.append({"name": "Category", "width": 25, "align": "left"})
+            tbl.columns.append({"name": "Count", "width": 25, "align": "right"})
             for category in sorted(stats_by_category.keys(), key=lambda k: self.match_category_sort[k]):
-                tbl_rows.append(
+                tbl.rows.append(
                     [
-                        self.colorize(category, self.audit_colors[category]),
+                        colorize(category, self.audit_colors[category]),
                         fmt_statistic(stats_by_category[category]["COUNT"]),
                     ]
                 )
-            self.render_table(tbl_title, tbl_columns, tbl_rows)
+            tbl.render_table()
 
         elif arg_upper.startswith("PRIN"):
-            tbl_columns = []
-            tbl_rows = []
-            tbl_title = f"Principles Used Report from {self.snapshot_file}"
-            tbl_columns.append({"name": "Principle", "width": 50, "align": "left"})
-            tbl_columns.append({"name": "Category", "width": 25, "align": "left"})
-            tbl_columns.append({"name": "Count", "width": 25, "align": "right"})
+            tbl.columns = []
+            tbl.rows = []
+            tbl.title = f"Principles Used Report from {self.snapshot_file}"
+            tbl.columns.append({"name": "Principle", "width": 50, "align": "left"})
+            tbl.columns.append({"name": "Category", "width": 25, "align": "left"})
+            tbl.columns.append({"name": "Count", "width": 25, "align": "right"})
             for principle in sorted(stats_by_principle.keys()):
                 category = stats_by_principle[principle]["CATEGORY"]
-                tbl_rows.append(
+                tbl.rows.append(
                     [
-                        self.colorize(principle, self.audit_colors[category]),
-                        self.colorize(category, self.audit_colors[category]),
+                        colorize(principle, self.audit_colors[category]),
+                        colorize(category, self.audit_colors[category]),
                         fmt_statistic(stats_by_principle[principle]["COUNT"]),
                     ]
                 )
-            self.render_table(tbl_title, tbl_columns, tbl_rows)
+            tbl.render_table()
 
         # TODO - Ant - Autocomplete categories?
         elif arg_upper in stats_by_category:
@@ -3120,7 +3273,7 @@ class G2CmdShell(cmd.Cmd):
 
                 current_sample = 0
                 sample_records = report_row[4]
-                color_matchkey = self.colorize_match_data({"matchKey": report_row[2]})
+                color_matchkey = colorize_match_data({"matchKey": report_row[2]})
                 while True:
                     self.current_review_list = (
                         f"Sample {current_sample + 1} of {len(sample_records)} for {category} on {color_matchkey}"
@@ -3140,7 +3293,7 @@ class G2CmdShell(cmd.Cmd):
                             return_code = self.do_compare(",".join(current_records))
                         else:
                             if len(current_records) > 2:
-                                self.current_review_list += self.colorize(
+                                self.current_review_list += colorize(
                                     f"\n(showing 1 of {len(current_records)} qualifying relationships for entity {current_records[0]})",
                                     "reset,dim,italics",
                                 )
@@ -3155,14 +3308,14 @@ class G2CmdShell(cmd.Cmd):
                         if matchlevel_code in ("SINGLE_SAMPLE", "DUPLICATE_SAMPLE"):
                             # TODO - Ant - Doesn't get color?
                             reply = input(
-                                self.colorize_prompt(
+                                colorize_prompt(
                                     "Select (P)revious, (N)ext, (G)oto, (D)etail, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
                                 )
                             )
                             special_actions = "DHWE"
                         else:
                             reply = input(
-                                self.colorize_prompt(
+                                colorize_prompt(
                                     "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
                                 )
                             )
@@ -3211,9 +3364,9 @@ class G2CmdShell(cmd.Cmd):
 
         Displays the statistics for the different match levels within each data source.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            dataSourceSummary                               {self.colorize('with no parameters displays the overall stats', 'dim')}
-            dataSourceSummary <dataSourceCode> <matchLevel> {self.colorize('where 0=Singletons, 1=Matches, 2=Ambiguous, 3=Possibles, 4=Relationships', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            dataSourceSummary                               {colorize('with no parameters displays the overall stats', 'dim')}
+            dataSourceSummary <dataSourceCode> <matchLevel> {colorize('where 0=Singletons, 1=Matches, 2=Ambiguous, 3=Possibles, 4=Relationships', 'dim')}
         """
             )
         )
@@ -3250,52 +3403,209 @@ class G2CmdShell(cmd.Cmd):
     def do_dataSourceSummary(self, arg):
         if not self.snapshot_data or "DATA_SOURCES" not in self.snapshot_data:
             print_message(
-                "Please load a json file created with G2Snapshot.py to use this command",
+                "Please load a json file created with sz_napshot.py to access this report",
                 "warning",
             )
             return
 
+        report_data = {}
+        categories = {
+            "Duplicates": "DUPLICATE_PRINCIPLES",
+            "Ambiguous matches": "AMBIGUOUS_MATCH_PRINCIPLES",
+            "Possible matches": "POSSIBLE_MATCH_PRINCIPLES",
+            "Possibly related": "POSSIBLY_RELATED_PRINCIPLES",
+        }
+        tbl = sz_pretty_table()
+        tbl.title = f"Data Source Summary from {self.snapshot_file}"
+        tbl.columns = [
+            {"name": "\nrow", "width": 5, "align": "center"},
+            {"name": "\nData Source", "width": 25, "align": "left"},
+            {"name": "\nRecords", "width": 15, "align": "right"},
+            {"name": "\nEntities", "width": 15, "align": "right"},
+            {"name": "\nCompression", "width": 15, "align": "right"},
+            {"name": "Matched\nRecords", "width": 15, "align": "right"},
+            {"name": "Matched\nEntities", "width": 15, "align": "right"},
+            {"name": "Related Entities\nAmbiguous Matches", "width": 15, "align": "right"},
+            {"name": "Related Entities\nPossible Matches", "width": 15, "align": "right"},
+            {"name": "Related Entities\nPossible Relationships", "width": 15, "align": "right"},
+        ]
+        tbl.rows = []
+        row_num = 0
+        for data_source in sorted(self.snapshot_data["DATA_SOURCES"]):
+            row_num += 1
+            report_segment = self.snapshot_data["DATA_SOURCES"][data_source]
+            row = [
+                row_num,
+                colorize_dsrc(data_source),
+                fmt_statistic(report_segment.get("RECORD_COUNT", 0)),
+                fmt_statistic(report_segment.get("ENTITY_COUNT", 0)),
+                report_segment.get("COMPRESSION", 0),
+                fmt_statistic(report_segment.get("DUPLICATE_RECORD_COUNT", 0)),
+                fmt_statistic(report_segment.get("DUPLICATE_ENTITY_COUNT", 0)),
+                fmt_statistic(report_segment.get("AMBIGUOUS_MATCH_RELATION_COUNT", 0)),
+                fmt_statistic(report_segment.get("POSSIBLE_MATCH_RELATION_COUNT", 0)),
+                fmt_statistic(report_segment.get("POSSIBLY_RELATED_RELATION_COUNT", 0)),
+            ]
+            tbl.rows.append(row)
+
+            report_data[data_source] = {}
+            for category in categories:
+                category_tag = categories[category]
+                if not report_segment.get(category_tag):
+                    continue
+                report_data[data_source][category] = {}
+                for errule_code in report_segment[category_tag]:
+                    for match_key in report_segment[category_tag][errule_code]:
+                        sub_category = f"{match_key}\n  {errule_code}"
+                        sample_list = report_segment[category_tag][errule_code][match_key]
+                        report_data[data_source][category][sub_category] = sample_list
+
+        master_report = tbl.render_table(super_header=True)
+        report_levels = ["data_source", "match_level", "match_key"]
+        selections = []
+        while True:
+            view_report(master_report, no_scroll=True)
+            display_data = report_data.copy()
+            they_quit = False
+            for i in range(len(report_levels)):
+                report_level = report_levels[i]
+                selections = []
+                if i > 0:
+                    tbl = sz_pretty_table()
+                    tbl.title = f"Selected {' '.join(selections)}"
+                    tbl.columns = [
+                        {"name": "row", "width": 5, "align": "center"},
+                        {"name": report_level, "width": 100, "align": "left"},
+                        {"name": "count", "width": 10, "align": "right"},
+                    ]
+                    row_num = 0
+                    for key in display_data.keys():
+                        row_num += 1
+                        item_count = 0
+                        if report_level == "match_key":
+                            item_count = display_data[key]["COUNT"]
+                        elif report_level == "match_level":
+                            for key1 in display_data[key]:
+                                item_count += display_data[key][key1]["COUNT"]
+                        tbl.rows.append([row_num, key, item_count])
+                    view_report(tbl.render_table(), no_scroll=True)
+
+                while True:
+                    selection = input(f"Select row number to review or (Q) to quit ... ")
+                    if not selection:
+                        break
+                    remove_from_history()
+                    selection = selection.upper()
+                    if selection == "Q":
+                        they_quit = True
+                        break
+                    if selection.isdigit() and 1 <= int(selection) <= len(display_data.keys()):
+                        selection = list(display_data.keys())[int(selection) - 1]
+                    if selection not in display_data:
+                        print_message("Invalid selection, try again", "warning")
+                        continue
+                    display_data = display_data[selection]
+                    selections.append(selection)
+                    break
+                if they_quit or i == len(report_levels) - 1:
+                    break
+            if they_quit:
+                break
+
+            review_base = " ".join(selections)
+
+            sample_records = sorted(display_data["SAMPLE"])
+            sample_count = len(sample_records)
+            current_index = 0
+            while True:
+                review_header = f"Sample {current_index + 1} of {sample_count} for {review_base}"
+                current_sample = str(sample_records[current_index]).split()
+                # print(type(current_sample), current_sample)
+                if len(current_sample) == 1:
+                    report = sz_pretty.get_entity(current_sample, show_detail=True)
+                else:
+                    # if match_level_code == "AMBIGUOUS_MATCH_SAMPLE":
+                    #    for this_entity_id in current_records:
+                    #        ambiguous_list = self.get_ambiguous_entity_set(
+                    #            this_entity_id
+                    #        )  # returns all the relationships for the truly ambiguous entity
+                    #        if ambiguous_list:
+                    #            current_records = ambiguous_list
+                    #            break
+                    report = sz_pretty.compare_entities(current_sample)
+                view_report(report, no_scroll=True)
+
+                # if return_code != 0:
+                #    print_message("This entity no longer exists", "error")
+
+                while True:
+                    if len(current_sample) == 1:
+                        prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
+                        special_actions = "DHWE"
+                    else:
+                        prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
+                        special_actions = "WE"
+                    reply = input(colorize_prompt(prompt))
+                    if reply:
+                        remove_from_history()
+                    else:
+                        reply = "N"
+
+                    if reply.upper().startswith("Q"):
+                        break
+                    elif reply.upper() == "S":
+                        self.do_scroll("")
+                    elif reply.upper()[0] in "PNG":  # previous, next, goto
+                        current_index = self.move_pointer(reply, current_index, sample_count)
+                        break
+                    elif reply.upper().startswith("W") and "W" in special_actions:
+                        if len(current_sample) == 1:
+                            report = sz_pretty.why_how(current_sample[0])
+                        elif len(current_sample) == 2:
+                            report = sz_pretty.why_not(current_sample)
+                        else:
+                            report = sz_pretty.why_not_many(current_sample)
+                        view_report(report)
+
+                    # elif reply.upper().startswith("H"):
+                    #     self.do_how(",".join(current_records))
+                    #     break
+                    # elif reply.upper().startswith("E"):
+                    #     self.export_report_sample(
+                    #         reply,
+                    #         current_records,
+                    #         f"{'-'.join(current_records)}.json",
+                    #     )
+
+                if reply.upper().startswith("Q"):
+                    break
+
+        return
+
         # display the summary if 0 arguments (all datasources) or 1 argument signifying a single data source
         if not arg or " " not in arg:
 
-            tbl_title = "Data Source Summary from %s" % self.snapshot_file
-            tbl_columns = []
-            tbl_columns.append({"name": "\nData Source", "width": 25, "align": "left"})
-            tbl_columns.append({"name": "\nRecords", "width": 15, "align": "right"})
-            tbl_columns.append({"name": "\nEntities", "width": 15, "align": "right"})
-            tbl_columns.append({"name": "\nCompression", "width": 15, "align": "right"})
-            # tbl_columns.append({'name': 'Records\nUnmatched', 'width': 15, 'align': 'right'})
-            tbl_columns.append({"name": "Matched\nRecords", "width": 15, "align": "right"})
-            tbl_columns.append({"name": "Matched\nEntities", "width": 15, "align": "right"})
-            tbl_columns.append(
-                {
-                    "name": "Related Entities\nAmbiguous Matches",
-                    "width": 15,
-                    "align": "right",
-                }
-            )
-            tbl_columns.append(
-                {
-                    "name": "Related Entities\nPossible Matches",
-                    "width": 15,
-                    "align": "right",
-                }
-            )
-            tbl_columns.append(
-                {
-                    "name": "Related Entities\nPossible Relationships",
-                    "width": 15,
-                    "align": "right",
-                }
-            )
+            tbl.title = "Data Source Summary from %s" % self.snapshot_file
+            tbl.columns = [
+                {"name": "\nData Source", "width": 25, "align": "left"},
+                {"name": "\nRecords", "width": 15, "align": "right"},
+                {"name": "\nEntities", "width": 15, "align": "right"},
+                {"name": "\nCompression", "width": 15, "align": "right"},
+                # {'name': 'Records\nUnmatched', 'width': 15, 'align': 'right'},
+                {"name": "Matched\nRecords", "width": 15, "align": "right"},
+                {"name": "Matched\nEntities", "width": 15, "align": "right"},
+                {"name": "Related Entities\nAmbiguous Matches", "width": 15, "align": "right"},
+                {"name": "Related Entities\nPossible Matches", "width": 15, "align": "right"},
+                {"name": "Related Entities\nPossible Relationships", "width": 15, "align": "right"},
+            ]
 
-            tbl_rows = []
+            tbl.rows = []
             for data_source in sorted(self.snapshot_data["DATA_SOURCES"]):
                 if arg and not data_source.startswith(arg.upper()):
                     continue
                 report_segment = self.snapshot_data["DATA_SOURCES"][data_source]
                 row = []
-                row.append(self.colorize_dsrc(data_source))
+                row.append(colorize_dsrc(data_source))
                 row.append(fmt_statistic(report_segment.get("RECORD_COUNT", 0)))
                 row.append(fmt_statistic(report_segment.get("ENTITY_COUNT", 0)))
                 row.append(report_segment.get("COMPRESSION", 0))
@@ -3306,9 +3616,9 @@ class G2CmdShell(cmd.Cmd):
                 row.append(fmt_statistic(report_segment.get("AMBIGUOUS_MATCH_RELATION_COUNT", 0)))
                 row.append(fmt_statistic(report_segment.get("POSSIBLE_MATCH_RELATION_COUNT", 0)))
                 row.append(fmt_statistic(report_segment.get("POSSIBLY_RELATED_RELATION_COUNT", 0)))
-                tbl_rows.append(row)
+                tbl.rows.append(row)
 
-            self.render_table(tbl_title, tbl_columns, tbl_rows, combineHeaders=True)
+            self.render_table(tbl.title, tbl.columns, tbl.rows, super_header=True)
         else:
             arg_tokens = arg.split()
             if len(arg_tokens) != 2:
@@ -3365,7 +3675,7 @@ class G2CmdShell(cmd.Cmd):
 
                 current_sample = 0
                 sample_records = report_row[4]
-                color_match_key = self.colorize_match_data({"matchKey": report_row[2]})
+                color_match_key = colorize_match_data({"matchKey": report_row[2]})
                 while True:
                     self.current_review_list = f"Sample {current_sample + 1} of {len(sample_records)} for {match_level_base} on {color_match_key} in {data_source}"
                     current_records = str(sample_records[current_sample]).split()
@@ -3389,7 +3699,7 @@ class G2CmdShell(cmd.Cmd):
                             )
                         else:
                             if len(current_records) > 2:
-                                self.current_review_list += self.colorize(
+                                self.current_review_list += colorize(
                                     f"\n(showing 1 of {len(current_records)} qualifying relationships for entity {current_records[0]})",
                                     "reset,dim,italics",
                                 )
@@ -3405,14 +3715,14 @@ class G2CmdShell(cmd.Cmd):
                     while True:
                         if match_level_code in ("SINGLE_SAMPLE", "DUPLICATE_SAMPLE"):
                             reply = input(
-                                self.colorize_prompt(
+                                colorize_prompt(
                                     "Select (P)revious, (N)ext, (G)oto, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
                                 )
                             )
                             special_actions = "DHWE"
                         else:
                             reply = input(
-                                self.colorize_prompt(
+                                colorize_prompt(
                                     "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
                                 )
                             )
@@ -3457,10 +3767,10 @@ class G2CmdShell(cmd.Cmd):
 
         Displays the statistics for the different match levels across data sources.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            crossSourceSummary                                           {self.colorize('with no parameters displays the overall stats', 'dim')}
-            crossSourceSummary <dataSource1>                             {self.colorize('displays the cross matches for that data source only', 'dim')}
-            crossSourceSummary <dataSource1> <dataSource2> <matchLevel>  {self.colorize('where 1=Matches, 2=Ambiguous, 3=Possibles, 4=Relationships', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            crossSourceSummary                                           {colorize('with no parameters displays the overall stats', 'dim')}
+            crossSourceSummary <dataSource1>                             {colorize('displays the cross matches for that data source only', 'dim')}
+            crossSourceSummary <dataSource1> <dataSource2> <matchLevel>  {colorize('where 1=Matches, 2=Ambiguous, 3=Possibles, 4=Relationships', 'dim')}
         """
             )
         )
@@ -3511,27 +3821,27 @@ class G2CmdShell(cmd.Cmd):
 
         # display the summary if no arguments
         if not arg or len(arg.split()) == 1:
-            tbl_title = f"Cross Source Summary from {self.snapshot_file}"
-            tbl_columns = []
-            tbl_columns.append({"name": "From\nData Source", "width": 25, "align": "center"})
-            tbl_columns.append({"name": "To\nData Source", "width": 25, "align": "center"})
-            tbl_columns.append({"name": "Matched\nRecords", "width": 15, "align": "right"})
-            tbl_columns.append({"name": "Matched\nEntities", "width": 15, "align": "right"})
-            tbl_columns.append(
+            tbl.title = f"Cross Source Summary from {self.snapshot_file}"
+            tbl.columns = []
+            tbl.columns.append({"name": "From\nData Source", "width": 25, "align": "center"})
+            tbl.columns.append({"name": "To\nData Source", "width": 25, "align": "center"})
+            tbl.columns.append({"name": "Matched\nRecords", "width": 15, "align": "right"})
+            tbl.columns.append({"name": "Matched\nEntities", "width": 15, "align": "right"})
+            tbl.columns.append(
                 {
                     "name": "Entities with\nAmbiguous Matches",
                     "width": 15,
                     "align": "right",
                 }
             )
-            tbl_columns.append(
+            tbl.columns.append(
                 {
                     "name": "Entities with\nPossible Matches",
                     "width": 15,
                     "align": "right",
                 }
             )
-            tbl_columns.append(
+            tbl.columns.append(
                 {
                     "name": "Entities with\nPossible Relationships",
                     "width": 15,
@@ -3539,23 +3849,23 @@ class G2CmdShell(cmd.Cmd):
                 }
             )
 
-            tbl_rows = []
+            tbl.rows = []
             for data_source_1 in sorted(self.snapshot_data["DATA_SOURCES"]):
                 if arg and data_source_1 != arg.upper():
                     continue
                 for data_source_2 in sorted(self.snapshot_data["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"]):
                     report_segment = self.snapshot_data["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2]
                     row = []
-                    row.append(self.colorize_dsrc(data_source_1))
-                    row.append(self.colorize_dsrc(data_source_2))
+                    row.append(colorize_dsrc(data_source_1))
+                    row.append(colorize_dsrc(data_source_2))
                     row.append(fmt_statistic(report_segment.get("MATCH_RECORD_COUNT", 0)))
                     row.append(fmt_statistic(report_segment.get("MATCH_ENTITY_COUNT", 0)))
                     row.append(fmt_statistic(report_segment.get("AMBIGUOUS_MATCH_ENTITY_COUNT", 0)))
                     row.append(fmt_statistic(report_segment.get("POSSIBLE_MATCH_ENTITY_COUNT", 0)))
                     row.append(fmt_statistic(report_segment.get("POSSIBLY_RELATED_ENTITY_COUNT", 0)))
-                    tbl_rows.append(row)
+                    tbl.rows.append(row)
 
-            self.render_table(tbl_title, tbl_columns, tbl_rows, combineHeaders=True)
+            self.render_table(tbl.title, tbl.columns, tbl.rows, super_header=True)
         else:
             arg_tokens = arg.split()
             if len(arg_tokens) != 3:
@@ -3624,7 +3934,7 @@ class G2CmdShell(cmd.Cmd):
 
                 current_sample = 0
                 sample_records = report_row[4]
-                color_match_key = self.colorize_match_data({"matchKey": report_row[2]})
+                color_match_key = colorize_match_data({"matchKey": report_row[2]})
                 while True:
                     self.current_review_list = f"Sample {current_sample + 1} of {len(sample_records)} for {match_level_base} on {color_match_key} between {data_source_1} and {data_source_2}"
                     current_records = str(sample_records[current_sample]).split()
@@ -3648,7 +3958,7 @@ class G2CmdShell(cmd.Cmd):
                             )
                         else:
                             if len(current_records) > 2:
-                                self.current_review_list += self.colorize(
+                                self.current_review_list += colorize(
                                     f"\n(showing 2 of {len(current_records)} qualifying relationships for entity {current_records[0]})",
                                     "reset,dim,italics",
                                 )
@@ -3663,14 +3973,14 @@ class G2CmdShell(cmd.Cmd):
                     while True:
                         if match_level_code in ("MATCH_SAMPLE"):
                             reply = input(
-                                self.colorize_prompt(
+                                colorize_prompt(
                                     "Select (P)revious, (N)ext, (G)oto, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
                                 )
                             )
                             special_actions = "DHWE"
                         else:
                             reply = input(
-                                self.colorize_prompt(
+                                colorize_prompt(
                                     "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
                                 )
                             )
@@ -3713,14 +4023,14 @@ class G2CmdShell(cmd.Cmd):
 
         Search for an entity by its attributes.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            search Joe Smith {self.colorize('without a json structure performs a search on name alone', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            search Joe Smith {colorize('without a json structure performs a search on name alone', 'dim')}
             search {'{'}"name_full": "Joe Smith"{'}'}
             search {'{'}"name_org": "ABC Company"{'}'}
             search {'{'}"name_last": "Smith", "name_first": "Joe", "date_of_birth": "1992-12-10"{'}'}
             search {'{'}"name_org": "ABC Company", "addr_full": "111 First St, Anytown, USA 11111"{'}'}
 
-        {self.colorize('Notes:', 'highlight2')}
+        {colorize('Notes:', 'highlight2')}
             Searching by name alone may not locate a specific entity.
             Try adding a date of birth, address, or phone number if not found by name alone.
         """
@@ -3766,8 +4076,8 @@ class G2CmdShell(cmd.Cmd):
             print_message(err, "error")
             return
 
-        tbl_title = "Search Results"
-        tbl_columns = [
+        tbl.title = "Search Results"
+        tbl.columns = [
             {"name": "Index", "width": 5, "align": "center"},
             {"name": "Entity ID", "width": 15, "align": "center"},
             {"name": "Entity Name", "width": 75, "align": "left"},
@@ -3776,7 +4086,7 @@ class G2CmdShell(cmd.Cmd):
             {"name": "Match Score", "width": 15, "align": "center"},
             {"name": "Relationships", "width": 15, "align": "left"},
         ]
-        tbl_rows = []
+        tbl.rows = []
 
         matched_list = []
         for matched_entity in json_data["RESOLVED_ENTITIES"]:
@@ -3804,33 +4114,29 @@ class G2CmdShell(cmd.Cmd):
                 }
             )
 
-        tbl_rows = []
+        tbl.rows = []
         search_index = 0
         self.last_search_result = []
         for matched_entity in sorted(matched_list, key=lambda k: k["MATCH_SCORE"], reverse=True):
             search_index += 1
-            tbl_rows.append(
+            tbl.rows.append(
                 [
-                    self.colorize(search_index, "dim"),
-                    self.colorize_entity(matched_entity["ENTITY_ID"]),
+                    colorize(search_index, "dim"),
+                    colorize_entity(matched_entity["ENTITY_ID"]),
                     matched_entity["ENTITY_NAME"],
                     self.fmt_record_list(matched_entity["RECORDS"], 1, 75),
                     self.fmt_match_key(matched_entity["MATCH_INFO"]),
                     matched_entity["MATCH_SCORE"],
                     "\n".join(
-                        [
-                            f"{v} {self.colorize(k.lower(), 'dim')}"
-                            for k, v in matched_entity["REL_COUNTS"].items()
-                            if v > 0
-                        ]
+                        [f"{v} {colorize(k.lower(), 'dim')}" for k, v in matched_entity["REL_COUNTS"].items() if v > 0]
                     ),
                 ]
             )
             self.last_search_result.append(str(matched_entity["ENTITY_ID"]))
 
         if len(matched_list) > 0:
-            tbl_title = f"{len(matched_list)} entities found ..."
-            self.show_report2(self.render_table2(tbl_title, tbl_columns, tbl_rows))
+            tbl.title = f"{len(matched_list)} entities found ..."
+            self.show_report2(self.render_table2(tbl.title, tbl.columns, tbl.rows))
             return
 
         if json_data.get("SEARCH_STATISTICS"):
@@ -3860,12 +4166,12 @@ class G2CmdShell(cmd.Cmd):
 
         Displays how a particular entity's features were parsed.
 
-        {self.colorize('Syntax:', 'highlight2')}
+        {colorize('Syntax:', 'highlight2')}
             getFeatures <entity_id>
             getFeatures <entity_id> ADDRESS
 
-        {self.colorize('Notes:', 'highlight2')}
-            {self.colorize('Add a feature type code after the entity_id to filter for only those features', 'dim')}
+        {colorize('Notes:', 'highlight2')}
+            {colorize('Add a feature type code after the entity_id to filter for only those features', 'dim')}
         """
             )
         )
@@ -3886,15 +4192,15 @@ class G2CmdShell(cmd.Cmd):
 
         Displays a particular entity by entity_id or by data_source and record_id.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            get <entity_id>               {self.colorize("looks up an entity's resume by entity ID", 'dim')}
-            get <dataSource> <recordID>   {self.colorize("looks up an entity's resume by data source and record ID", 'dim')}
-            get search <search index>     {self.colorize("looks up an entity's resume by search index (requires a prior search)", 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            get <entity_id>               {colorize("looks up an entity's resume by entity ID", 'dim')}
+            get <dataSource> <recordID>   {colorize("looks up an entity's resume by data source and record ID", 'dim')}
+            get search <search index>     {colorize("looks up an entity's resume by search index (requires a prior search)", 'dim')}
 
-        {self.colorize('Notes:', 'highlight2')}
-            {self.colorize('Add the keyword ', 'dim')}DETAIL{self.colorize(' to display each record in the entity separately.', 'dim')}
-            {self.colorize('Add the keyword ', 'dim')}FEATURES{self.colorize(' to display how its features were parsed.', 'dim')}
-            {self.colorize('Add the keyword ', 'dim')}ALL{self.colorize(' to display all the attributes of the entity if they are getting cut off.', 'dim')}
+        {colorize('Notes:', 'highlight2')}
+            {colorize('Add the keyword ', 'dim')}DETAIL{colorize(' to display each record in the entity separately.', 'dim')}
+            {colorize('Add the keyword ', 'dim')}FEATURES{colorize(' to display how its features were parsed.', 'dim')}
+            {colorize('Add the keyword ', 'dim')}ALL{colorize(' to display all the attributes of the entity if they are getting cut off.', 'dim')}
         """
             )
         )
@@ -3905,15 +4211,10 @@ class G2CmdShell(cmd.Cmd):
         if not arg:
             self.help_get()
             return 0
-
-        data_source_filter = None
-        if self.current_settings["data_source_suppression"] == "on":
-            data_source_filter = kwargs.get("dataSourceFilter")
-
         kwargs["show_relations_on_get"] = self.current_settings["show_relations_on_get"]
         kwargs["show_detail"] = False
         kwargs["feature_filters"] = []
-        kwargs["attr_limit"] = 20
+        # kwargs["attr_limit"] = 20
         features_only = False
         arg_tokens = []
 
@@ -4021,11 +4322,11 @@ class G2CmdShell(cmd.Cmd):
 
         Compares a set of entities by placing them side by side in a columnar format.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            compare <entity_id1> <entity_id2>   {self.colorize('compares the listed entities', 'dim')}
-            compare search                      {self.colorize('places all the search results side by side', 'dim')}
-            compare search <top (n)>            {self.colorize('places the top (n) search results side by side', 'dim')}
-       """
+        {colorize('Syntax:', 'highlight2')}
+            compare <entity_id1> <entity_id2>   {colorize('compares the listed entities', 'dim')}
+            compare search                      {colorize('places all the search results side by side', 'dim')}
+            compare search <top (n)>            {colorize('places the top (n) search results side by side', 'dim')}
+                """
             )
         )
 
@@ -4035,9 +4336,6 @@ class G2CmdShell(cmd.Cmd):
         if not arg:
             self.help_compare()
             return 0
-        data_source_filter = None
-        if self.current_settings["data_source_suppression"] == "on":
-            data_source_filter = kwargs.get("dataSourceFilter")
 
         if isinstance(arg, str) and "SEARCH" in arg.upper():
             entity_list = self.last_search_result
@@ -4066,10 +4364,10 @@ class G2CmdShell(cmd.Cmd):
 
         Displays an entity tree from a particular entity's point of view.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            tree <entity_id>                  {self.colorize('displays the first degree relationships of an entity', 'dim')}
-            tree <entity_id> degree <n>       {self.colorize('displays relationships of an entity out to <n> degrees', 'dim')}
-            tree <entity_id> degree <n> all   {self.colorize('adding the "all" tag disables the default limit of 10 per category', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            tree <entity_id>                  {colorize('displays the first degree relationships of an entity', 'dim')}
+            tree <entity_id> degree <n>       {colorize('displays relationships of an entity out to <n> degrees', 'dim')}
+            tree <entity_id> degree <n> all   {colorize('adding the "all" tag disables the default limit of 10 per category', 'dim')}
         """
             )
         )
@@ -4155,19 +4453,19 @@ class G2CmdShell(cmd.Cmd):
 
         Shows the internal values and scores used to determine why a set of records resolved or only related.
 
-        {self.colorize('Syntax:', 'highlight2')}
-            why <entity_id1>                                            {self.colorize('shows why the records in a single entity resolved together', 'dim')}
-            why <entity_id1> <entity_id2>                               {self.colorize('shows why two or more different entities did not resolve', 'dim')}
-            why <data_source1> <record_id1> <data_source2> <record_id2> {self.colorize('shows if the two data source records could resolve or relate', 'dim')}
+        {colorize('Syntax:', 'highlight2')}
+            why <entity_id1>                                            {colorize('shows why the records in a single entity resolved together', 'dim')}
+            why <entity_id1> <entity_id2>                               {colorize('shows why two or more different entities did not resolve', 'dim')}
+            why <data_source1> <record_id1> <data_source2> <record_id2> {colorize('shows if the two data source records could resolve or relate', 'dim')}
 
-        {self.colorize('Color legend:', 'highlight2')}
-            {self.colorize('green', 'good')} indicates the values matched and contributed to the overall score
-            {self.colorize('red', 'bad')} indicates the values did not match and hurt the overall score
-            {self.colorize('yellow', 'caution')} indicates the values did not match but did not hurt the overall score
-            {self.colorize('cyan', 'highlight2')} indicates the values only helped get the record on the candidate list
-            {self.colorize('dimmed', 'dim')} values were ignored (see the bracket legend below)
+        {colorize('Color legend:', 'highlight2')}
+            {colorize('green', 'good')} indicates the values matched and contributed to the overall score
+            {colorize('red', 'bad')} indicates the values did not match and hurt the overall score
+            {colorize('yellow', 'caution')} indicates the values did not match but did not hurt the overall score
+            {colorize('cyan', 'highlight2')} indicates the values only helped get the record on the candidate list
+            {colorize('dimmed', 'dim')} values were ignored (see the bracket legend below)
 
-        {self.colorize('Bracket legend:', 'highlight2')}
+        {colorize('Bracket legend:', 'highlight2')}
             [99] indicates how many entities share this value
             [~] indicates that this value was not used to find candidates as too many entities share it
             [!] indicates that this value was not not even scored as too many entities share it
@@ -4211,17 +4509,16 @@ class G2CmdShell(cmd.Cmd):
         else:
             self.show_report2(sz_pretty.why_not_many(entity_list))
 
-
     def why_display(self, entity_data, tbl_title, row1_title):
 
-        tbl_columns = [
+        tbl.columns = [
             {
-                "name": self.colorize(row1_title, "row_title"),
+                "name": colorize(row1_title, "row_title"),
                 "width": 50,
                 "align": "left",
             }
         ]
-        tbl_rows = []
+        tbl.rows = []
 
         data_source_row = ["DATA_SOURCES"]
         match_key_row = ["WHY_RESULT"]
@@ -4230,7 +4527,7 @@ class G2CmdShell(cmd.Cmd):
         for entity_id in sorted(entity_data.keys()):
             # add the column
             color = "entity_color" if row1_title == "ENTITY_ID" else "dim"
-            tbl_columns.append({"name": self.colorize(entity_id, color), "width": 75, "align": "left"})
+            tbl.columns.append({"name": colorize(entity_id, color), "width": 75, "align": "left"})
 
             # add the data sources
             data_source_row.append("\n".join(sorted(entity_data[entity_id]["dataSources"])))
@@ -4247,23 +4544,23 @@ class G2CmdShell(cmd.Cmd):
                 ]:
                     if len(entity_list) <= 2:  # suppress to entity if only 2
                         del relationship["entityId"]
-                    relation_list.append(self.colorize_match_data(relationship))
+                    relation_list.append(colorize_match_data(relationship))
                 cross_relations_row.append("\n".join(relation_list))
 
             # add the matchKey
             if "whyKey" not in entity_data[entity_id] or not entity_data[entity_id]["whyKey"]:
                 # can only happen with the old multiple entity why
-                match_key_row.append(self.colorize("Not found!", "bad"))
+                match_key_row.append(colorize("Not found!", "bad"))
             # TODO - Ant -
             # elif type(entity_data[entity_id]["whyKey"]) != list:
             elif not isinstance(entity_data[entity_id]["whyKey"], list):
-                match_key_row.append(self.colorize_match_data(entity_data[entity_id]["whyKey"]))
+                match_key_row.append(colorize_match_data(entity_data[entity_id]["whyKey"]))
             else:
                 temp_list = []
                 for why_key in [x for x in sorted(entity_data[entity_id]["whyKey"], key=lambda k: k["entityId"])]:
                     if "entityId" in why_key and len(entity_list) <= 2:  # suppress to entity if only 2
                         del why_key["entityId"]
-                    temp_list.append(self.colorize_match_data(why_key))
+                    temp_list.append(colorize_match_data(why_key))
                 match_key_row.append("\n".join(temp_list))
 
             # prepare the feature rows
@@ -4279,10 +4576,10 @@ class G2CmdShell(cmd.Cmd):
                 feature_array[ftype_id][entity_id].append(formatted_feature)
 
         # prepare the table
-        tbl_rows.append(data_source_row)
+        tbl.rows.append(data_source_row)
         if len(cross_relations_row) > 1:
-            tbl_rows.append(cross_relations_row)
-        tbl_rows.append(match_key_row)
+            tbl.rows.append(cross_relations_row)
+        tbl.rows.append(match_key_row)
 
         # add the feature rows
         for ftype_id in sorted(feature_array, key=lambda k: self.ftype_id_order[k]):
@@ -4301,13 +4598,13 @@ class G2CmdShell(cmd.Cmd):
                     ):
                         feature_list.append(feature_dict["formattedFeatDesc"])
                     feature_row.append("\n".join(feature_list))
-            tbl_rows.append(feature_row)
+            tbl.rows.append(feature_row)
 
         # colorize the first column
-        for i in range(len(tbl_rows)):
-            tbl_rows[i][0] = self.colorize(tbl_rows[i][0], "row_title")
+        for i in range(len(tbl.rows)):
+            tbl.rows[i][0] = colorize(tbl.rows[i][0], "row_title")
 
-        self.render_table(tbl_title, tbl_columns, tbl_rows, displayFlag="No")
+        self.render_table(tbl.title, tbl.columns, tbl.rows, displayFlag="No")
         if row1_title != "Step":
             self.show_report("auto", from_how_or_why=True)
 
@@ -4714,7 +5011,7 @@ class G2CmdShell(cmd.Cmd):
                 records_by_source[record["DATA_SOURCE"]].append(record["RECORD_ID"])
         record_display = []
         for data_source in sorted(records_by_source.keys()):
-            colored_data_source = self.colorize_dsrc(data_source)
+            colored_data_source = colorize_dsrc(data_source)
             if len(records_by_source[data_source]) > 1:
                 record_display.append(f"{colored_data_source}: {len(records_by_source[data_source])} records")
             else:
@@ -4762,13 +5059,11 @@ class G2CmdShell(cmd.Cmd):
             # if dimmit:
             #    featureData['featColor'] += ',dim'
             feature_data["formattedFeatDesc1"] = feature_data["formattedFeatDesc"]
-            feature_data["formattedFeatDesc"] = self.colorize(
-                feature_data["formattedFeatDesc"], feature_data["featColor"]
-            )
+            feature_data["formattedFeatDesc"] = colorize(feature_data["formattedFeatDesc"], feature_data["featColor"])
 
             # note: addresses may score same tho not exact!
             if feature_data["matchLevel"] != "SAME" or feature_data["matchedFeatDesc"] != feature_data["featDesc"]:
-                feature_data["formattedFeatDesc"] += "\n" + self.colorize(
+                feature_data["formattedFeatDesc"] += "\n" + colorize(
                     f"\u2514\u2500\u2500 {feature_data['matchedFeatDesc']} ({feature_data['matchScoreDisplay']})",
                     feature_data["featColor"],
                 )
@@ -4777,16 +5072,14 @@ class G2CmdShell(cmd.Cmd):
             feature_data["sortOrder"] = 1
             feature_data["featColor"] = "highlight2" + (",dim" if dimmit else "")
             feature_data["formattedFeatDesc1"] = feature_data["formattedFeatDesc"]
-            feature_data["formattedFeatDesc"] = self.colorize(
-                feature_data["formattedFeatDesc"], feature_data["featColor"]
-            )
+            feature_data["formattedFeatDesc"] = colorize(feature_data["formattedFeatDesc"], feature_data["featColor"])
 
         else:
             if ftype_code == "AMBIGUOUS_ENTITY":
                 if feature_data["formattedFeatDesc"].startswith(" ["):
                     feature_data["formattedFeatDesc"] = "Ambiguous!"
-                feature_data["formattedFeatDesc1"] = self.colorize(feature_data["formattedFeatDesc"], "bad")
-                feature_data["formattedFeatDesc"] = self.colorize(feature_data["formattedFeatDesc"], "bad")
+                feature_data["formattedFeatDesc1"] = colorize(feature_data["formattedFeatDesc"], "bad")
+                feature_data["formattedFeatDesc"] = colorize(feature_data["formattedFeatDesc"], "bad")
 
         # sort rejected matches lower
         if dimmit:
@@ -4961,19 +5254,19 @@ class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
     def help_how(self):
-        entity_id = self.colorize_entity("<entity_id>")
+        entity_id = colorize_entity("<entity_id>")
         print(
             textwrap.dedent(
                 f"""\
 
             Shows shows how the records in a single entity came together.
 
-            {self.colorize('Syntax:', 'highlight2')}
-                how {entity_id}            {self.colorize('shows a summary of the resolution process', 'dim')}
-                how {entity_id} concise    {self.colorize('shows the matching features as part of the tree view', 'dim')}
-                how {entity_id} formatted  {self.colorize('shows the matching features in a table', 'dim')}
+            {colorize('Syntax:', 'highlight2')}
+                how {entity_id}            {colorize('shows a summary of the resolution process', 'dim')}
+                how {entity_id} concise    {colorize('shows the matching features as part of the tree view', 'dim')}
+                how {entity_id} formatted  {colorize('shows the matching features in a table', 'dim')}
 
-            {self.colorize('How to read:', 'highlight2')}
+            {colorize('How to read:', 'highlight2')}
                 A how report documents each step of the resolution process for an entity so if
                 an entity has 100s records there will be 100s of steps. Each step will either
                 create a virtual entity, add to it or combine it with other virtual entities
@@ -4983,13 +5276,13 @@ class G2CmdShell(cmd.Cmd):
                 and address and another set that match on name and phone before a record with the
                 same name, address and phone combines the two virtual entities into one!
 
-            {self.colorize('Pro tip!', 'good')}
+            {colorize('Pro tip!', 'good')}
                 The overview section helps you locate interesting resolution steps that you
                 can search for in the concise or formatted view.  You can search for ...
                     - a particular step number such as step "2"
-                    - a virtual entity_id such as {self.colorize_entity('V123-S2', 'dim')}
-                        {self.colorize('(the -S number after the virtual entity ID is the step number that updated it.  Try', 'italics')}
-                            {self.colorize('searching for just the V number before the dash to find all steps that include it.)', 'italics')}
+                    - a virtual entity_id such as {colorize_entity('V123-S2', 'dim')}
+                        {colorize('(the -S number after the virtual entity ID is the step number that updated it.  Try', 'italics')}
+                            {colorize('searching for just the V number before the dash to find all steps that include it.)', 'italics')}
                     - any other string such as a match_key, principle code, specific name, address, etc
              """
             )
@@ -5121,7 +5414,7 @@ class G2CmdShell(cmd.Cmd):
                 feature_data = features_by_record[record_data["DATA_SOURCE"]][record_data["RECORD_ID"]][lib_feat_id]
                 ftype_id = feature_data["ftypeId"]
                 counter_display = self.feature_counter_display(feature_data)
-                feat_desc = f"{self.colorize(lib_feat_id, 'dim')}: {feature_data['featDesc']} {counter_display}"
+                feat_desc = f"{colorize(lib_feat_id, 'dim')}: {feature_data['featDesc']} {counter_display}"
 
                 if ftype_id not in stat_pack["features"]:
                     stat_pack["features"][ftype_id] = {}
@@ -5155,8 +5448,8 @@ class G2CmdShell(cmd.Cmd):
         entity_name = get_entity_data["RESOLVED_ENTITY"].get("ENTITY_NAME", "name not mapped")
         how_header = (
             "\n"
-            + self.colorize(
-                f"How report for entity {self.colorize_entity(entity_id)}: {entity_name}",
+            + colorize(
+                f"How report for entity {colorize_entity(entity_id)}: {entity_name}",
                 "table_title",
             )
             + "\n"
@@ -5166,9 +5459,7 @@ class G2CmdShell(cmd.Cmd):
             or len(json_data["HOW_RESULTS"]["FINAL_STATE"]["VIRTUAL_ENTITIES"]) > 1
         ):
             final_entity_count = len(json_data["HOW_RESULTS"]["FINAL_STATE"]["VIRTUAL_ENTITIES"])
-            how_header += (
-                "\n" + self.colorize(f"{final_entity_count} final entities, reevaluation needed!", "bad") + "\n"
-            )
+            how_header += "\n" + colorize(f"{final_entity_count} final entities, reevaluation needed!", "bad") + "\n"
             # - maybe start with concise view if multiple
             # if how_display_level == 'overview'
             #     how_display_level = 'concise'
@@ -5234,7 +5525,7 @@ class G2CmdShell(cmd.Cmd):
 
             step_data["MATCH_INFO"]["matchKey"] = step_data["MATCH_INFO"]["MATCH_KEY"]
             step_data["MATCH_INFO"]["ruleCode"] = self.getRule_desc(step_data["MATCH_INFO"]["ERRULE_CODE"])
-            formatted_match_key, formatted_errule_code = self.colorize_match_data(step_data["MATCH_INFO"]).split("\n ")
+            formatted_match_key, formatted_errule_code = colorize_match_data(step_data["MATCH_INFO"]).split("\n ")
             step_data["MATCH_INFO"]["formatted_match_key"] = formatted_match_key
             step_data["MATCH_INFO"]["formatted_errule_code"] = formatted_errule_code
             if formatted_errule_code not in stat_pack["rules"]:
@@ -5335,7 +5626,7 @@ class G2CmdShell(cmd.Cmd):
 
         # create overview tree
         summary_node = Node("summary")
-        summary_node.node_desc = self.colorize("SUMMARY", "highlight1")
+        summary_node.node_desc = colorize("SUMMARY", "highlight1")
 
         resolution_node = Node("resolution")
         resolution_node.node_desc = self.how_format_statistic_header("RESOLUTION SUMMARY")
@@ -5345,7 +5636,7 @@ class G2CmdShell(cmd.Cmd):
         category_node.node_desc = self.how_format_statistic("Resolution steps", step_count)
         for item in stat_pack["steps"]:
             item_node = Node(item)
-            item_node.node_desc = self.colorize(self.how_format_statistic(item, stat_pack["steps"][item]), "italics")
+            item_node.node_desc = colorize(self.how_format_statistic(item, stat_pack["steps"][item]), "italics")
             category_node.add_child(item_node)
         resolution_node.add_child(category_node)
 
@@ -5406,13 +5697,13 @@ class G2CmdShell(cmd.Cmd):
         for rule_info in sorted(stat_pack["rule_counter"].items(), key=lambda item: item[1], reverse=True):
             rule = rule_info[0]
             rule_node = Node(rule)
-            rule_cnt = self.colorize(f"({rule_info[1]})", "highlight2")
+            rule_cnt = colorize(f"({rule_info[1]})", "highlight2")
             rule_node.node_desc = f"{rule} {rule_cnt}"
             category_node.add_child(rule_node)
             for match_key_info in sorted(stat_pack["rules"][rule].items(), key=lambda item: item[1], reverse=True):
                 match_key = match_key_info[0]
                 match_key_node = Node(match_key)
-                match_key_cnt = self.colorize(f"({match_key_info[1]})", "highlight2")
+                match_key_cnt = colorize(f"({match_key_info[1]})", "highlight2")
                 match_key_node.node_desc = f"{match_key} {match_key_cnt}"
                 rule_node.add_child(match_key_node)
 
@@ -5430,11 +5721,11 @@ class G2CmdShell(cmd.Cmd):
 
         for ftype_id in sorted(stat_pack["features"], key=lambda k: self.ftype_id_order[k]):
             ftype_node = Node(ftype_id)
-            ftype_cnt = self.colorize(
+            ftype_cnt = colorize(
                 f"({stat_pack['ftype_counter'][ftype_id]['featureCount']})",
                 "highlight2",
             )
-            ftype_node.node_desc = f"{self.colorize_attr(self.ftype_lookup[ftype_id]["FTYPE_CODE"])} {ftype_cnt}"
+            ftype_node.node_desc = f"{colorize_attr(self.ftype_lookup[ftype_id]["FTYPE_CODE"])} {ftype_cnt}"
             category_node.add_child(ftype_node)
             feat_desc_info_list = sorted(
                 stat_pack["features"][ftype_id].items(),
@@ -5452,9 +5743,9 @@ class G2CmdShell(cmd.Cmd):
                 ):
                     feat_desc = feat_desc_info[0]
                     feat_node = Node(feat_desc)
-                    feat_cnt = self.colorize(f"({feat_desc_info[1]})", "highlight2")
+                    feat_cnt = colorize(f"({feat_desc_info[1]})", "highlight2")
                     if any(i in feat_desc for i in ["[~", "[!", "[#"]):
-                        feat_desc = self.colorize(feat_desc, "dim")
+                        feat_desc = colorize(feat_desc, "dim")
                     feat_node.node_desc = f"{feat_desc} {feat_cnt}"
                     ftype_node.add_child(feat_node)
                 elif cnt == 3 and len(feat_desc_info_list) > 4:
@@ -5465,13 +5756,13 @@ class G2CmdShell(cmd.Cmd):
         filter_str = None
         while True:
             tree_nodes["root"] = Node("root")
-            tree_nodes["root"].node_desc = self.colorize("RESOLUTION STEPS", "bold")
+            tree_nodes["root"].node_desc = colorize("RESOLUTION STEPS", "bold")
             for render_node_data in sorted(render_node_list, key=lambda x: x["step_num"], reverse=True):
                 render_node_id = render_node_data["node_id"]
                 parent_node_id = render_node_data["parent_node"]
 
                 # describe the node
-                colored_node_id = self.colorize_entity(render_node_id)
+                colored_node_id = colorize_entity(render_node_id)
                 if parent_node_id == "root":
                     num_final_nodes = len(json_data["HOW_RESULTS"]["FINAL_STATE"]["VIRTUAL_ENTITIES"])
                     final_node_index = 0
@@ -5480,14 +5771,14 @@ class G2CmdShell(cmd.Cmd):
                         if final_state_data["VIRTUAL_ENTITY_ID"] == render_node_id:
                             break
                     if num_final_nodes == 1:
-                        render_node_desc = self.colorize(f"{colored_node_id}: final entity", "dim")
+                        render_node_desc = colorize(f"{colored_node_id}: final entity", "dim")
                     else:
-                        render_node_desc = self.colorize(
+                        render_node_desc = colorize(
                             f"{colored_node_id}: final entity {final_node_index} of {num_final_nodes}",
                             "dim",
                         )
                 else:
-                    render_node_desc = self.colorize(f"{colored_node_id}: interim entity", "dim")
+                    render_node_desc = colorize(f"{colored_node_id}: interim entity", "dim")
 
                 tree_nodes[render_node_id] = Node(render_node_id)
                 tree_nodes[render_node_id].node_desc = render_node_desc
@@ -5640,10 +5931,10 @@ class G2CmdShell(cmd.Cmd):
 
                                 features_by_type[ftype_id][side].append(feature_data)
 
-                        colored_virtual_id1 = self.colorize_entity(
+                        colored_virtual_id1 = colorize_entity(
                             step_data[left_virtual_entity]["VIRTUAL_ENTITY_ID"], "dim"
                         )
-                        colored_virtual_id2 = self.colorize_entity(
+                        colored_virtual_id2 = colorize_entity(
                             step_data[right_virtual_entity]["VIRTUAL_ENTITY_ID"], "dim"
                         )
 
@@ -5683,47 +5974,47 @@ class G2CmdShell(cmd.Cmd):
                                     ),
                                     key=lambda k: (k["sortOrder"]),
                                 ):
-                                    color_ftype_code = self.colorize_attr(feature_data["ftypeCode"])
-                                    color_record_key_1 = self.colorize_dsrc1(
+                                    color_ftype_code = colorize_attr(feature_data["ftypeCode"])
+                                    color_record_key_1 = colorize_dsrc1(
                                         ": ".join(feature_data["record_key1"].split(self.dsrc_record_sep))
                                     )
-                                    color_record_key_2 = self.colorize_dsrc1(
+                                    color_record_key_2 = colorize_dsrc1(
                                         ": ".join(feature_data["record_key2"].split(self.dsrc_record_sep))
                                     )
-                                    colored_match_score = self.colorize(
+                                    colored_match_score = colorize(
                                         f"({feature_data['matchScoreDisplay']})",
                                         feature_data["featColor"],
                                     )
                                     step_node_text += f"{color_ftype_code}: {color_record_key_1} - {feature_data['featDesc']} | {color_record_key_2} - {feature_data['matchedFeatDesc']} {colored_match_score}\n"
                         elif how_display_level != "summary":
-                            row_title = self.colorize("VIRTUAL_ID", "dim")
-                            tbl_title = None
-                            tbl_columns = []
-                            tbl_columns.append({"name": row_title, "width": 20, "align": "left"})
-                            tbl_columns.append(
+                            row_title = colorize("VIRTUAL_ID", "dim")
+                            tbl.title = None
+                            tbl.columns = []
+                            tbl.columns.append({"name": row_title, "width": 20, "align": "left"})
+                            tbl.columns.append(
                                 {
                                     "name": colored_virtual_id1,
                                     "width": 70,
                                     "align": "left",
                                 }
                             )
-                            tbl_columns.append(
+                            tbl.columns.append(
                                 {
-                                    "name": self.colorize("scores", "dim"),
+                                    "name": colorize("scores", "dim"),
                                     "width": 10,
                                     "align": "center",
                                 }
                             )
-                            tbl_columns.append(
+                            tbl.columns.append(
                                 {
                                     "name": colored_virtual_id2,
                                     "width": 70,
                                     "align": "left",
                                 }
                             )
-                            tbl_rows = []
+                            tbl.rows = []
 
-                            row_title = self.colorize("DATA_SOURCES", "row_title")
+                            row_title = colorize("DATA_SOURCES", "row_title")
                             tbl_row = [row_title]
                             for virtual_entity_data in [
                                 [left_virtual_entity, best_left_record_key],
@@ -5737,11 +6028,11 @@ class G2CmdShell(cmd.Cmd):
                                     dsrc_display = (
                                         step_data[virtual_entity]["node_desc"]
                                         + "\n best: "
-                                        + self.colorize_dsrc1(": ".join(best_record_key.split(self.dsrc_record_sep)))
+                                        + colorize_dsrc1(": ".join(best_record_key.split(self.dsrc_record_sep)))
                                     )
                                 tbl_row.append(dsrc_display)
                             tbl_row.insert(2, "")  # for score column
-                            tbl_rows.append(tbl_row)
+                            tbl.rows.append(tbl_row)
 
                             for ftype_id in sorted(
                                 features_by_type.keys(),
@@ -5750,7 +6041,7 @@ class G2CmdShell(cmd.Cmd):
                                 if not features_by_type[ftype_id]["left"] and not features_by_type[ftype_id]["right"]:
                                     continue  # removes unscored if not full
                                 ftype_code = self.ftype_lookup[ftype_id]["FTYPE_CODE"]
-                                colored_ftype_code = self.colorize_attr(ftype_code)
+                                colored_ftype_code = colorize_attr(ftype_code)
 
                                 # get the right side values
                                 scored_right = {}
@@ -5778,21 +6069,21 @@ class G2CmdShell(cmd.Cmd):
                                 ):
                                     if feature_data.get("wasScored"):
                                         feature_score = "\n".join(
-                                            self.colorize(item, feature_data["featColor"])
+                                            colorize(item, feature_data["featColor"])
                                             for item in feature_data["matchScoreDisplay"].split("|")
                                         )
 
                                         feature_desc1 = feature_data["formattedFeatDesc1"]
                                         if step_data[left_virtual_entity]["node_type"] != "singleton":
-                                            from_desc = "from: " + self.colorize_dsrc1(
+                                            from_desc = "from: " + colorize_dsrc1(
                                                 ": ".join(feature_data["record_key1"].split(self.dsrc_record_sep))
                                             )
                                             if feature_data["record_key1"] == best_left_record_key:
-                                                from_desc = self.colorize(from_desc, "dim")
+                                                from_desc = colorize(from_desc, "dim")
                                             feature_desc1 += "\n " + from_desc
 
                                         if feature_data["matchedFeatId"] not in scored_right:
-                                            feature_desc2 = self.colorize(
+                                            feature_desc2 = colorize(
                                                 f"Internal error: {feature_data['matchedFeatId']} missing from {colored_virtual_id2}",
                                                 "bad",
                                             )
@@ -5802,14 +6093,14 @@ class G2CmdShell(cmd.Cmd):
                                                 "formattedFeatDesc1"
                                             ]
                                         if step_data[right_virtual_entity]["node_type"] != "singleton":
-                                            from_desc = "from: " + self.colorize_dsrc1(
+                                            from_desc = "from: " + colorize_dsrc1(
                                                 ": ".join(feature_data["record_key2"].split(self.dsrc_record_sep))
                                             )
                                             if feature_data["record_key2"] == best_right_record_key:
-                                                from_desc = self.colorize(from_desc, "dim")
+                                                from_desc = colorize(from_desc, "dim")
                                             feature_desc2 += "\n " + from_desc
 
-                                        tbl_rows.append(
+                                        tbl.rows.append(
                                             [
                                                 colored_ftype_code,
                                                 feature_desc1,
@@ -5821,7 +6112,7 @@ class G2CmdShell(cmd.Cmd):
                                         unscored_left.append(feature_data["formattedFeatDesc1"])
 
                                 if unscored_right or unscored_left:
-                                    tbl_rows.append(
+                                    tbl.rows.append(
                                         [
                                             colored_ftype_code,
                                             "\n".join(unscored_left),
@@ -5830,7 +6121,7 @@ class G2CmdShell(cmd.Cmd):
                                         ]
                                     )
 
-                            self.render_table(tbl_title, tbl_columns, tbl_rows, displayFlag="No")
+                            self.render_table(tbl.title, tbl.columns, tbl.rows, displayFlag="No")
                             step_node_text = self.current_report
 
                         if how_display_level != "columnar":
@@ -5875,7 +6166,7 @@ class G2CmdShell(cmd.Cmd):
             else:
                 self.current_report = (
                     how_header
-                    + ("\nFiltered for " + self.colorize(filter_str, "fg_white,bg_red") + "\n" if filter_str else "")
+                    + ("\nFiltered for " + colorize(filter_str, "fg_white,bg_red") + "\n" if filter_str else "")
                     + "\n"
                     + how_report
                 )
@@ -5883,9 +6174,7 @@ class G2CmdShell(cmd.Cmd):
             self.show_report("auto", search=filter_str, from_how_or_why=True)
 
             reply = input(
-                self.colorize_prompt(
-                    "\nSelect (O)verview, (B)reif, (C)olumnar, (T)able, (V)erbose, (S)earch or (Q)uit ... "
-                )
+                colorize_prompt("\nSelect (O)verview, (B)reif, (C)olumnar, (T)able, (V)erbose, (S)earch or (Q)uit ... ")
             )
             if reply:
                 remove_from_history()
@@ -5980,7 +6269,7 @@ class G2CmdShell(cmd.Cmd):
         if len(raw_virtual_entity_data["MEMBER_RECORDS"]) == 1:
             additional_note = ""
             if virtual_entity_data["record_count"] > 1:  # its got additional pure dupes
-                additional_note = self.colorize(
+                additional_note = colorize(
                     " +" + str(virtual_entity_data["record_count"] - 1) + " pure dupes",
                     "dim",
                 )
@@ -5988,14 +6277,14 @@ class G2CmdShell(cmd.Cmd):
             virtual_entity_data["node_type"] = "singleton"
             record = raw_virtual_entity_data["MEMBER_RECORDS"][0]["RECORDS"][0]
             virtual_entity_data["node_desc"] = record["DATA_SOURCE"] + ": " + record["RECORD_ID"] + additional_note
-            virtual_entity_data["colored_desc"] = self.colorize_dsrc1(
+            virtual_entity_data["colored_desc"] = colorize_dsrc1(
                 record["DATA_SOURCE"] + ": " + record["RECORD_ID"] + additional_note
             )
 
         else:
             virtual_entity_data["node_type"] = "aggregate"
             virtual_entity_data["node_desc"] = " | ".join(
-                self.colorize_dsrc1(ds + " (" + str(len(virtual_entity_data["records"][ds])) + ")")
+                colorize_dsrc1(ds + " (" + str(len(virtual_entity_data["records"][ds])) + ")")
                 for ds in sorted(virtual_entity_data["records"].keys())
             )
             virtual_entity_data["colored_desc"] = virtual_entity_data["node_desc"]
@@ -6004,11 +6293,11 @@ class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
     def how_format_statistic_header(self, header):
-        return self.colorize(header, "highlight2")
+        return colorize(header, "highlight2")
 
     # ---------------------------
     def how_format_statistic(self, stat, cnt):
-        return stat + " " + self.colorize("(" + str(cnt) + ")", "highlight2")
+        return stat + " " + colorize("(" + str(cnt) + ")", "highlight2")
 
     # ---------------------------
     def help_score(self):
@@ -6018,12 +6307,12 @@ class G2CmdShell(cmd.Cmd):
 
         Compares any two features and shows the scores returned.
 
-        {self.colorize('Syntax:', 'highlight2')}
+        {colorize('Syntax:', 'highlight2')}
             score [{'{'}"name_last": "Smith", "name_first": "Joseph"{'}'}, {'{'}"name_last": "Smith", "name_first": "Joe"{'}'}]
             score [{'{'}"addr_full": "111 First St, Anytown, USA"{'}'}, {'{'}"addr_full": "111 First Street, Anytown"{'}'}]
             score [{'{'}"passport_number": "1231234", "passport_country": "US"{'}'}, {'{'}"passport_number": "1231234", "passport_country": "USA"{'}'}]
 
-        {self.colorize('Notes:', 'highlight2')}
+        {colorize('Notes:', 'highlight2')}
             Use the keyword "force" to force the two records to find each other by adding a trusted_id.
         """
             )
@@ -6093,10 +6382,10 @@ class G2CmdShell(cmd.Cmd):
 
         Assigns records from a particular entity to a trusted_id in order to move them to another entity
 
-        {self.colorize('Syntax:', 'highlight2')}
+        {colorize('Syntax:', 'highlight2')}
             assign <trusted_id_attribute> <trusted_id_value> to <entity_id> <name_spec>
 
-        {self.colorize('Example:', 'highlight2')}
+        {colorize('Example:', 'highlight2')}
             assign trusted_id_number 1001 to 7 "ABC Company"
         """
             )
@@ -6206,7 +6495,7 @@ class G2CmdShell(cmd.Cmd):
 
         Merges any two entities or records.
 
-        {self.colorize('Syntax:', 'highlight2')}
+        {colorize('Syntax:', 'highlight2')}
             merge 1, 2, "reason for merge"
             merge data_source1, record_id1, data_source2, record_id2, "reason for merge"
         """
@@ -6290,8 +6579,8 @@ class G2CmdShell(cmd.Cmd):
                     f"""\
 
             Merge:
-                Entity {self.colorize_entity(entity_id1)}: {entity_name1} ({self.colorize_dsrc(str(record_count1) + ' records')})
-                Entity {self.colorize_entity(entity_id2)}: {entity_name2} ({self.colorize_dsrc(str(record_count2) + ' records')})
+                Entity {colorize_entity(entity_id1)}: {entity_name1} ({colorize_dsrc(str(record_count1) + ' records')})
+                Entity {colorize_entity(entity_id2)}: {entity_name2} ({colorize_dsrc(str(record_count2) + ' records')})
                 Reason: {feedback_data['reason']}
             """
                 )
@@ -6354,7 +6643,7 @@ class G2CmdShell(cmd.Cmd):
                 record_json["NAME_DATA"][0] if len(record_json.get("NAME_DATA", [])) > 0 else "no name on record"
             )
             print(
-                f"  {self.colorize_dsrc(record_json['DATA_SOURCE'] + ': ' + record_json['RECORD_ID'])} {self.colorize_attr(record_name)}"
+                f"  {colorize_dsrc(record_json['DATA_SOURCE'] + ': ' + record_json['RECORD_ID'])} {colorize_attr(record_name)}"
             )
         if feedback_data["level"] != "entity":
             reply = input('\nType "OK" to merge these records ... ')
@@ -6400,159 +6689,6 @@ class G2CmdShell(cmd.Cmd):
         self.do_get(get_record_data)
 
     # ---------------------------
-    def render_table(self, tbl_title, tbl_columns, tbl_rows, **kwargs):
-
-        # display flags (start/append/done) allow for multiple tables to be displayed together and scrolled as one
-        # such as an entity and its relationships
-
-        # possible kwargs
-        display_flag = kwargs.get("displayFlag")
-        title_color = kwargs.get("titleColor", "table_title")
-        title_justify = kwargs.get("titleJustify", "l")
-        header_color = kwargs.get("headerColor", "column_header")
-        combine_headers = kwargs.get("combineHeaders", False)
-
-        # setup the table
-        table_object = PrettyTable()
-        # tableObject.title = tbl_title
-        table_object.hrules = PRETTY_TABLE_ALL
-        if True:  # PRETTYTABLE_STYLE_AVAILABLE:
-            table_object.set_style(SINGLE_BORDER)
-        else:
-            table_object.horizontal_char = "\u2500"
-            table_object.vertical_char = "\u2502"
-            table_object.junction_char = "\u253C"
-
-        field_name_list = []
-        column_header_list = []
-        for column_data in tbl_columns:
-            field_name_list.append(column_data["name"])
-            column_header_list.append(
-                "\n".join(self.colorize(str(x), "column_header") for x in str(column_data["name"]).split("\n"))
-            )
-        table_object.field_names = field_name_list
-
-        table_object.header = False  # make first row header to allow for stacked column header names
-        table_object.add_row(column_header_list)
-
-        total_row_cnt = 0
-        for row in tbl_rows:
-            total_row_cnt += 1
-            row[0] = "\n".join([i for i in str(row[0]).split("\n")])
-            table_object.add_row(row)
-
-        # format with data in the table
-        for column_data in tbl_columns:
-            # tableObject.max_width[str(columnData['name'])] = columnData['width']
-            table_object.align[column_data["name"]] = column_data["align"][0:1].lower()
-
-        table_str = table_object.get_string()
-        if combine_headers:
-            table_str = self.combine_table_headers(table_str)
-
-        # write to a file so can be viewed with less
-        # also write to the lastTableData variable in case cannot write to file
-        fmt_table_string = ""
-        if tbl_title:
-            fmt_table_string = self.colorize(tbl_title, title_color) + "\n"
-        fmt_table_string += table_str + "\n"
-
-        write_mode = "w"
-        if display_flag in ("append", "end"):
-            fmt_table_string = "\n" + fmt_table_string
-            write_mode = "a"
-
-        if write_mode == "w":
-            self.current_report = fmt_table_string
-        else:
-            self.current_report = self.current_report + fmt_table_string
-
-        # display if a single table or done accumulating tables to display
-        if not display_flag or display_flag == "end":
-            print("")
-            self.show_report("auto")
-            print("")
-        return
-
-    # ---------------------------
-    def render_table2(self, tbl_title, tbl_columns, tbl_rows, **kwargs):
-
-        title_color = kwargs.get("titleColor", "table_title")
-        title_justify = kwargs.get("titleJustify", "l")
-        header_color = kwargs.get("headerColor", "column_header")
-        combine_headers = kwargs.get("combineHeaders", False)
-
-        table_object = PrettyTable()
-        table_object.hrules = PRETTY_TABLE_ALL
-        # table_object.set_style(SINGLE_BORDER)
-        table_object.horizontal_char = "\u2500"
-        table_object.vertical_char = "\u2502"
-        table_object.junction_char = "\u253C"
-
-        field_name_list = []
-        column_header_list = []
-        for column_data in tbl_columns:
-            field_name_list.append(column_data["name"])
-            column_header_list.append(
-                "\n".join(self.colorize(str(x), "column_header") for x in str(column_data["name"]).split("\n"))
-            )
-        table_object.field_names = field_name_list
-        table_object.header = False
-        table_object.add_row(column_header_list)
-
-        total_row_cnt = 0
-        for row in tbl_rows:
-            total_row_cnt += 1
-            row[0] = "\n".join([i for i in str(row[0]).split("\n")])
-            table_object.add_row(row)
-
-        for column_data in tbl_columns:
-            table_object.align[column_data["name"]] = column_data["align"][0:1].lower()
-
-        table_str = table_object.get_string()
-        if combine_headers:
-            table_str = self.combine_table_headers(table_str)
-        if tbl_title:
-            table_str = f"{self.colorize(tbl_title, title_color)}\n{table_str}"
-
-        return table_str + "\n"
-
-    # ---------------------------
-    def combine_table_headers(self, report_str):
-        report = report_str.split("\n")
-        col_sep = report[1][0]
-        old_header1 = report[1].replace(Colors.COLUMN_HEADER, "").replace(Colors.RESET, "")
-        self.colorize_characters_width = len(self.colorize("", "column_header"))
-        headers1 = old_header1.split(col_sep)
-        prior_header_len = 0
-        new_header1 = col_sep
-        new_header1_colored = col_sep
-        for i in range(len(headers1)):
-            if i > 0 and i < len(headers1) - 1:
-                if (
-                    i == len(headers1) - 2
-                    or headers1[i].strip() != headers1[i - 1].strip()
-                    or len(headers1[i - 1].strip()) == 0
-                ):
-                    if i == len(headers1) - 2:
-                        prior_header_len += len(headers1[i]) + 1
-                    if prior_header_len > 0:
-                        new_header1 += f"{headers1[i-1]:^{prior_header_len-1}}{col_sep}"
-                        new_header1_colored += f"{self.colorize(headers1[i-1], 'column_header'):^{prior_header_len-1+self.colorize_characters_width}}{col_sep}"
-                        prior_header_len = 0
-                prior_header_len += len(headers1[i]) + 1
-
-        new_header0 = report[0]
-        for i in range(len(old_header1)):
-            if old_header1[i] == col_sep and new_header1[i] != col_sep:
-                new_header0 = new_header0[0:i] + new_header0[i - 1] + new_header0[i + 1 :]
-
-        new_report = [new_header0, new_header1_colored]
-        new_report.extend(report[2:])
-
-        return "\n".join(new_report)
-
-    # ---------------------------
     # TODO - Ant - Fix search compare not auto scrolling
     # TODO search {"EMAIL_ADDRESS": "Kusha123@hmail.com"}
     # TODO compare search
@@ -6562,7 +6698,7 @@ class G2CmdShell(cmd.Cmd):
 
         print()
         if self.current_review_list:
-            self.current_report = self.colorize(self.current_review_list, "bold") + "\n\n" + self.current_report
+            self.current_report = colorize(self.current_review_list, "bold") + "\n\n" + self.current_report
 
         from_how_or_why = kwargs.get("from_how_or_why")
         if self.current_settings["auto_scroll"] == "off" and not from_how_or_why:
@@ -6680,7 +6816,7 @@ class G2CmdShell(cmd.Cmd):
 
         Exports the json records that make up the selected entities for debugging, reloading, etc.
 
-        {self.colorize('Syntax:', 'highlight2')}
+        {colorize('Syntax:', 'highlight2')}
             export <entity_id>, <entity_id> degree <n> to <fileName> additive
             export search to <fileName>
             export search <search index> to <fileName>\n
@@ -6860,7 +6996,7 @@ def print_message(msg_text, msg_type_or_color=""):
         msg_color = "FG_GREEN"
     else:
         msg_color = msg_type_or_color
-    print(f"\n{Colors.apply(msg_text, msg_color)}\n")
+    print(f"\n{colorize(msg_text, msg_color)}\n")
 
 
 # --------------------------------------
