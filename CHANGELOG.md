@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
-## [0.0.1] - 2024-11-22
+## [0.0.3] - 2024-11-28
+
+### Changed in 0.0.3
+
+- Align to new SDK and abstract 
+
+### Added to 0.0.3
+
+- Continued initial V4 work
+
+## [0.0.2] - 2024-11-22
 
 ### Added to 0.0.2
 

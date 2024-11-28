@@ -11,10 +11,13 @@ except ImportError:
 
 import csv
 import json
+import pathlib
 import random
 import signal
 import time
 from datetime import datetime
+
+MODULE_NAME = pathlib.Path(__file__).stem
 
 
 # ----------------------------------------
@@ -218,7 +221,7 @@ def erCompare(fileName1, fileName2, outputRoot):
 
     # --initialize stats
     statpack = {}
-    statpack["SOURCE"] = "G2Audit"
+    statpack["SOURCE"] = MODULE_NAME
 
     statpack["ENTITY"] = {}
     statpack["ENTITY"]["PRIOR_COUNT"] = 0

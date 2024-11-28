@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import csv
 import gzip
+import pathlib
 import sys
 import textwrap
 import time
@@ -13,8 +14,10 @@ from datetime import datetime
 from _tool_helpers import get_engine_config, print_warning
 from senzing import SzAbstractFactory, SzEngineFlags, SzError
 
+MODULE_NAME = pathlib.Path(__file__).stem
 
-def print_error_msg(msg, error1, error2="", exit=False):
+
+def print_error_msg(msg, error1, error2="", exit_=False):
     """Display error msg and optionally exit"""
 
     print(
@@ -28,7 +31,7 @@ def print_error_msg(msg, error1, error2="", exit=False):
         ),
     )
 
-    if exit:
+    if exit_:
         sys.exit(1)
 
 
@@ -38,7 +41,7 @@ def csv_fetch_next(handle, csv_header=None):
     try:
         export_record = sz_engine.fetch_next(handle)
     except SzError as err:
-        print_error_msg("Could not fetch next export record", err, exit=True)
+        print_error_msg("Could not fetch next export record", err, exit_=True)
 
     # If no csv_header is sent we fetched the header row initially
     if not csv_header:
@@ -61,7 +64,7 @@ def json_fetch_next(handle):
     try:
         export_record = sz_engine.fetch_next(handle)
     except SzError as err:
-        print_error_msg("Could not fetch next export record", err, exit=True)
+        print_error_msg("Could not fetch next export record", err, exit_=True)
 
     return export_record
 
@@ -111,7 +114,7 @@ def csv_export():
         )
         writer.writeheader()
     except csv.Error as err:
-        print_error_msg("Could not create CSV writer for output or write CSF header", err, exit=True)
+        print_error_msg("Could not create CSV writer for output or write CSF header", err, exit_=True)
 
     start_time = time.time()
 
@@ -381,12 +384,12 @@ if __name__ == "__main__":
         type=int,
         choices=range(1, 10),
         help=textwrap.dedent(
-            """\
+            f"""\
 
                                                                                                                                     Compress output file with gzip. Compression level can be optionally specified.
 
                                                                                                                                     If output file is specified as - (for stdout), use shell redirection instead to compress:
-                                                                                                                                        sz_export -o - | gzip -v > export.csv.gz
+                                                                                                                                    {MODULE_NAME} -o - | gzip -v > export.csv.gz
 
                                                                                                                                     Default: %(const)s
 
@@ -417,10 +420,10 @@ if __name__ == "__main__":
     if args.extendCSVRelates and not args.extended:
         print(
             textwrap.dedent(
-                """
+                f"""
                 ERROR: Argument --extendCSVRelates (-xcr) is used to complement --extended (-x) and not used alone.')
 
-                        Review the help with sz_export --help
+                        Review the help with {MODULE_NAME} --help
             """
             ),
         )
@@ -429,7 +432,7 @@ if __name__ == "__main__":
     if args.extendCSVRelates:
         print(
             textwrap.dedent(
-                """
+                f"""
 
                 ********** Warning **********
 
@@ -438,7 +441,7 @@ if __name__ == "__main__":
 
                 Hit CTRL-C to exit or wait 10 seconds to continue.
 
-                Review the help with sz_export.py --help
+                Review the help with {MODULE_NAME} --help
 
                 *****************************
                 """
@@ -449,11 +452,11 @@ if __name__ == "__main__":
 
     print(
         textwrap.dedent(
-            """
+            f"""
 
                 ********** Warning **********
 
-                sz_export isn't intended for exporting large numbers of entities and associated data source record information.
+                {MODULE_NAME} isn't intended for exporting large numbers of entities and associated data source record information.
                 Beyond 100M+ data source records isn't suggested. For exporting overview entity and relationship data for
                 analytical purposes outside of Senzing please review the following article:
 
@@ -487,10 +490,10 @@ if __name__ == "__main__":
     engine_config = get_engine_config(args.ini_file_name)
 
     try:
-        sz_factory = SzAbstractFactory("sz_export", engine_config)
-        sz_engine = sz_factory.create_sz_engine()
+        sz_factory = SzAbstractFactory(MODULE_NAME, engine_config)
+        sz_engine = sz_factory.create_engine()
     except SzError as err:
-        print_error_msg("Error: ", err, exit=True)
+        print_error_msg("Error: ", err, exit_=True)
         sys.exit(1)
 
     # Convert strings to upper and if integers supplied convert from string to int
@@ -522,7 +525,7 @@ if __name__ == "__main__":
             else:
                 export_handle = sz_engine.export_json_entity_report(final_flags)
         except SzError as err:
-            print_error_msg("Could not initialize export", err, exit=True)
+            print_error_msg("Could not initialize export", err, exit_=True)
 
         export_start = time.time()
 
