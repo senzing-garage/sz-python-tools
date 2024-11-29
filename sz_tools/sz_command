@@ -17,7 +17,7 @@ import sys
 import textwrap
 import time
 from contextlib import suppress
-from typing import Any, Callable, List, TypeVar, Union
+from typing import Any, Callable, List, TypeVar, Union, cast
 
 from _tool_helpers import (
     Colors,
@@ -30,7 +30,7 @@ from _tool_helpers import (
     do_shell,
     get_engine_config,
     get_engine_flag_names,
-    get_engine_flags_integer,
+    get_engine_flags_as_int,
     history_setup,
     print_error,
     print_info,
@@ -41,14 +41,6 @@ from _tool_helpers import (
     response_to_file,
 )
 from senzing import SzAbstractFactory, SzError
-
-# TODO - Ant -
-from senzing._helpers import (
-    build_data_sources_json,
-    build_dsrc_code_json,
-    build_entities_json,
-    build_records_json,
-)
 
 _WrappedFunc = TypeVar("_WrappedFunc", bound=Callable[..., Any])
 
@@ -84,64 +76,61 @@ __updated__ = "2024-06-13"
 # -------------------------------------------------------------------------
 
 
-def sz_cmds_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
+def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
     @functools.wraps(do_method)
-    def wrapped_func(self, *args: Any, **kwargs: Any) -> Any:
-        print(f"\nStart: {args = }", flush=True)
-        print(f"\nStart: {kwargs = }", flush=True)
+    def wrapper(self, *args, **kwargs) -> Any:
         # Remove do_ from wrapped method
         sdk_method_name = do_method.__name__[3:]
-        # TODO - Ant -
-        print(f"\n{sdk_method_name = }", flush=True)
 
         # Apply and remove any command formatters such as jsonl, nocolor, etc
         cmd_args = self.apply_formats(args[0])
 
         # TODO - Ant -
         if self.debug_sdk_call:
-            self.sdk_call = sdk_method_name
+            sdk_call = sdk_method_name
             sdk_call_dict = {}
 
-        # TODO - Ant - required_data_sources???
-        # if cmd_has_args:
+        # If there is a parser for the method it takes arguments
         if sdk_method_name in self.subparsers.choices:
             try:
                 # Parse arguments for a command and add to kwargs to use in calling do_ method
                 # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
                 kwargs["parsed_args"] = self.parser.parse_args([f"{sdk_method_name}"] + self.parse(cmd_args))
                 print(f"\n{self.parser.parse_args([f'{sdk_method_name}'] + self.parse(cmd_args)) = }", flush=True)
-                print(f"\nFirst: {kwargs['parsed_args'] = }", flush=True)
-                # TODO - Ant -
-                # Get the argparse.Namespace as a dictionary
+                # Get the argparse.Namespace as a dictionary to change any modified arguments for debug
                 if self.debug_sdk_call:
                     sdk_call_dict = kwargs["parsed_args"].__dict__.copy()
 
                 # If the command has flags build the int value for the do_ method
                 if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
-                    # TODO - Ant -Change name of get_engine_flags_integer? It is an int but really is an enum
-                    kwargs["flags"] = get_engine_flags_integer(kwargs["parsed_args"].flags)
-                    print(f"\n{get_engine_flags_integer(kwargs['parsed_args'].flags) = }", flush=True)
-                    print(f"\n{type(get_engine_flags_integer(kwargs['parsed_args'].flags)) = }", flush=True)
-                    # TODO - Ant -.value ?
+                    kwargs["flags"] = get_engine_flags_as_int(kwargs["parsed_args"].flags)
                     if self.debug_sdk_call:
-                        sdk_call_dict["flags"] = kwargs["flags"].value
+                        sdk_call_dict["flags"] = kwargs["flags"]
 
                 # If the command uses *_record_keys build the expected list of tuples for the SDK
                 # TODO - Ant -  Change to an in statement?
                 if hasattr(kwargs["parsed_args"], "record_keys") or hasattr(kwargs["parsed_args"], "avoid_record_keys"):
-                    record_keys = (
-                        kwargs["parsed_args"].record_keys
-                        if hasattr(kwargs["parsed_args"], "record_keys")
-                        else kwargs["parsed_args"].avoid_record_keys
-                    )
+                    # TODO - Ant -  Change others to in now
+                    # if "record_keys" or "avoid_record_keys" in kwargs["parsed_args"]:
+                    print(f"\n{kwargs['parsed_args'] = }", flush=True)
+                    rk_type = "record_keys" if "record_keys" in kwargs["parsed_args"] else "avoid_record_keys"
+                    print(f"\n{rk_type = }", flush=True)
+                    # record_keys = (
+                    #     kwargs["parsed_args"].record_keys
+                    #     if "record_keys" in kwargs["parsed_args"]
+                    #     else kwargs["parsed_args"].avoid_record_keys
+                    # )
+                    print(f"\n{kwargs['parsed_args'] = }", flush=True)
+                    record_keys = getattr(kwargs["parsed_args"], rk_type)
                     print(f"\n{record_keys = }", flush=True)
                     print(f"\n{type(record_keys) = }", flush=True)
                     # 1 list element == str from quotes: get_virtual_entity_by_record_id 'REFERENCE 2012 customers 1001'
                     # >1 list elements == list such as: find_path_by_record_id ...-a customers 1001 reference 2001
-                    # Split single str into a list
+                    # Split single str list element into multiple elements
                     if len(record_keys) == 1:
                         record_keys = record_keys[0].split()
 
+                    # TODO - Ant - Move to SDK helpers?
                     if len(record_keys) % 2 != 0:
                         print_error(f"Uneven number of data source codes and record IDs: {record_keys}")
                         return None
@@ -149,14 +138,22 @@ def sz_cmds_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                     # Build the list of tuples expected by the SDK for record_keys arguments
                     # [('REFERENCE', '2012'), ('CUSTOMERS', '1001')]
                     print(f"\nBefore adding record_keys to kwargs: {kwargs = }", flush=True)
-                    kwargs["record_keys"] = [tuple(record_keys[i : i + 2]) for i in range(0, len(record_keys), 2)]
+                    # kwargs["record_keys"] = [tuple(record_keys[i : i + 2]) for i in range(0, len(record_keys), 2)]
+                    print(f"\n{type(kwargs) = }", flush=True)
+                    print(f"\n{locals()['rk_type'] = }", flush=True)
+                    kwargs[locals()["rk_type"]] = [tuple(record_keys[i : i + 2]) for i in range(0, len(record_keys), 2)]
+                    print("here?")
+                    print(f"\n{kwargs = }", flush=True)
 
                     # TODO - Ant -
+                    # if self.debug_sdk_call:
+                    #     if "record_keys" in kwargs["parsed_args"]:
+                    #         sdk_call_dict["record_keys"] = kwargs["record_keys"]
+                    #     if "avoid_record_keys" in kwargs["parsed_args"]:
+                    #         sdk_call_dict["avoid_record_keys"] = kwargs["record_keys"]
                     if self.debug_sdk_call:
-                        if "record_keys" in kwargs["parsed_args"]:
-                            sdk_call_dict["record_keys"] = kwargs["record_keys"]
-                        if "avoid_record_keys" in kwargs["parsed_args"]:
-                            sdk_call_dict["avoid_record_keys"] = kwargs["record_keys"]
+                        sdk_call_dict[locals()["rk_type"]] = kwargs[locals()["rk_type"]]
+                    print("Past here?")
 
                 # If the command uses entity IDs perform clean up, sanity checks and build the expected list for the SDK
                 # TODO - Ant - Make it behave the same as entity_ids to be consistent?
@@ -192,6 +189,8 @@ def sz_cmds_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 return None
             # Catch errors from methods such as get_engine_flags
             except (KeyError, SzError) as err:
+                # TODO - Ant -
+                print(f"\nhere: {err.args = }", flush=True)
                 print_error(err)
                 return None
 
@@ -207,17 +206,16 @@ def sz_cmds_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
             if "parsed_args" in kwargs:
                 print(f"\n{kwargs['parsed_args'] = }", flush=True)
                 print(f"\n{kwargs['parsed_args'].__dict__ = }", flush=True)
-            print(f"\n{self.sdk_call = }", flush=True)
             if self.debug_sdk_call:
+                print(f"\n{sdk_call = }", flush=True)
                 print(f"\n{sdk_call_dict = }", flush=True)
-                self.sdk_call = self.sdk_call + "("
+                sdk_call = sdk_call + "("
                 for k, v in sdk_call_dict.items():
-                    self.sdk_call = self.sdk_call + f"{k} = {v}, "
-                self.sdk_call = self.sdk_call.rstrip(", ") + ")"
-                print(self.sdk_call)
+                    sdk_call = sdk_call + f"{k} = {v}, "
+                sdk_call = sdk_call.rstrip(", ") + ")"
+                print(f"\n{sdk_call = }", flush=True)
                 print()
-
-        except (SzError, IOError) as err:
+        except (SzError, IOError, ValueError) as err:
             result = None
             print_error(err)
         finally:
@@ -229,18 +227,18 @@ def sz_cmds_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
 
         return result
 
-    return wrapped_func
+    # return wrapped_func
+    return cast(_WrappedFunc, wrapper)
 
 
 # -------------------------------------------------------------------------
 # Classes
 # -------------------------------------------------------------------------
+# TODO - Ant - Test reaching this after refactoring decorator
 class SzCommandArgumentParser(argparse.ArgumentParser):
     """Subclass ArgumentParser, override error() with custom message"""
 
     def error(self, message: str) -> None:
-        # TODO - Ant -
-        print("oh yes")
         self.exit(
             2,
             print_error(message),
@@ -817,7 +815,7 @@ class SzCmdShell(cmd.Cmd):
     # szconfig commands
     # -----------------------------------------------------------------------------
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_template_config(self) -> None:
         """
         Get a template configuration
@@ -836,7 +834,7 @@ class SzCmdShell(cmd.Cmd):
     # szconfigmanager commands
     # -----------------------------------------------------------------------------
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_config(self, **kwargs: Any) -> None:
         """
         Get a configuration
@@ -858,7 +856,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_configmgr.get_config(kwargs["parsed_args"].config_id)
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_configs(self) -> None:
         """
         Get a list of current configurations
@@ -869,7 +867,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_configmgr.get_configs()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_default_config_id(self) -> None:
         """
         Get the default configuration ID
@@ -880,7 +878,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_configmgr.get_default_config_id()
         self.last_response = self.output_response(response, "success")
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_replace_default_config_id(self, **kwargs: Any) -> None:
         """
         Replace the default configuration ID
@@ -909,7 +907,7 @@ class SzCmdShell(cmd.Cmd):
         # # Configuration has changed, update attributes from configuration
         # self.attrs = self.get_config_attr_codes()
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_set_default_config_id(self, **kwargs: Any) -> None:
         """
         Set the default configuration ID
@@ -935,7 +933,7 @@ class SzCmdShell(cmd.Cmd):
     # szdiagnostic commands
     # -----------------------------------------------------------------------------
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_check_datastore_performance(self, **kwargs: Any) -> None:
         """
         Run a performance check on the database
@@ -950,7 +948,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_diagnostic.check_datastore_performance(kwargs["parsed_args"].seconds_to_run)
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_datastore_info(self) -> None:
         """
         Get data store information
@@ -961,7 +959,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_diagnostic.get_datastore_info()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_feature(self, **kwargs: Any) -> None:
         """
         Get feature information
@@ -978,7 +976,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_diagnostic.get_feature(kwargs["parsed_args"].featureID)
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_purge_repository(self, **kwargs: Any) -> None:
         """
         Purge Senzing database of all data
@@ -1023,7 +1021,7 @@ class SzCmdShell(cmd.Cmd):
     # szengine commands
     # -----------------------------------------------------------------------------
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_add_record(self, **kwargs: Any) -> None:
         """
         Add a record and optionally return information
@@ -1055,7 +1053,7 @@ class SzCmdShell(cmd.Cmd):
         else:
             self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_count_redo_records(self) -> None:
         """
         Counts the number of records in the redo queue
@@ -1069,7 +1067,7 @@ class SzCmdShell(cmd.Cmd):
         else:
             self.last_response = self.output_response(response, "success")
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_delete_record(self, **kwargs: Any) -> None:
         """
         Delete a record and optionally return information
@@ -1100,7 +1098,7 @@ class SzCmdShell(cmd.Cmd):
         else:
             self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_export_csv_entity_report(self, **kwargs: Any) -> None:
         """
         Export repository contents as CSV
@@ -1157,7 +1155,7 @@ class SzCmdShell(cmd.Cmd):
             self.output_response(f"Total exported records: {rec_cnt}", "success")
             # self.last_response = ""
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_export_json_entity_report(self, **kwargs: Any) -> None:
         """
         Export repository contents as JSON
@@ -1208,7 +1206,7 @@ class SzCmdShell(cmd.Cmd):
             self.output_response(f"Total exported records: {rec_cnt}", "success")
             # self.last_response = ""
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_find_interesting_entities_by_entity_id(self, **kwargs: Any) -> None:
         """
         Find interesting entities close to an entity by resolved entity identifier
@@ -1242,7 +1240,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_find_interesting_entities_by_record_id(self, **kwargs: Any) -> None:
         """
         Find interesting entities close to an entity by record identifier
@@ -1278,7 +1276,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_find_network_by_entity_id(self, **kwargs: Any) -> None:
         """
         Find network between entities
@@ -1311,7 +1309,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_find_network_by_record_id(self, **kwargs: Any) -> None:
         """
         Find network between records
@@ -1344,7 +1342,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_find_path_by_entity_id(self, **kwargs: Any) -> None:
         """
         Find a path between two entities
@@ -1381,7 +1379,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_find_path_by_record_id(self, **kwargs: Any) -> None:
         """
         Find a path between two records
@@ -1405,6 +1403,9 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
+        # TODO - Ant -
+        print(f"\nIn find_path: {kwargs = }", flush=True)
+
         find_path_by_record_id = functools.partial(
             self.sz_engine.find_path_by_record_id,
             kwargs["parsed_args"].start_data_source_code,
@@ -1414,7 +1415,9 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].max_degrees,
             # Although the SDK and parser argument is avoid_record_keys, the sz_cmds_decorator detects
             # avoid_record_keys but always adds record_keys back to kwargs
-            kwargs["record_keys"],
+            # TODO - Ant -
+            # kwargs["record_keys"],
+            kwargs["avoid_record_keys"],
             kwargs["parsed_args"].required_data_sources,
         )
 
@@ -1422,7 +1425,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_active_config_id(self) -> None:
         """
         Get the active configuration identifier
@@ -1433,7 +1436,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_engine.get_active_config_id()
         self.last_response = self.output_response(response, color="success")
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_entity_by_entity_id(self, **kwargs: Any) -> None:
         """
         Get entity by resolved entity identifier
@@ -1460,7 +1463,7 @@ class SzCmdShell(cmd.Cmd):
         response = get_entity(kwargs["flags"]) if "flags" in kwargs else get_entity()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_entity_by_record_id(self, **kwargs: Any) -> None:
         """
         Get entity by data source code and record identifier
@@ -1489,7 +1492,7 @@ class SzCmdShell(cmd.Cmd):
         response = get_entity(kwargs["flags"]) if "flags" in kwargs else get_entity()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_record(self, **kwargs: Any) -> None:
         """
         Get a record
@@ -1518,7 +1521,7 @@ class SzCmdShell(cmd.Cmd):
         response = get_record(kwargs["flags"]) if "flags" in kwargs else get_record()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_redo_record(self) -> None:
         """
         Get a redo record from the redo queue
@@ -1532,7 +1535,7 @@ class SzCmdShell(cmd.Cmd):
         else:
             self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_stats(self) -> None:
         """
         Get engine workload statistics for last process
@@ -1543,7 +1546,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_engine.get_stats()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_virtual_entity_by_record_id(self, **kwargs: Any) -> None:
         """
         Determine how an entity composed of a given set of records would look
@@ -1569,7 +1572,7 @@ class SzCmdShell(cmd.Cmd):
         response = get_virtual(kwargs["flags"]) if "flags" in kwargs else get_virtual()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_how_entity_by_entity_id(self, **kwargs: Any) -> None:
         """
         Retrieve information on how entities are constructed from their records
@@ -1595,7 +1598,7 @@ class SzCmdShell(cmd.Cmd):
         response = how_entity(kwargs["flags"]) if "flags" in kwargs else how_entity()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_prime_engine(self) -> None:
         """
         Prime the Senzing engine
@@ -1606,7 +1609,7 @@ class SzCmdShell(cmd.Cmd):
         self.sz_engine.prime_engine()
         self.last_response = self.output_response("Engine primed.", "success")
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_process_redo_record(self, **kwargs: Any) -> None:
         """
         Process a redo record fetched from the redo queue
@@ -1631,7 +1634,7 @@ class SzCmdShell(cmd.Cmd):
         response = process_redo(kwargs["flags"]) if "flags" in kwargs else process_redo()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_preprocess_record(self, **kwargs: Any) -> None:
         """
         Pre-process a record
@@ -1656,7 +1659,7 @@ class SzCmdShell(cmd.Cmd):
         response = preprocess_record(kwargs["flags"]) if "flags" in kwargs else preprocess_record()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_reevaluate_entity(self, **kwargs: Any) -> None:
         """
         Reevaluate an entity and optionally return information
@@ -1687,7 +1690,7 @@ class SzCmdShell(cmd.Cmd):
         else:
             self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_reevaluate_record(self, **kwargs: Any) -> None:
         """
         Reevaluate a record and optionally return information
@@ -1719,7 +1722,7 @@ class SzCmdShell(cmd.Cmd):
         else:
             self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_search_by_attributes(self, **kwargs: Any) -> None:
         # search_by_attributes ATTRIBUTES [SEARCH_PROFILE] [-f FLAG ...]
         # search_by_attributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' SEARCH -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
@@ -1755,7 +1758,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_why_entities(self, **kwargs: Any) -> None:
         """
         Determine how entities relate to each other
@@ -1784,7 +1787,7 @@ class SzCmdShell(cmd.Cmd):
         response = why_entities(kwargs["flags"]) if "flags" in kwargs else why_entities()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_why_record_in_entity(self, **kwargs: Any) -> None:
         """
         Determine why a particular record resolved to an entity
@@ -1813,7 +1816,7 @@ class SzCmdShell(cmd.Cmd):
         response = why_record(kwargs["flags"]) if "flags" in kwargs else why_record()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_why_records(self, **kwargs: Any) -> None:
         """
         Determine how two records relate to each other
@@ -1850,7 +1853,7 @@ class SzCmdShell(cmd.Cmd):
     # szproduct commands
     # -----------------------------------------------------------------------------
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_license(self) -> None:
         """
         Get license information
@@ -1861,7 +1864,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_product.get_license()
         self.last_response = self.output_response(response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_get_version(self) -> None:  # pylint: disable=invalid-name
         """
         Get version information
@@ -1923,7 +1926,7 @@ class SzCmdShell(cmd.Cmd):
         """
         response_to_clipboard(self.last_response)
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_response_to_file(self, **kwargs: Any) -> None:
         """
         Attempt to copy the last command response to a file
@@ -1957,7 +1960,7 @@ class SzCmdShell(cmd.Cmd):
 
         self.write_config()
 
-    @sz_cmds_decorator
+    @do_methods_decorator
     def do_set_theme(self, **kwargs: Any) -> None:
         """
         Switch terminal ANSI colors

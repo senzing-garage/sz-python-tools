@@ -418,7 +418,7 @@ def get_engine_flag_names() -> List[str]:
     return list(SzEngineFlags.__members__.keys())
 
 
-def get_engine_flags_integer(flags: List[str]) -> int:
+def get_engine_flags_as_int(flags: List[str]) -> int:
     """Detect if int or named flags are used and convert to int"""
     if flags[0] == "-1":
         return -1
