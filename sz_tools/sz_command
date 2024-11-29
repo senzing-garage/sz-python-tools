@@ -96,34 +96,21 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 # Parse arguments for a command and add to kwargs to use in calling do_ method
                 # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
                 kwargs["parsed_args"] = self.parser.parse_args([f"{sdk_method_name}"] + self.parse(cmd_args))
-                print(f"\n{self.parser.parse_args([f'{sdk_method_name}'] + self.parse(cmd_args)) = }", flush=True)
                 # Get the argparse.Namespace as a dictionary to change any modified arguments for debug
                 if self.debug_sdk_call:
                     sdk_call_dict = kwargs["parsed_args"].__dict__.copy()
 
-                # If the command has flags build the int value for the do_ method
+                # If the command has flags build the int value
                 if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
                     kwargs["flags"] = get_engine_flags_as_int(kwargs["parsed_args"].flags)
                     if self.debug_sdk_call:
                         sdk_call_dict["flags"] = kwargs["flags"]
 
-                # If the command uses *_record_keys build the expected list of tuples for the SDK
-                # TODO - Ant -  Change to an in statement?
+                # If the command uses *record_keys build the expected list of tuples for the SDK
                 if hasattr(kwargs["parsed_args"], "record_keys") or hasattr(kwargs["parsed_args"], "avoid_record_keys"):
-                    # TODO - Ant -  Change others to in now
-                    # if "record_keys" or "avoid_record_keys" in kwargs["parsed_args"]:
-                    print(f"\n{kwargs['parsed_args'] = }", flush=True)
                     rk_type = "record_keys" if "record_keys" in kwargs["parsed_args"] else "avoid_record_keys"
-                    print(f"\n{rk_type = }", flush=True)
-                    # record_keys = (
-                    #     kwargs["parsed_args"].record_keys
-                    #     if "record_keys" in kwargs["parsed_args"]
-                    #     else kwargs["parsed_args"].avoid_record_keys
-                    # )
-                    print(f"\n{kwargs['parsed_args'] = }", flush=True)
                     record_keys = getattr(kwargs["parsed_args"], rk_type)
-                    print(f"\n{record_keys = }", flush=True)
-                    print(f"\n{type(record_keys) = }", flush=True)
+                    # TODO - Ant -What if there are comma separators
                     # 1 list element == str from quotes: get_virtual_entity_by_record_id 'REFERENCE 2012 customers 1001'
                     # >1 list elements == list such as: find_path_by_record_id ...-a customers 1001 reference 2001
                     # Split single str list element into multiple elements
@@ -135,47 +122,51 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                         print_error(f"Uneven number of data source codes and record IDs: {record_keys}")
                         return None
 
-                    # Build the list of tuples expected by the SDK for record_keys arguments
+                    # Build the list of tuples for the SDK
                     # [('REFERENCE', '2012'), ('CUSTOMERS', '1001')]
-                    print(f"\nBefore adding record_keys to kwargs: {kwargs = }", flush=True)
-                    # kwargs["record_keys"] = [tuple(record_keys[i : i + 2]) for i in range(0, len(record_keys), 2)]
-                    print(f"\n{type(kwargs) = }", flush=True)
-                    print(f"\n{locals()['rk_type'] = }", flush=True)
                     kwargs[locals()["rk_type"]] = [tuple(record_keys[i : i + 2]) for i in range(0, len(record_keys), 2)]
-                    print("here?")
-                    print(f"\n{kwargs = }", flush=True)
 
-                    # TODO - Ant -
-                    # if self.debug_sdk_call:
-                    #     if "record_keys" in kwargs["parsed_args"]:
-                    #         sdk_call_dict["record_keys"] = kwargs["record_keys"]
-                    #     if "avoid_record_keys" in kwargs["parsed_args"]:
-                    #         sdk_call_dict["avoid_record_keys"] = kwargs["record_keys"]
                     if self.debug_sdk_call:
                         sdk_call_dict[locals()["rk_type"]] = kwargs[locals()["rk_type"]]
-                    print("Past here?")
 
-                # If the command uses entity IDs perform clean up, sanity checks and build the expected list for the SDK
+                # If the method uses entity_ids build the expected list for the SDK
                 # TODO - Ant - Make it behave the same as entity_ids to be consistent?
                 # avoid_entity_ids doesn't need to be checked, it is parsed as a list
                 if hasattr(kwargs["parsed_args"], "entity_ids"):
-                    entity_ids_str = kwargs["parsed_args"].entity_ids
+                    # TODO - Ant -
+                    print(f"\n{kwargs['parsed_args'].entity_ids = }", flush=True)
+                    # entity_ids_str = kwargs["parsed_args"].entity_ids
 
-                    # entity_list could be provided with commas, remove then '1,2,3,4' -> '1 2 3 4'
-                    entity_ids_str = entity_ids_str.replace(",", " ")
+                    # # entity_list could be provided with commas, remove then '1,2,3,4' -> '1 2 3 4'
+                    # entity_ids_str = entity_ids_str.replace(",", " ")
 
-                    # Convert back to a list for further checks and ready to send to the do_ method
-                    entity_ids_list = entity_ids_str.split()
-                    # TODO - Ant - Is this needed? What happens if SDK helpers catch this?
-                    non_ints = [id for id in entity_ids_list if not id.isdigit()]
-                    if non_ints:
-                        print_error(f"Entity IDs should be integers: {non_ints}")
-                        return None
+                    # # Convert back to a list for further checks and ready to send to the do_ method
+                    # entity_ids_list = entity_ids_str.split()
+                    # non_ints = [id for id in entity_ids_list if not id.isdigit()]
+                    # if non_ints:
+                    #     print_error(f"Entity IDs should be integers: {non_ints}")
+                    #     return None
 
                     # Convert the str digits to ints
-                    kwargs["entity_ids"] = [int(i) for i in entity_ids_list]
+                    # kwargs["entity_ids"] = [int(i) for i in entity_ids_list]
 
-                    # TODO - Ant -
+                    entity_ids = kwargs["parsed_args"].entity_ids
+                    if len(entity_ids) == 1:
+                        entity_ids = entity_ids[0].replace(",", " ")
+                        entity_ids = entity_ids.split()
+
+                    print(f"\n{entity_ids = }", flush=True)
+
+                    # TODO - Ant -What if int() fails?
+                    try:
+                        kwargs["entity_ids"] = [int(i) for i in entity_ids]
+                    except ValueError:
+                        non_ints = [id for id in entity_ids if not id.isdigit()]
+                        print_error(f"Entity IDs should be integers: {', '.join(non_ints)}")
+                        return None
+
+                    print(f"\nAfter int(): {kwargs['entity_ids'] = }", flush=True)
+
                     if self.debug_sdk_call:
                         sdk_call_dict["entity_ids"] = kwargs["entity_ids"]
 
@@ -185,7 +176,9 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 self.do_help(do_method.__name__)
                 return None
             # Catch parsing errors such as missing single quote around JSON, the error is displayed by parse()
-            except ValueError:
+            except ValueError as err:
+                # TODO - Ant -
+                print(f"\nValuerror: {err = }", flush=True)
                 return None
             # Catch errors from methods such as get_engine_flags
             except (KeyError, SzError) as err:
@@ -429,7 +422,9 @@ class SzCmdShell(cmd.Cmd):
         find_network_by_entity_id_parser = self.subparsers.add_parser(
             "find_network_by_entity_id", usage=argparse.SUPPRESS
         )
-        find_network_by_entity_id_parser.add_argument("entity_ids")
+        # TODO - Ant -
+        # find_network_by_entity_id_parser.add_argument("entity_ids")
+        find_network_by_entity_id_parser.add_argument("entity_ids", nargs="+")
         find_network_by_entity_id_parser.add_argument("max_degrees", type=int)
         find_network_by_entity_id_parser.add_argument("build_out_degrees", type=int)
         find_network_by_entity_id_parser.add_argument("build_out_max_entities", type=int)
