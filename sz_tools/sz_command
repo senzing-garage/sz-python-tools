@@ -1,6 +1,7 @@
 #! /usr/bin/env python3
 
 """ # TODO """
+# TODO - Ant - All build_* items getting built correctly?
 
 import argparse
 import cmd
@@ -40,6 +41,14 @@ from _tool_helpers import (
     response_to_file,
 )
 from senzing import SzAbstractFactory, SzError
+
+# TODO - Ant -
+from senzing._helpers import (
+    build_data_sources_json,
+    build_dsrc_code_json,
+    build_entities_json,
+    build_records_json,
+)
 
 WrappedFunc = TypeVar("WrappedFunc", bound=Callable[..., Any])
 
@@ -83,23 +92,47 @@ def sz_cmds_decorator(
     def decorator(do_method: WrappedFunc) -> Any:
         @functools.wraps(do_method)
         def wrapped_func(self: "SzCmdShell", *args: Any, **kwargs: Any) -> Any:
+            print(f"\nStart: {args = }", flush=True)
+            print(f"\nStart: {kwargs = }", flush=True)
             # Remove do_ from wrapped method
-            sdk_method = do_method.__name__[3:]
+            sdk_method_name = do_method.__name__[3:]
+            # TODO - Ant -
+            print(f"\n{sdk_method_name = }", flush=True)
 
             # Apply and remove any command formatters such as jsonl, nocolor, etc
             cmd_args = self.apply_formats(args[0])
 
-            if cmd_has_args:
+            # TODO - Ant -
+            if self.debug_sdk_call:
+                self.sdk_call = sdk_method_name
+                sdk_call_dict = {}
+
+            # TODO - Ant - required_data_sources???
+            # if cmd_has_args:
+            if sdk_method_name in self.subparsers.choices:
                 try:
                     # Parse arguments for a command and add to kwargs to use in calling do_ method
                     # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
-                    kwargs["parsed_args"] = self.parser.parse_args([f"{sdk_method}"] + self.parse(cmd_args))
+                    kwargs["parsed_args"] = self.parser.parse_args([f"{sdk_method_name}"] + self.parse(cmd_args))
+                    print(f"\n{self.parser.parse_args([f'{sdk_method_name}'] + self.parse(cmd_args)) = }", flush=True)
+                    print(f"\nFirst: {kwargs['parsed_args'] = }", flush=True)
+                    # TODO - Ant -
+                    # Get the argparse.Namespace as a dictionary
+                    if self.debug_sdk_call:
+                        sdk_call_dict = kwargs["parsed_args"].__dict__.copy()
 
                     # If the command has flags build the int value for the do_ method
                     if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
+                        # TODO - Ant -Change name of get_engine_flags_integer? It is an int but really is an enum
                         kwargs["flags"] = get_engine_flags_integer(kwargs["parsed_args"].flags)
+                        print(f"\n{get_engine_flags_integer(kwargs['parsed_args'].flags) = }", flush=True)
+                        print(f"\n{type(get_engine_flags_integer(kwargs['parsed_args'].flags)) = }", flush=True)
+                        # TODO - Ant -.value ?
+                        if self.debug_sdk_call:
+                            sdk_call_dict["flags"] = kwargs["flags"].value
 
                     # If the command uses *_record_keys build the expected list of tuples for the SDK
+                    # TODO - Ant -  Change to an in statement?
                     if hasattr(kwargs["parsed_args"], "record_keys") or hasattr(
                         kwargs["parsed_args"], "avoid_record_keys"
                     ):
@@ -108,8 +141,11 @@ def sz_cmds_decorator(
                             if hasattr(kwargs["parsed_args"], "record_keys")
                             else kwargs["parsed_args"].avoid_record_keys
                         )
-                        # 1 list element = str from quotes: get_virtual_entity_by_record_id 'REFERENCE 2012 customers 1001'
-                        # Split it into a list
+                        print(f"\n{record_keys = }", flush=True)
+                        print(f"\n{type(record_keys) = }", flush=True)
+                        # 1 list element == str from quotes: get_virtual_entity_by_record_id 'REFERENCE 2012 customers 1001'
+                        # >1 list elements == list such as: find_path_by_record_id ...-a customers 1001 reference 2001
+                        # Split single str into a list
                         if len(record_keys) == 1:
                             record_keys = record_keys[0].split()
 
@@ -119,17 +155,28 @@ def sz_cmds_decorator(
 
                         # Build the list of tuples expected by the SDK for record_keys arguments
                         # [('REFERENCE', '2012'), ('CUSTOMERS', '1001')]
+                        print(f"\nBefore adding record_keys to kwargs: {kwargs = }", flush=True)
                         kwargs["record_keys"] = [tuple(record_keys[i : i + 2]) for i in range(0, len(record_keys), 2)]
 
+                        # TODO - Ant -
+                        if self.debug_sdk_call:
+                            if "record_keys" in kwargs["parsed_args"]:
+                                sdk_call_dict["record_keys"] = kwargs["record_keys"]
+                            if "avoid_record_keys" in kwargs["parsed_args"]:
+                                sdk_call_dict["avoid_record_keys"] = kwargs["record_keys"]
+
                     # If the command uses entity IDs perform clean up, sanity checks and build the expected list for the SDK
+                    # TODO - Ant - Make it behave the same as entity_ids to be consistent?
+                    # avoid_entity_ids doesn't need to be checked, it is parsed as a list
                     if hasattr(kwargs["parsed_args"], "entity_ids"):
                         entity_ids_str = kwargs["parsed_args"].entity_ids
 
                         # entity_list could be provided with commas, remove then '1,2,3,4' -> '1 2 3 4'
                         entity_ids_str = entity_ids_str.replace(",", " ")
 
-                        # Convert back list for further checks and ready to send to the do_ method
+                        # Convert back to a list for further checks and ready to send to the do_ method
                         entity_ids_list = entity_ids_str.split()
+                        # TODO - Ant - Is this needed? What happens if SDK helpers catch this?
                         non_ints = [id for id in entity_ids_list if not id.isdigit()]
                         if non_ints:
                             print_error(f"Entity IDs should be integers: {non_ints}")
@@ -137,6 +184,10 @@ def sz_cmds_decorator(
 
                         # Convert the str digits to ints
                         kwargs["entity_ids"] = [int(i) for i in entity_ids_list]
+
+                        # TODO - Ant -
+                        if self.debug_sdk_call:
+                            sdk_call_dict["entity_ids"] = kwargs["entity_ids"]
 
                 # Catch argument errors from parser.parse_args and display the commands help
                 # Argparse parser error method is subclassed by SzCommandArgumentParser and displays the error
@@ -157,7 +208,22 @@ def sz_cmds_decorator(
             # Run the decorated method passing back kwargs for use in SDK call
             try:
                 result = do_method(self, **kwargs)
-                self.last_command = f"{sdk_method} {cmd_args}"
+                # self.sdk_call = f"{sdk_method} {cmd_args}"
+                # TODO - Ant -
+                print(f"\n{kwargs = }", flush=True)
+                if "parsed_args" in kwargs:
+                    print(f"\n{kwargs['parsed_args'] = }", flush=True)
+                    print(f"\n{kwargs['parsed_args'].__dict__ = }", flush=True)
+                print(f"\n{self.sdk_call = }", flush=True)
+                if self.debug_sdk_call:
+                    print(f"\n{sdk_call_dict = }", flush=True)
+                    self.sdk_call = self.sdk_call + "("
+                    for k, v in sdk_call_dict.items():
+                        self.sdk_call = self.sdk_call + f"{k} = {v}, "
+                    self.sdk_call = self.sdk_call.rstrip(", ") + ")"
+                    print(self.sdk_call)
+                    print()
+
             except (SzError, IOError) as err:
                 result = None
                 print_error(err)
@@ -182,6 +248,8 @@ class SzCommandArgumentParser(argparse.ArgumentParser):
     """Subclass ArgumentParser, override error() with custom message"""
 
     def error(self, message: str) -> None:
+        # TODO - Ant -
+        print("oh yes")
         self.exit(
             2,
             print_error(message),
@@ -266,9 +334,12 @@ class SzCmdShell(cmd.Cmd):
         self.format_json_cmd = False
 
         # General
-        self.last_command = ""
         self.last_response = ""
         self.scroll_output = False
+        # TODO - Ant -
+        self.sdk_call = ""
+        # TODO - Ant -
+        self.debug_sdk_call = True
         self.timer = False
 
         # Configuration ini file for this tool
