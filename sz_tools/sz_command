@@ -1,7 +1,6 @@
 #! /usr/bin/env python3
 
 """ # TODO """
-# TODO - Ant - All build_* items getting built correctly?
 
 import argparse
 import cmd
@@ -32,6 +31,7 @@ from _tool_helpers import (
     get_engine_flag_names,
     get_engine_flags_as_int,
     history_setup,
+    print_debug,
     print_error,
     print_info,
     print_response,
@@ -85,7 +85,6 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
         # Apply and remove any command formatters such as jsonl, nocolor, etc
         cmd_args = self.apply_formats(args[0])
 
-        # TODO - Ant -
         if self.debug_sdk_call:
             sdk_call = sdk_method_name
             sdk_call_dict = {}
@@ -100,7 +99,7 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 if self.debug_sdk_call:
                     sdk_call_dict = kwargs["parsed_args"].__dict__.copy()
 
-                # If the command has flags build the int value
+                # If the command has flags get the int value
                 if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
                     kwargs["flags"] = get_engine_flags_as_int(kwargs["parsed_args"].flags)
                     if self.debug_sdk_call:
@@ -110,7 +109,6 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 if hasattr(kwargs["parsed_args"], "record_keys") or hasattr(kwargs["parsed_args"], "avoid_record_keys"):
                     rk_type = "record_keys" if "record_keys" in kwargs["parsed_args"] else "avoid_record_keys"
                     record_keys = getattr(kwargs["parsed_args"], rk_type)
-                    # TODO - Ant -What if there are comma separators
                     # 1 list element == str from quotes: get_virtual_entity_by_record_id 'REFERENCE 2012 customers 1001'
                     # >1 list elements == list such as: find_path_by_record_id ...-a customers 1001 reference 2001
                     # Split single str list element into multiple elements
@@ -129,43 +127,20 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                     if self.debug_sdk_call:
                         sdk_call_dict[locals()["rk_type"]] = kwargs[locals()["rk_type"]]
 
-                # If the method uses entity_ids build the expected list for the SDK
-                # TODO - Ant - Make it behave the same as entity_ids to be consistent?
+                # If the method uses entity_ids build the list for the SDK
                 # avoid_entity_ids doesn't need to be checked, it is parsed as a list
                 if hasattr(kwargs["parsed_args"], "entity_ids"):
-                    # TODO - Ant -
-                    print(f"\n{kwargs['parsed_args'].entity_ids = }", flush=True)
-                    # entity_ids_str = kwargs["parsed_args"].entity_ids
-
-                    # # entity_list could be provided with commas, remove then '1,2,3,4' -> '1 2 3 4'
-                    # entity_ids_str = entity_ids_str.replace(",", " ")
-
-                    # # Convert back to a list for further checks and ready to send to the do_ method
-                    # entity_ids_list = entity_ids_str.split()
-                    # non_ints = [id for id in entity_ids_list if not id.isdigit()]
-                    # if non_ints:
-                    #     print_error(f"Entity IDs should be integers: {non_ints}")
-                    #     return None
-
-                    # Convert the str digits to ints
-                    # kwargs["entity_ids"] = [int(i) for i in entity_ids_list]
-
                     entity_ids = kwargs["parsed_args"].entity_ids
                     if len(entity_ids) == 1:
                         entity_ids = entity_ids[0].replace(",", " ")
                         entity_ids = entity_ids.split()
 
-                    print(f"\n{entity_ids = }", flush=True)
-
-                    # TODO - Ant -What if int() fails?
                     try:
                         kwargs["entity_ids"] = [int(i) for i in entity_ids]
                     except ValueError:
                         non_ints = [id for id in entity_ids if not id.isdigit()]
                         print_error(f"Entity IDs should be integers: {', '.join(non_ints)}")
                         return None
-
-                    print(f"\nAfter int(): {kwargs['entity_ids'] = }", flush=True)
 
                     if self.debug_sdk_call:
                         sdk_call_dict["entity_ids"] = kwargs["entity_ids"]
@@ -176,14 +151,10 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 self.do_help(do_method.__name__)
                 return None
             # Catch parsing errors such as missing single quote around JSON, the error is displayed by parse()
-            except ValueError as err:
-                # TODO - Ant -
-                print(f"\nValuerror: {err = }", flush=True)
+            except ValueError:
                 return None
             # Catch errors from methods such as get_engine_flags
             except (KeyError, SzError) as err:
-                # TODO - Ant -
-                print(f"\nhere: {err.args = }", flush=True)
                 print_error(err)
                 return None
 
@@ -192,22 +163,11 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
 
         # Run the decorated method passing back kwargs for use in SDK call
         try:
-            result = do_method(self, **kwargs)
-            # self.sdk_call = f"{sdk_method} {cmd_args}"
-            # TODO - Ant -
-            print(f"\n{kwargs = }", flush=True)
-            if "parsed_args" in kwargs:
-                print(f"\n{kwargs['parsed_args'] = }", flush=True)
-                print(f"\n{kwargs['parsed_args'].__dict__ = }", flush=True)
             if self.debug_sdk_call:
-                print(f"\n{sdk_call = }", flush=True)
-                print(f"\n{sdk_call_dict = }", flush=True)
-                sdk_call = sdk_call + "("
-                for k, v in sdk_call_dict.items():
-                    sdk_call = sdk_call + f"{k} = {v}, "
-                sdk_call = sdk_call.rstrip(", ") + ")"
-                print(f"\n{sdk_call = }", flush=True)
-                print()
+                sdk_call_args = ", ".join([f"{k} = {v}" for k, v in sdk_call_dict.items() if v])
+                sdk_call = f"{sdk_method_name}({sdk_call_args})"
+                print_debug(sdk_call)
+            result = do_method(self, **kwargs)
         except (SzError, IOError, ValueError) as err:
             result = None
             print_error(err)
@@ -220,7 +180,6 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
 
         return result
 
-    # return wrapped_func
     return cast(_WrappedFunc, wrapper)
 
 
@@ -318,8 +277,6 @@ class SzCmdShell(cmd.Cmd):
         # General
         self.last_response = ""
         self.scroll_output = False
-        # TODO - Ant -
-        self.sdk_call = ""
         # TODO - Ant -
         self.debug_sdk_call = True
         self.timer = False
@@ -422,8 +379,6 @@ class SzCmdShell(cmd.Cmd):
         find_network_by_entity_id_parser = self.subparsers.add_parser(
             "find_network_by_entity_id", usage=argparse.SUPPRESS
         )
-        # TODO - Ant -
-        # find_network_by_entity_id_parser.add_argument("entity_ids")
         find_network_by_entity_id_parser.add_argument("entity_ids", nargs="+")
         find_network_by_entity_id_parser.add_argument("max_degrees", type=int)
         find_network_by_entity_id_parser.add_argument("build_out_degrees", type=int)
@@ -433,7 +388,6 @@ class SzCmdShell(cmd.Cmd):
         find_network_by_record_id_parser = self.subparsers.add_parser(
             "find_network_by_record_id", usage=argparse.SUPPRESS
         )
-        # find_network_by_record_id_parser.add_argument("record_keys", nargs="*")
         find_network_by_record_id_parser.add_argument("record_keys", nargs="+")
         find_network_by_record_id_parser.add_argument("max_degrees", type=int)
         find_network_by_record_id_parser.add_argument("build_out_degrees", type=int)
@@ -663,6 +617,7 @@ class SzCmdShell(cmd.Cmd):
             if history_check:
                 print_warning(history_check)
 
+        # TODO - Ant - Improve this
         # Check if there is a config file and use config
         if not self.docker_launched:
             self.read_config()

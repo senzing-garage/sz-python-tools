@@ -93,6 +93,7 @@ class Colors:
 
         return to_color
 
+    # TODO - Ant - Order vars
     @classmethod
     def set_theme(cls, theme: str) -> None:
         """# TODO"""
@@ -108,6 +109,7 @@ class Colors:
             cls.GOOD = cls.SZ_GREEN  # cls.FG_CHARTREUSE3
             cls.BAD = cls.SZ_RED  # cls.FG_RED3
             cls.CAUTION = cls.SZ_YELLOW  # cls.FG_GOLD3
+            cls.DEBUG = cls.FG_MAGENTA
             cls.HIGHLIGHT1 = cls.SZ_PINK  # cls.FG_DEEPPINK4
             cls.HIGHLIGHT2 = cls.SZ_CYAN  # cls.FG_DEEPSKYBLUE1
             cls.MATCH = cls.SZ_BLUE
@@ -126,6 +128,7 @@ class Colors:
             cls.ATTR_COLOR = cls.FG_LIGHTCYAN + cls.BOLD
             cls.GOOD = cls.FG_LIGHTGREEN
             cls.BAD = cls.FG_LIGHTRED
+            cls.DEBUG = cls.FG_MAGENTA
             cls.CAUTION = cls.FG_LIGHTYELLOW
             cls.HIGHLIGHT1 = cls.FG_LIGHTMAGENTA
             cls.HIGHLIGHT2 = cls.FG_LIGHTCYAN
@@ -144,6 +147,7 @@ class Colors:
             cls.ATTR_COLOR = cls.FG_CYAN
             cls.GOOD = cls.FG_GREEN
             cls.BAD = cls.FG_RED
+            cls.DEBUG = cls.FG_MAGENTA
             cls.CAUTION = cls.FG_YELLOW
             cls.HIGHLIGHT1 = cls.FG_MAGENTA
             cls.HIGHLIGHT2 = cls.FG_CYAN
@@ -159,11 +163,12 @@ class Colors:
         # the colors set by the terminal preferences so a user will see the colors
         # they expect and set in their terminal in the output from tools
         elif theme == "TERMINAL":
-            cls.GOOD = cls.FG_GREEN  # Green
-            cls.BAD = cls.FG_RED  # Red
-            cls.CAUTION = cls.FG_YELLOW  # Yellow
-            cls.HIGHLIGHT1 = cls.FG_BLUE  # Blue
-            cls.HIGHLIGHT2 = cls.FG_CYAN  # Cyan
+            cls.GOOD = cls.FG_GREEN
+            cls.BAD = cls.FG_RED
+            cls.CAUTION = cls.FG_YELLOW
+            cls.DEBUG = cls.FG_MAGENTA
+            cls.HIGHLIGHT1 = cls.FG_BLUE
+            cls.HIGHLIGHT2 = cls.FG_CYAN
             cls.JSONKEYCOLOR = cls.FG_BLUE
             cls.JSONVALUECOLOR = cls.FG_YELLOW
 
@@ -267,6 +272,7 @@ class Colors:
     GOOD = SZ_GREEN
     BAD = SZ_RED
     CAUTION = SZ_YELLOW
+    DEBUG = FG_MAGENTA
     HIGHLIGHT1 = SZ_PINK
     HIGHLIGHT2 = SZ_CYAN
     MATCH = SZ_BLUE
@@ -547,16 +553,23 @@ def colorize_cmd_prompt(prompt: str, color_or_type: str, color_disabled: bool = 
 # -------------------------------------------------------------------------
 
 
+def print_debug(msg: str, end_str: str = "\n\n", color_disabled: bool = False) -> None:
+    """# TODO"""
+    print(f"\n{colorize_output('DEBUG:', 'debug', color_disabled=color_disabled)} {msg}", end=end_str)
+
+
 def print_error(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
     print(f"\n{colorize_output('ERROR:', 'error', color_disabled=color_disabled)} {msg}", end=end_str)
 
 
+# TODO - Ant - Remove Union?
 def print_info(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
     print(colorize_output(f"\n{msg}", "info", color_disabled=color_disabled), end=end_str)
 
 
+# TODO - Ant - Remove Union?
 def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
     print(f"\n{colorize_output('WARNING:', 'warning', color_disabled=color_disabled)} {msg}", end=end_str)
