@@ -2,6 +2,8 @@
 
 """ # TODO """
 
+# TODO - Ant -Remove capture file, last_response add append mode
+
 import argparse
 import cmd
 import configparser
@@ -282,8 +284,12 @@ class SzCmdShell(cmd.Cmd):
         self.timer = False
 
         # Configuration ini file for this tool
-        config_file_str = f"~/.{MODULE_NAME.lower()}{'.ini'}"
+        # TODO - Ant -
+        # config_file_str = f"~/.{MODULE_NAME.lower()}{'.ini'}"
+        config_file_str = f"~/.{MODULE_NAME}{'.ini'}"
         self.config_file = pathlib.Path(config_file_str).expanduser()
+        # TODO - Ant -
+        self.config_file_exists = pathlib.Path(self.config_file).exists()
 
         # Display can't read/write config message once, not at all in container
         self.config_error = False
@@ -418,9 +424,7 @@ class SzCmdShell(cmd.Cmd):
         find_path_by_record_id_parser.add_argument("end_data_source_code")
         find_path_by_record_id_parser.add_argument("end_record_id")
         find_path_by_record_id_parser.add_argument("max_degrees", type=int)
-        # find_path_by_record_id_parser.add_argument("-a", "--avoid_record_keys", default="", nargs="?", required=False)
         find_path_by_record_id_parser.add_argument("-a", "--avoid_record_keys", default=[], nargs="+", required=False)
-        # find_path_by_record_id_parser.add_argument("-r", "--required_data_sources", default="", nargs="?", required=False)
         find_path_by_record_id_parser.add_argument(
             "-r", "--required_data_sources", default=[], nargs="+", required=False
         )
@@ -617,12 +621,12 @@ class SzCmdShell(cmd.Cmd):
             if history_check:
                 print_warning(history_check)
 
-        # TODO - Ant - Improve this
-        # Check if there is a config file and use config
+        # Check if there is a config file and read it, if not create one
         if not self.docker_launched:
-            self.read_config()
-            # TODO - Ant - This isn't needed? read_config() will try and create a new one
-            self.write_config()
+            if self.config_file_exists:
+                self.read_config()
+            else:
+                self.write_config()
 
         print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help", color_disabled=self.color_disabled)
 
@@ -1353,9 +1357,6 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Engine flag details https://docs.senzing.com/flags/index.html"""
 
-        # TODO - Ant -
-        print(f"\nIn find_path: {kwargs = }", flush=True)
-
         find_path_by_record_id = functools.partial(
             self.sz_engine.find_path_by_record_id,
             kwargs["parsed_args"].start_data_source_code,
@@ -1363,10 +1364,6 @@ class SzCmdShell(cmd.Cmd):
             kwargs["parsed_args"].end_data_source_code,
             kwargs["parsed_args"].end_record_id,
             kwargs["parsed_args"].max_degrees,
-            # Although the SDK and parser argument is avoid_record_keys, the sz_cmds_decorator detects
-            # avoid_record_keys but always adds record_keys back to kwargs
-            # TODO - Ant -
-            # kwargs["record_keys"],
             kwargs["avoid_record_keys"],
             kwargs["parsed_args"].required_data_sources,
         )
@@ -1991,30 +1988,31 @@ class SzCmdShell(cmd.Cmd):
 
     # Try and read configuration ini file, if one doesn't exist create one
     def read_config(self) -> None:
-        config_exists = pathlib.Path(self.config_file).exists()
+        # TODO - Ant -
+        # config_exists = pathlib.Path(self.config_file).exists()
 
-        if config_exists:
-            try:
-                config_parser = configparser.ConfigParser()
-                with open(self.config_file, "r", encoding="utf-8") as _:
-                    pass
-                config_parser.read(self.config_file)
-                self.format_json = config_parser["CONFIG"].getboolean("formatjson")
-                self.color_json = config_parser["CONFIG"].getboolean("outputcolor")
-                self.timer = config_parser["CONFIG"].getboolean("timer")
-                self.theme = config_parser["CONFIG"]["theme"]
-                self.scroll_output = config_parser["CONFIG"].getboolean("scroll_output")
-            except IOError as err:
-                print_warning(
-                    f"Error reading configuration file {self.config_file}: {err}",
-                )
-            except (configparser.Error, KeyError) as err:
-                print_warning(
-                    f"Error reading entries from configuration file {self.config_file}: {err}",
-                )
-        else:
-            # If a configuration file doesn't exist attempt to create one
-            self.write_config()
+        # if config_exists:
+        try:
+            config_parser = configparser.ConfigParser()
+            with open(self.config_file, "r", encoding="utf-8") as _:
+                pass
+            config_parser.read(self.config_file)
+            self.format_json = config_parser["CONFIG"].getboolean("formatjson")
+            self.color_json = config_parser["CONFIG"].getboolean("outputcolor")
+            self.timer = config_parser["CONFIG"].getboolean("timer")
+            self.theme = config_parser["CONFIG"]["theme"]
+            self.scroll_output = config_parser["CONFIG"].getboolean("scroll_output2")
+        except IOError as err:
+            print_warning(
+                f"Error reading configuration file {self.config_file}: {err}",
+            )
+        except (configparser.Error, KeyError) as err:
+            print_warning(
+                f"Error reading entries from configuration file {self.config_file}: {err}",
+            )
+        # else:
+        #     # If a configuration file doesn't exist attempt to create one
+        #     self.write_config()
 
     # Try and write configuration ini file
     def write_config(self) -> None:
