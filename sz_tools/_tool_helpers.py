@@ -502,16 +502,20 @@ def colorize_output(
     # output: Union[int, str], color_or_type: str, output_color: bool = True
     output: Union[Exception, int, str],
     color_or_type: str,
-    color_disabled: bool = False,
+    # TODO - Ant -
+    # color_disabled: bool = False,
+    output_color: bool = True,
 ) -> str:
     """# TODO"""
 
+    # TODO - Ant -
+    print(f"\ncolorize_outuput: {output_color = }", flush=True)
     output = str(output) if isinstance(output, int) else output
 
     if not output:
         return ""
 
-    if color_disabled:
+    if not output_color:
         return output
 
     # if output_color:
@@ -555,37 +559,41 @@ def colorize_cmd_prompt(prompt: str, color_or_type: str, color_disabled: bool = 
 
 def print_debug(msg: str, end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('DEBUG:', 'debug', color_disabled=color_disabled)} {msg}", end=end_str)
+    print(f"\n{colorize_output('DEBUG:', 'debug', output_color=color_disabled)} {msg}", end=end_str)
 
 
-def print_error(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
+def print_error(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('ERROR:', 'error', color_disabled=color_disabled)} {msg}", end=end_str)
+    # TODO - Ant -
+    print(f"\n{output_color = }", flush=True)
+    print(f"\n{colorize_output('ERROR:', 'error', output_color)} {msg}", end=end_str)
 
 
 # TODO - Ant - Remove Union?
 def print_info(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
-    print(colorize_output(f"\n{msg}", "info", color_disabled=color_disabled), end=end_str)
+    print(colorize_output(f"\n{msg}", "info", output_color=color_disabled), end=end_str)
 
 
 # TODO - Ant - Remove Union?
 def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('WARNING:', 'warning', color_disabled=color_disabled)} {msg}", end=end_str)
+    print(f"\n{colorize_output('WARNING:', 'warning', output_color=color_disabled)} {msg}", end=end_str)
 
 
 def print_response(
     response: Union[int, str],
     color_json: bool,
-    color_json_cmd: bool,
+    # color_json_cmd: bool,
     format_json: bool,
-    format_json_cmd: bool,
-    cmd_color: bool,
-    cmd_format: bool,
-    scroll_output: bool = False,
+    # format_json_cmd: bool,
+    # cmd_color: bool,
+    # cmd_format: bool,
+    # scroll_output: bool = False,
+    scroll_output: bool,
+    # color_disabled: bool = False,
+    output_color: bool,
     color: str = "",
-    color_disabled: bool = False,
 ) -> str:
     """# TODO"""
     strip_colors = True
@@ -595,13 +603,13 @@ def print_response(
         color = "info"
 
     if isinstance(response, int) or not response.startswith("{"):
-        output = colorize_output(response, color, color_disabled)
+        output = colorize_output(response, color, output_color)
     else:
         try:
             # Test if data is json and format appropriately
             _ = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
         except (JsonDecodeError, TypeError):
-            output = colorize_output(response, color, color_disabled)
+            output = colorize_output(response, color, output_color)
             strip_colors = False
         else:
             # TODO Is this check still needed?
@@ -609,7 +617,8 @@ def print_response(
                 response = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
 
             # Format JSON if global config or single command formatter specifies
-            if (format_json and not cmd_format) or (cmd_format and format_json_cmd):
+            # if (format_json and not cmd_format) or (cmd_format and format_json_cmd):
+            if format_json:
                 json_ = (
                     orjson.dumps(response, option=orjson.OPT_INDENT_2)
                     if ORJSON_AVAIL
@@ -623,10 +632,19 @@ def print_response(
             json_str: str = json_.decode() if ORJSON_AVAIL else json_  # type: ignore
 
             # Color JSON if global config or single command formatter specifies
-            if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
+            # if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
+            # TODO - Ant -
+            # if not color_disabled:
+            output = json_str
+            # TODO - Ant -
+            print(f"\nhelpers add color: {output_color = }", flush=True)
+            print(f"\nhelpers add color: {color_json = }", flush=True)
+            if output_color and color_json:
+                # TODO - Ant -
+                print("I am coloring...")
                 output = colorize_json(json_str)
-            else:
-                output = json_str
+            # else:
+            #     output = json_str
 
     if scroll_output:
         try:
@@ -672,7 +690,8 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
         print_warning(f"No help found for {help_topic[3:]}")
         return
 
-    help_text = current_section = ""
+    help_text = ""
+    current_section = ""
     headers = [
         "Syntax:",
         "Examples:",

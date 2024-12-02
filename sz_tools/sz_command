@@ -47,6 +47,7 @@ _WrappedFunc = TypeVar("_WrappedFunc", bound=Callable[..., Any])
 
 DEFAULT_CONFIG = {
     "format_json": True,
+    "color_json": True,
     "output_color": True,
     "timer": False,
     "theme": "TERMINAL",
@@ -68,6 +69,16 @@ PER_CMD_SETTINGS = [
     "nocolour",
 ]
 
+# TODO - Ant -
+SETTINGS_TO_CONFIG_MAP = {
+    "json": ["format_json", True],
+    "jsonl": ["format_json", False],
+    "color": ["color_json", True],
+    "colour": ["color_json", True],
+    "nocolor": ["color_json", False],
+    "nocolour": ["color_json", False],
+}
+
 # TODO - Ant - Some of these will go away with new set command
 CMDS_NOT_TO_SET_LAST_COMMAND = [
     "history",
@@ -79,6 +90,35 @@ CMDS_NOT_TO_SET_LAST_COMMAND = [
     "scroll_output",
     "timer",
 ]
+
+
+# TODO - Ant - Themes need to be pulled from helpers, add to class?
+CONFIG_SETTINGS = {
+    "format_json": {
+        "values": ["off", "on"],
+        "description": "Format JSON responses",
+    },
+    "color_json": {
+        "values": ["off", "on"],
+        "description": "Color JSON responses",
+    },
+    "timer": {
+        "values": ["off", "on"],
+        "description": "Show approximate timings for command execution",
+    },
+    "theme": {
+        "values": ["default", "light", "dark", "terminal"],
+        "description": "Set color scheme to use",
+    },
+    "scroll_output": {
+        "values": ["off", "on"],
+        "description": "Scroll content larger than terminal",
+    },
+    "debug_sdk_call": {
+        "values": ["off", "on"],
+        "description": "Show the call sent to the Python Senzing SDK",
+    },
+}
 
 
 # -------------------------------------------------------------------------
@@ -547,19 +587,27 @@ class SzCmdShell(cmd.Cmd):
 
         return attr_codes
 
+    # TODO - Ant - Signature didn't line up?
     # Call helper function to format and print command responses with constant values
     def output_response(self, response: Union[int, str], color: str = "") -> str:
+        # TODO - Ant -
+        print(f"\noutput_response: {self.per_cmd_config = }", flush=True)
+        print(f"\noutput_response: {color = }", flush=True)
         formatted_response: str = print_response(
             response,
-            self.color_json,
-            self.color_json_cmd,
-            self.format_json,
-            self.format_json_cmd,
-            self.cmd_color,
-            self.cmd_format,
-            self.scroll_output,
-            color,
-            self.color_disabled,
+            # self.color_json,
+            # self.color_json_cmd,
+            # self.format_json,
+            # self.format_json_cmd,
+            # self.cmd_color,
+            # self.cmd_format,
+            # self.scroll_output,
+            self.per_cmd_config["color_json"],
+            self.per_cmd_config["format_json"],
+            self.per_cmd_config["scroll_output"],
+            self.per_cmd_config["output_color"],
+            # self.color_disabled,
+            color=color,
         )
 
         return formatted_response
@@ -632,12 +680,20 @@ class SzCmdShell(cmd.Cmd):
         print(f"\nprecmd: {line = }", flush=True)
         print(f"\n{self.get_per_cmd_settings(line) = }", flush=True)
         cmd_line_settings = self.get_per_cmd_settings(line)
-        self.per_cmd_config = self.config
+        self.per_cmd_config = self.config.copy()
         if cmd_line_settings:
             for cmd_setting in cmd_line_settings:
+                print(f"\nprecmd: {cmd_setting = }", flush=True)
+                print(f"\nprecmd: {SETTINGS_TO_CONFIG_MAP[cmd_setting] = }", flush=True)
+                config_key = SETTINGS_TO_CONFIG_MAP[cmd_setting][0]
+                config_setting = SETTINGS_TO_CONFIG_MAP[cmd_setting][1]
+                print(f"\n{config_key = }", flush=True)
+                print(f"\n{config_setting = }", flush=True)
+                print(f"\n{self.per_cmd_config = }", flush=True)
                 # TODO - Ant - It should only be bools need to flip?
-                if isinstance(self.per_cmd_config[cmd_setting], bool):
-                    self.per_cmd_config[cmd_setting] = not self.config[cmd_setting]
+                if isinstance(config_setting, bool):
+                    # self.per_cmd_config[setting_to_config] = not self.config[setting_to_config]
+                    self.per_cmd_config[config_key] = config_setting
 
         return line
 
@@ -691,6 +747,7 @@ class SzCmdShell(cmd.Cmd):
             except (ValueError, TypeError) as err:
                 print_error(f"Problem with command: {err}")
 
+    # TODO - Ant -  What happens with new settings and color to a file?
     def commands_from_file(self, file_name: str) -> None:
         """
         Read commands from a file and call the matching commands. Command formatters (jsonl, json, etc) are
@@ -1931,6 +1988,81 @@ class SzCmdShell(cmd.Cmd):
         """
         self.last_response = response_reformat_json(self.last_response, self.color_json, self.color_disabled)
 
+    # TODO - Ant -
+    # TODO - Ant -  Check colours are the same as other methods
+    def help_set(self):
+        print(
+            textwrap.dedent(
+                f"""\
+
+        {colorize_str('Syntax:', 'highlight2')}
+            set {colorize_str('setting value', "dim")}
+
+        {colorize_str('Settings:', 'highlight2')} """
+            )
+        )
+        print(
+            colorize_str(
+                f"    {'Setting':<17} {'Possible values':<34} {'Current':<10} {'Description'}",
+                "dim",
+            )
+        )
+        print()
+        for setting, values_description in CONFIG_SETTINGS.items():
+            values = ", ".join(values_description["values"])
+            current_value = self.config[setting]
+            # TODO - Ant -  Convert the input on/off to bool
+            if current_value is True:
+                current_value = "on"  # type: ignore[assignment]
+
+            if current_value is False:
+                current_value = "off"  # type: ignore[assignment]
+            current_value = colorize_str(current_value, "bold")
+
+            desc = colorize_str(values_description["description"], "dim")
+            # TODO - Ant -
+            print(
+                # f"    {setting_data['setting']:<23} {'[' + ', '.join(setting_data['values']) + ']':<22} {current_value:<22} {colorize_str(setting_data['description'], 'dim')}"
+                # f"    {setting:<20} [{values}] {' ':<10} {current_value:<15} {desc}"
+                f"    {setting:<17} {'[' + values + ']':<34} {current_value:<19} {desc}"
+            )
+        print()
+
+    # TODO - Ant -
+    def do_set(self, line: str):
+        """# TODO - Ant -"""
+        if not line:
+            self.help_set()
+            return
+
+        # TODO - Ant -
+        print(f"\n{line = }", flush=True)
+        line_list = line.split()
+        print(f"\n{line_list = }", flush=True)
+        if len(line_list) < 2:
+            self.help_set()
+            return
+
+        setting = line_list[0].lower()
+        value = line_list[1].lower()
+
+        if setting not in CONFIG_SETTINGS:
+            print_error(f"{setting} is an unknown configuration setting")
+            return
+
+        if value not in CONFIG_SETTINGS[setting]["values"]:
+            print_error(f"{value} is not a valid value for configuration setting {setting}")
+            return
+
+        # TODO - Ant -  Convert the input on/off to bool
+        if value == "on":
+            value = True  # type: ignore[assignment]
+
+        if value == "off":
+            value = False  # type: ignore[assignment]
+
+        self.config[setting] = value
+
     def do_scroll_output(self, line: str) -> None:  # pylint: disable=[unused-argument]
         """
         Switch output between using a pager or not
@@ -2249,6 +2381,13 @@ class SzCmdShell(cmd.Cmd):
     def complete_response_to_file(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if re.match("response_to_file +", line):
             return self.path_completes(text, line, begidx, endidx, "response_to_file")
+        return []
+
+    def complete_set(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
+        if m := re.match("set (.*) ", line):
+            return [value for value in CONFIG_SETTINGS[m.group(1)]["values"] if value.startswith(text.lower())]
+        if re.match("set +", line):
+            return [setting for setting in CONFIG_SETTINGS if setting.startswith(text.lower())]
         return []
 
     def complete_set_theme(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
