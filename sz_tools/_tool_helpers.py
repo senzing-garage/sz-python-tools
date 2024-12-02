@@ -557,28 +557,26 @@ def colorize_cmd_prompt(prompt: str, color_or_type: str, color_disabled: bool = 
 # -------------------------------------------------------------------------
 
 
-def print_debug(msg: str, end_str: str = "\n\n", color_disabled: bool = False) -> None:
+def print_debug(msg: str, end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('DEBUG:', 'debug', output_color=color_disabled)} {msg}", end=end_str)
+    print(f"\n{colorize_output('DEBUG:', 'debug', output_color)} {msg}", end=end_str)
 
 
 def print_error(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    # TODO - Ant -
-    print(f"\n{output_color = }", flush=True)
     print(f"\n{colorize_output('ERROR:', 'error', output_color)} {msg}", end=end_str)
 
 
 # TODO - Ant - Remove Union?
-def print_info(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
+def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    print(colorize_output(f"\n{msg}", "info", output_color=color_disabled), end=end_str)
+    print(colorize_output(f"\n{msg}", "info", output_color), end=end_str)
 
 
 # TODO - Ant - Remove Union?
-def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
+def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('WARNING:', 'warning', output_color=color_disabled)} {msg}", end=end_str)
+    print(f"\n{colorize_output('WARNING:', 'warning', output_color)} {msg}", end=end_str)
 
 
 def print_response(
@@ -592,7 +590,7 @@ def print_response(
     # scroll_output: bool = False,
     scroll_output: bool,
     # color_disabled: bool = False,
-    output_color: bool,
+    color_output: bool,
     color: str = "",
 ) -> str:
     """# TODO"""
@@ -603,13 +601,13 @@ def print_response(
         color = "info"
 
     if isinstance(response, int) or not response.startswith("{"):
-        output = colorize_output(response, color, output_color)
+        output = colorize_output(response, color, color_output)
     else:
         try:
             # Test if data is json and format appropriately
             _ = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
         except (JsonDecodeError, TypeError):
-            output = colorize_output(response, color, output_color)
+            output = colorize_output(response, color, color_output)
             strip_colors = False
         else:
             # TODO Is this check still needed?
@@ -637,9 +635,9 @@ def print_response(
             # if not color_disabled:
             output = json_str
             # TODO - Ant -
-            print(f"\nhelpers add color: {output_color = }", flush=True)
+            print(f"\nhelpers add color: {color_output = }", flush=True)
             print(f"\nhelpers add color: {color_json = }", flush=True)
-            if output_color and color_json:
+            if color_output and color_json:
                 # TODO - Ant -
                 print("I am coloring...")
                 output = colorize_json(json_str)

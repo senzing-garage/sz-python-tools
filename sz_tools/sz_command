@@ -5,6 +5,11 @@
 # TODO - Ant - Settings, even if can't write always have a default set each session that can be set
 # TODO - Ant - Response to file with append should also add the prior command or arg to add commands to both file an clipboard?
 # TODO - Ant - Once moved to settings (probably needs to be dict now) Each pre command makes a copy of settings to change for each per command setting to temporarily use
+# TODO - Ant - Remove commands not in settings
+# TODO - Ant - Add timer, scroll to per cmd
+# TODO - Ant - Remove all the self. vars no longer needed
+# TODO - Ant - Allow set to toggle bools if no value supplied?
+
 
 import argparse
 import cmd
@@ -48,10 +53,10 @@ _WrappedFunc = TypeVar("_WrappedFunc", bound=Callable[..., Any])
 DEFAULT_CONFIG = {
     "format_json": True,
     "color_json": True,
-    "output_color": True,
+    "color_output": True,
     "timer": False,
     "theme": "TERMINAL",
-    "scroll_output": False,
+    "page_output": False,
     "debug_sdk_call": False,
 }
 
@@ -60,14 +65,7 @@ MODULE_NAME = pathlib.Path(__file__).stem
 
 # TODO - Ant - Add debug and timer?
 # Per command JSON formatting options
-PER_CMD_SETTINGS = [
-    "json",
-    "jsonl",
-    "color",
-    "colour",
-    "nocolor",
-    "nocolour",
-]
+PER_CMD_SETTINGS = ["json", "jsonl", "color", "colour", "nocolor", "nocolour", "debug", "timer", "page"]
 
 # TODO - Ant -
 SETTINGS_TO_CONFIG_MAP = {
@@ -77,6 +75,9 @@ SETTINGS_TO_CONFIG_MAP = {
     "colour": ["color_json", True],
     "nocolor": ["color_json", False],
     "nocolour": ["color_json", False],
+    "debug": ["debug_sdk_call", True],
+    "timer": ["timer", True],
+    "page": ["page_output", True],
 }
 
 # TODO - Ant - Some of these will go away with new set command
@@ -102,6 +103,10 @@ CONFIG_SETTINGS = {
         "values": ["off", "on"],
         "description": "Color JSON responses",
     },
+    "color_output": {
+        "values": ["off", "on"],
+        "description": "Color non JSON output",
+    },
     "timer": {
         "values": ["off", "on"],
         "description": "Show approximate timings for command execution",
@@ -110,9 +115,9 @@ CONFIG_SETTINGS = {
         "values": ["default", "light", "dark", "terminal"],
         "description": "Set color scheme to use",
     },
-    "scroll_output": {
+    "page_output": {
         "values": ["off", "on"],
-        "description": "Scroll content larger than terminal",
+        "description": "Use a pager for content larger than the terminal",
     },
     "debug_sdk_call": {
         "values": ["off", "on"],
@@ -151,7 +156,15 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
         # cmd_args = self.apply_formats(args[0]
         cmd_args = self.remove_per_cmd_settings(args[0])
 
-        if self.debug_sdk_call:
+        # TODO - Ant -
+        print(f"\nDecorator: {self.config = }", flush=True)
+        print(f"\nDecorator: {self.per_cmd_config = }", flush=True)
+
+        do_debug = self.per_cmd_config["debug_sdk_call"]
+        do_timer = self.per_cmd_config["timer"]
+        # TODO - Ant -
+        # if self.debug_sdk_call:
+        if do_debug:
             sdk_call = sdk_method_name
             sdk_call_dict = {}
 
@@ -162,13 +175,17 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
                 kwargs["parsed_args"] = self.parser.parse_args([f"{sdk_method_name}"] + self.parse(cmd_args))
                 # Get the argparse.Namespace as a dictionary to change any modified arguments for debug
-                if self.debug_sdk_call:
+                # TODO - Ant -
+                # if self.debug_sdk_call:
+                if do_debug:
                     sdk_call_dict = kwargs["parsed_args"].__dict__.copy()
 
                 # If the command has flags get the int value
                 if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
                     kwargs["flags"] = get_engine_flags_as_int(kwargs["parsed_args"].flags)
-                    if self.debug_sdk_call:
+                    # TODO - Ant -
+                    # if self.debug_sdk_call:
+                    if do_debug:
                         sdk_call_dict["flags"] = kwargs["flags"]
 
                 # If the command uses *record_keys build the expected list of tuples for the SDK
@@ -190,7 +207,9 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                     # [('REFERENCE', '2012'), ('CUSTOMERS', '1001')]
                     kwargs[locals()["rk_type"]] = [tuple(record_keys[i : i + 2]) for i in range(0, len(record_keys), 2)]
 
-                    if self.debug_sdk_call:
+                    # TODO - Ant -
+                    # if self.debug_sdk_call:
+                    if do_debug:
                         sdk_call_dict[locals()["rk_type"]] = kwargs[locals()["rk_type"]]
 
                 # If the method uses entity_ids build the list for the SDK
@@ -208,7 +227,9 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                         print_error(f"Entity IDs should be integers: {', '.join(non_ints)}")
                         return None
 
-                    if self.debug_sdk_call:
+                    # TODO - Ant -
+                    # if self.debug_sdk_call:
+                    if do_debug:
                         sdk_call_dict["entity_ids"] = kwargs["entity_ids"]
 
             # Catch argument errors from parser.parse_args and display the commands help
@@ -224,12 +245,16 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 print_error(err)
                 return None
 
-        if self.timer:
+        # TODO - Ant -
+        # if self.timer:
+        if do_timer:
             timer_start = time.perf_counter()
 
         # Run the decorated method passing back kwargs for use in SDK call
         try:
-            if self.debug_sdk_call:
+            # TODO - Ant -
+            # if self.debug_sdk_call:
+            if do_debug:
                 sdk_call_args = ", ".join([f"{k} = {v}" for k, v in sdk_call_dict.items() if v])
                 sdk_call = f"{sdk_method_name}({sdk_call_args})"
                 print_debug(sdk_call)
@@ -238,7 +263,9 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
             result = None
             print_error(err)
         finally:
-            if self.timer:
+            # TODO - Ant -
+            # if self.timer:
+            if do_timer:
                 exec_time = time.perf_counter() - timer_start
                 print_info(
                     f"Approximate execution time (s): {exec_time:.5f}",
@@ -310,8 +337,9 @@ class SzCmdShell(cmd.Cmd):
             "do_shell",
         )
 
+        # TODO - Ant - Remove these / replace with config dict if really needed
         # Session wide color disabled?
-        self.color_disabled = self.cli_args.color_disable
+        # self.color_disabled = self.cli_args.color_disable
 
         # Themes - set early, used for setting cmd prompt, use the default colors set by the terminal
         self.themes = Colors.AVAILABLE_THEMES
@@ -320,7 +348,7 @@ class SzCmdShell(cmd.Cmd):
 
         # Cmd module settings
         self.intro = ""
-        self.prompt = colorize_cmd_prompt("szcmd", "info", self.color_disabled)
+        self.prompt = colorize_cmd_prompt("szcmd", "info")
         # self.prompt = colorize_cmd_prompt("szcmd", "info", True)
 
         # Readline and history
@@ -345,8 +373,9 @@ class SzCmdShell(cmd.Cmd):
         self.timer = False
 
         # Configuration file for this tool
-        self.config = {}
-        self.per_cmd_config = {}
+        # TODO - Ant - Always set a default in case can't read one from file
+        self.config = DEFAULT_CONFIG
+        self.per_cmd_config = DEFAULT_CONFIG
         config_file_str = f"~/.{MODULE_NAME}{'.json'}"
         self.config_file = pathlib.Path(config_file_str).expanduser()
         self.config_file_exists = pathlib.Path(self.config_file).exists()
@@ -604,8 +633,8 @@ class SzCmdShell(cmd.Cmd):
             # self.scroll_output,
             self.per_cmd_config["color_json"],
             self.per_cmd_config["format_json"],
-            self.per_cmd_config["scroll_output"],
-            self.per_cmd_config["output_color"],
+            self.per_cmd_config["page_output"],
+            self.per_cmd_config["color_output"],
             # self.color_disabled,
             color=color,
         )
@@ -713,7 +742,7 @@ class SzCmdShell(cmd.Cmd):
                 self.config = DEFAULT_CONFIG
                 self.write_config()
 
-        print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help", color_disabled=self.color_disabled)
+        print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help")
 
     # -------------------------------------------------------------------------
     # Non-interactive input methods
@@ -1986,7 +2015,8 @@ class SzCmdShell(cmd.Cmd):
         Syntax:
             response_reformat_json
         """
-        self.last_response = response_reformat_json(self.last_response, self.color_json, self.color_disabled)
+        # TODO - Ant - Change to use config/per dict
+        self.last_response = response_reformat_json(self.last_response, self.color_json)
 
     # TODO - Ant -
     # TODO - Ant -  Check colours are the same as other methods
@@ -2062,6 +2092,10 @@ class SzCmdShell(cmd.Cmd):
             value = False  # type: ignore[assignment]
 
         self.config[setting] = value
+        self.write_config()
+        if setting == "theme":
+            Colors.set_theme(value)
+        self.prompt = colorize_cmd_prompt("szcmd", "info")
 
     def do_scroll_output(self, line: str) -> None:  # pylint: disable=[unused-argument]
         """
