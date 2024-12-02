@@ -8,7 +8,6 @@
 
 import argparse
 import cmd
-import configparser
 import functools
 import glob
 import json
@@ -46,12 +45,21 @@ from senzing import SzAbstractFactory, SzError
 
 _WrappedFunc = TypeVar("_WrappedFunc", bound=Callable[..., Any])
 
+DEFAULT_CONFIG = {
+    "format_json": True,
+    "output_color": True,
+    "timer": False,
+    "theme": "TERMINAL",
+    "scroll_output": False,
+    "debug_sdk_call": False,
+}
+
 
 MODULE_NAME = pathlib.Path(__file__).stem
 
 # TODO - Ant - Add debug and timer?
 # Per command JSON formatting options
-PER_CMD_FORMATTERS = [
+PER_CMD_SETTINGS = [
     "json",
     "jsonl",
     "color",
@@ -99,7 +107,9 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
 
         # TODO - Ant - Change name for new settings like timer, debug
         # Apply and remove any command formatters such as jsonl, nocolor, etc
-        cmd_args = self.apply_formats(args[0])
+        # TODO - Ant -
+        # cmd_args = self.apply_formats(args[0]
+        cmd_args = self.remove_per_cmd_settings(args[0])
 
         if self.debug_sdk_call:
             sdk_call = sdk_method_name
@@ -294,8 +304,10 @@ class SzCmdShell(cmd.Cmd):
         self.debug_sdk_call = False
         self.timer = False
 
-        # Configuration ini file for this tool
-        config_file_str = f"~/.{MODULE_NAME}{'.ini'}"
+        # Configuration file for this tool
+        self.config = {}
+        self.per_cmd_config = {}
+        config_file_str = f"~/.{MODULE_NAME}{'.json'}"
         self.config_file = pathlib.Path(config_file_str).expanduser()
         self.config_file_exists = pathlib.Path(self.config_file).exists()
 
@@ -616,6 +628,17 @@ class SzCmdShell(cmd.Cmd):
         return cmd.Cmd.postcmd(self, stop, line)
 
     def precmd(self, line: str) -> str:
+        # TODO - Ant -
+        print(f"\nprecmd: {line = }", flush=True)
+        print(f"\n{self.get_per_cmd_settings(line) = }", flush=True)
+        cmd_line_settings = self.get_per_cmd_settings(line)
+        self.per_cmd_config = self.config
+        if cmd_line_settings:
+            for cmd_setting in cmd_line_settings:
+                # TODO - Ant - It should only be bools need to flip?
+                if isinstance(self.per_cmd_config[cmd_setting], bool):
+                    self.per_cmd_config[cmd_setting] = not self.config[cmd_setting]
+
         return line
 
     def preloop(self) -> None:
@@ -631,6 +654,7 @@ class SzCmdShell(cmd.Cmd):
             if self.config_file_exists:
                 self.read_config()
             else:
+                self.config = DEFAULT_CONFIG
                 self.write_config()
 
         print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help", color_disabled=self.color_disabled)
@@ -1951,57 +1975,63 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
 
     # TODO - Ant -
+    def get_per_cmd_settings(self, cmd_line: str) -> List[str]:
+        """#TODO"""
+        # TODO - Ant -
+        return [s for s in cmd_line.split() if s.lower() in PER_CMD_SETTINGS]
+
+    # TODO - Ant -
     def remove_per_cmd_settings(self, cmd_line: str) -> str:
         """#TODO"""
         # TODO - Ant -
         # Remove any formatters from input command list and convert back to a string
-        cmd_list = [c for c in cmd_line.split() if c.lower() not in PER_CMD_FORMATTERS]
+        cmd_list = [c for c in cmd_line.split() if c.lower() not in PER_CMD_SETTINGS]
         cmd_line_cleaned = " ".join(cmd_list)
 
         return cmd_line_cleaned
 
-    # TODO - Ant - Rename method as it will do more than formats - timer, debug, scroll
-    def apply_formats(
-        self,
-        cmd_line: str,
-    ) -> str:
-        """Check command for optional formatters, apply them and remove formatters from the command before running it"""
-        # Convert command str to a list, lower each element to check if any formatters are present
-        cmd_list_lower = [x.lower() for x in cmd_line.split()]
-        formatting = [f for f in PER_CMD_FORMATTERS if f in cmd_list_lower]
+    # # TODO - Ant - Rename method as it will do more than formats - timer, debug, scroll
+    # def per_cmd_settings(
+    #     self,
+    #     cmd_line: str,
+    # ) -> str:
+    #     """Check command for optional formatters, apply them and remove formatters from the command before running it"""
+    #     # Convert command str to a list, lower each element to check if any formatters are present
+    #     cmd_list_lower = [x.lower() for x in cmd_line.split()]
+    #     formatting = [f for f in PER_CMD_SETTINGS if f in cmd_list_lower]
 
-        # Set formatters if any are found on the input command
-        if formatting:
-            # Input command as a list to remove any formatters
-            cmd_list = cmd_line.split()
+    #     # Set formatters if any are found on the input command
+    #     if formatting:
+    #         # Input command as a list to remove any formatters
+    #         cmd_list = cmd_line.split()
 
-            for format_ in formatting:
-                if format_ in ["json", "jsonl"]:
-                    self.cmd_format = True
-                    if format_ == "json":
-                        self.format_json_cmd = True
-                    if format_ == "jsonl":
-                        self.format_json_cmd = False
+    #         for format_ in formatting:
+    #             if format_ in ["json", "jsonl"]:
+    #                 self.cmd_format = True
+    #                 if format_ == "json":
+    #                     self.format_json_cmd = True
+    #                 if format_ == "jsonl":
+    #                     self.format_json_cmd = False
 
-                if format_ in [
-                    "color",
-                    "colour",
-                    "nocolor",
-                    "nocolour",
-                ]:
-                    self.cmd_color = True
-                    if format_ in ["color", "colour"]:
-                        self.color_json_cmd = True
-                    if format_ in ["nocolor", "nocolour"]:
-                        self.color_json_cmd = False
+    #             if format_ in [
+    #                 "color",
+    #                 "colour",
+    #                 "nocolor",
+    #                 "nocolour",
+    #             ]:
+    #                 self.cmd_color = True
+    #                 if format_ in ["color", "colour"]:
+    #                     self.color_json_cmd = True
+    #                 if format_ in ["nocolor", "nocolour"]:
+    #                     self.color_json_cmd = False
 
-            # TODO - Ant -
-            # Remove any formatters from input command list and convert back to a string
-            # cmd_list = [c for c in cmd_list if c not in PER_CMD_FORMATTERS]
-            # cmd_line = " ".join(cmd_list)
-        cmd_line_cleaned = self.remove_per_cmd_settings(cmd_line)
+    #         # TODO - Ant -
+    #         # Remove any formatters from input command list and convert back to a string
+    #         # cmd_list = [c for c in cmd_list if c not in PER_CMD_FORMATTERS]
+    #         # cmd_line = " ".join(cmd_list)
+    #     cmd_line_cleaned = self.remove_per_cmd_settings(cmd_line)
 
-        return cmd_line_cleaned
+    #     return cmd_line_cleaned
 
     # Parses command arguments into a list of argument strings
     def parse(self, argument_string: str) -> List[str]:
@@ -2013,54 +2043,57 @@ class SzCmdShell(cmd.Cmd):
 
     def read_config(self) -> None:
         try:
-            with open(self.config_file, "r", encoding="utf-8") as _:
-                pass
-            config_parser = configparser.ConfigParser()
-            config_parser.read(self.config_file)
-            self.format_json = config_parser["CONFIG"].getboolean("format_json")
-            self.color_json = config_parser["CONFIG"].getboolean("output_color")
-            self.timer = config_parser["CONFIG"].getboolean("timer")
-            self.theme = config_parser["CONFIG"]["theme"]
-            self.scroll_output = config_parser["CONFIG"].getboolean("scroll_output")
-            self.debug_sdk_call = config_parser["CONFIG"].getboolean("debug_sdk_call")
-        except IOError as err:
+            # with open(self.config_file, "r", encoding="utf-8") as _:
+            #     pass
+            # config_parser = configparser.ConfigParser()
+            # config_parser.read(self.config_file)
+            # self.format_json = config_parser["CONFIG"].getboolean("format_json")
+            # self.color_json = config_parser["CONFIG"].getboolean("output_color")
+            # self.timer = config_parser["CONFIG"].getboolean("timer")
+            # self.theme = config_parser["CONFIG"]["theme"]
+            # self.scroll_output = config_parser["CONFIG"].getboolean("scroll_output")
+            # self.debug_sdk_call = config_parser["CONFIG"].getboolean("debug_sdk_call")
+            with open(self.config_file, "r", encoding="utf-8") as config_read:
+                self.config = json.load(config_read)
+        except (OSError, json.JSONDecodeError) as err:
             print_warning(
                 f"Error reading configuration file {self.config_file}: {err}",
             )
-        except (configparser.Error, KeyError) as err:
-            print_warning(
-                f"Error reading entries from configuration file {self.config_file}: {err}",
-            )
+        # except (configparser.Error, KeyError) as err:
+        #     print_warning(
+        #         f"Error reading entries from configuration file {self.config_file}: {err}",
+        #     )
 
     def write_config(self) -> None:
         if self.docker_launched:
             return
 
-        write_config = configparser.ConfigParser()
-        write_config["CONFIG"] = {
-            "format_json": f'{"True" if self.format_json else "False"}',
-            "output_color": f'{"True" if self.color_json else "False"}',
-            "timer": f'{"True" if self.timer else "False"}',
-            "theme": self.theme,
-            "scroll_output": f'{"True" if self.scroll_output else "False"}',
-            "debug_sdk_call": f'{"True" if self.scroll_output else "False"}',
-        }
+        # write_config = configparser.ConfigParser()
+        # write_config["CONFIG"] = {
+        #     "format_json": f'{"True" if self.format_json else "False"}',
+        #     "output_color": f'{"True" if self.color_json else "False"}',
+        #     "timer": f'{"True" if self.timer else "False"}',
+        #     "theme": self.theme,
+        #     "scroll_output": f'{"True" if self.scroll_output else "False"}',
+        #     "debug_sdk_call": f'{"True" if self.scroll_output else "False"}',
+        # }
 
         try:
-            with open(self.config_file, "w", encoding="utf-8") as config_file:
-                write_config.write(config_file)
-        except IOError as err:
+            with open(self.config_file, "w", encoding="utf-8") as config_write:
+                # write_config.write(config_write)
+                config_write.write(json.dumps(self.config, indent=2))
+        except (OSError, json.JSONDecodeError) as err:
             if not self.config_error:
                 print_warning(
                     f"Error saving configuration to {self.config_file}: {err}",
                 )
                 self.config_error = not self.config_error
-        except configparser.Error as err:
-            if not self.config_error:
-                print_warning(
-                    f"Error writing entries to the configuration file {self.config_file}: {err}",
-                )
-                self.config_error = not self.config_error
+        # except configparser.Error as err:
+        #     if not self.config_error:
+        #         print_warning(
+        #             f"Error writing entries to the configuration file {self.config_file}: {err}",
+        #         )
+        #         self.config_error = not self.config_error
 
     # -------------------------------------------------------------------------
     # Auto completers
