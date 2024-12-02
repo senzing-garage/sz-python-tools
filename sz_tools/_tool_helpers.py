@@ -748,17 +748,6 @@ def history_setup() -> str:
     return hist_error
 
 
-def capture_file(file_path: str) -> TextIO:
-    """# TODO"""
-    try:
-        out_file = open(file_path, "w", encoding="utf-8")
-    except IOError as err:
-        print_warning(f"Can't write to capture file, continuing without capturing: {err}", end_str="\n")
-        raise IOError from err
-
-    return out_file
-
-
 def response_to_clipboard(last_response: str) -> None:
     """# TODO"""
     if not PYCLIP_AVAIL:
@@ -778,14 +767,23 @@ def response_to_clipboard(last_response: str) -> None:
         print_warning(f"Couldn't copy to clipboard: {err}")
 
 
-def response_to_file(file_path: str, last_response: str) -> None:
+def response_to_file(
+    file_path: str, append_to_file: bool, add_last_command: bool, last_command: str, last_response: str
+) -> None:
     """# TODO"""
     try:
-        with open(file_path, "w", encoding="utf-8") as out:
-            out.write(last_response)
-            out.write("\n")
-            out.flush()
-    except IOError as err:
+        mode = "a" if append_to_file else "w"
+        with open(file_path, mode, encoding="utf-8") as response_out:
+            response_file_size = Path(file_path).stat().st_size
+            if mode == "a" and response_file_size:
+                response_out.write("\n")
+            if add_last_command:
+                response_out.write(last_command)
+                response_out.write("\n\n")
+            response_out.write(last_response)
+            response_out.write("\n")
+            response_out.flush()
+    except OSError as err:
         print_error(err)
 
 

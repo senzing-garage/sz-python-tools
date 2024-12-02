@@ -2,7 +2,9 @@
 
 """ # TODO """
 
-# TODO - Ant -Remove capture file, last_response add append mode
+# TODO - Ant - Settings, even if can't write always have a default set each session that can be set
+# TODO - Ant - Response to file with append should also add the prior command or arg to add commands to both file an clipboard?
+# TODO - Ant - Once moved to settings (probably needs to be dict now) Each pre command makes a copy of settings to change for each per command setting to temporarily use
 
 import argparse
 import cmd
@@ -17,12 +19,10 @@ import shlex
 import sys
 import textwrap
 import time
-from contextlib import suppress
 from typing import Any, Callable, List, TypeVar, Union, cast
 
 from _tool_helpers import (
     Colors,
-    capture_file,
     colorize_cmd_prompt,
     colorize_output,
     colorize_str,
@@ -49,6 +49,7 @@ _WrappedFunc = TypeVar("_WrappedFunc", bound=Callable[..., Any])
 
 MODULE_NAME = pathlib.Path(__file__).stem
 
+# TODO - Ant - Add debug and timer?
 # Per command JSON formatting options
 PER_CMD_FORMATTERS = [
     "json",
@@ -57,6 +58,18 @@ PER_CMD_FORMATTERS = [
     "colour",
     "nocolor",
     "nocolour",
+]
+
+# TODO - Ant - Some of these will go away with new set command
+CMDS_NOT_TO_SET_LAST_COMMAND = [
+    "history",
+    "json_color",
+    "json_format",
+    "response_reformat_json",
+    "response_to_clipboard",
+    "response_to_file",
+    "scroll_output",
+    "timer",
 ]
 
 
@@ -84,6 +97,7 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
         # Remove do_ from wrapped method
         sdk_method_name = do_method.__name__[3:]
 
+        # TODO - Ant - Change name for new settings like timer, debug
         # Apply and remove any command formatters such as jsonl, nocolor, etc
         cmd_args = self.apply_formats(args[0])
 
@@ -188,7 +202,6 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
 # -------------------------------------------------------------------------
 # Classes
 # -------------------------------------------------------------------------
-# TODO - Ant - Test reaching this after refactoring decorator
 class SzCommandArgumentParser(argparse.ArgumentParser):
     """Subclass ArgumentParser, override error() with custom message"""
 
@@ -265,9 +278,6 @@ class SzCmdShell(cmd.Cmd):
         self.history_disable = self.cli_args.hist_disable
         self.history_msg = ""
 
-        # Capture output
-        self.capture_file = None
-
         # For pretty printing JSON responses
         self.cmd_color = False
         self.cmd_format = False
@@ -278,17 +288,15 @@ class SzCmdShell(cmd.Cmd):
 
         # General
         self.last_response = ""
+        self.last_command = ""
         self.scroll_output = False
         # TODO - Ant -
-        self.debug_sdk_call = True
+        self.debug_sdk_call = False
         self.timer = False
 
         # Configuration ini file for this tool
-        # TODO - Ant -
-        # config_file_str = f"~/.{MODULE_NAME.lower()}{'.ini'}"
         config_file_str = f"~/.{MODULE_NAME}{'.ini'}"
         self.config_file = pathlib.Path(config_file_str).expanduser()
-        # TODO - Ant -
         self.config_file_exists = pathlib.Path(self.config_file).exists()
 
         # Display can't read/write config message once, not at all in container
@@ -497,6 +505,13 @@ class SzCmdShell(cmd.Cmd):
 
         response_to_file_parser = self.subparsers.add_parser("response_to_file", usage=argparse.SUPPRESS)
         response_to_file_parser.add_argument("file_path")
+        # TODO - Ant -
+        response_to_file_parser.add_argument(
+            "-a", "--append", action="store_true", default=False, dest="append_to_file", required=False
+        )
+        response_to_file_parser.add_argument(
+            "-c", "--command", action="store_true", default=False, dest="add_command", required=False
+        )
 
         set_theme_parser = self.subparsers.add_parser("set_theme", usage=argparse.SUPPRESS)
         set_theme_parser.add_argument(
@@ -574,16 +589,14 @@ class SzCmdShell(cmd.Cmd):
         return list(dir(self.__class__))
 
     def postcmd(self, stop: bool, line: str) -> bool:
-
         self.format_json_cmd = False
         self.color_json_cmd = False
         self.cmd_color = False
         self.cmd_format = False
 
-        if self.capture_file and self.last_response:
-            self.capture_file.write(f"{self.prompt}{line}\n\n")
-            self.capture_file.write(f"{self.last_response}\n\n")
-            self.capture_file.flush()
+        # TODO - Ant -
+        if line and line.split()[0] not in CMDS_NOT_TO_SET_LAST_COMMAND:
+            self.last_command = self.remove_per_cmd_settings(line)
 
         # Default configuration ID was changed by set_default_config_id or replace_default_config_id, sz_command
         # doesn't modify the configuration so reinitialize. Update attributes from the new default configuration
@@ -602,19 +615,11 @@ class SzCmdShell(cmd.Cmd):
 
         return cmd.Cmd.postcmd(self, stop, line)
 
-    def postloop(self) -> None:
-        if self.capture_file:
-            self.capture_file.close()
-
     def precmd(self, line: str) -> str:
         return line
 
     def preloop(self) -> None:
-        # TODO - Ant - Should only be used if in interactive mode not commands or file
-        if self.cli_args.capture_file:
-            with suppress(IOError):
-                self.capture_file = capture_file(self.cli_args.capture_file)
-
+        # TODO - Ant - goes into config too
         if not self.history_disable:
             history_check = history_setup()
             # Non-empty string means error and msg was returned
@@ -1873,6 +1878,7 @@ class SzCmdShell(cmd.Cmd):
         """
         response_to_clipboard(self.last_response)
 
+    # TODO - Ant -Update help for append and command
     @do_methods_decorator
     def do_response_to_file(self, **kwargs: Any) -> None:
         """
@@ -1884,7 +1890,13 @@ class SzCmdShell(cmd.Cmd):
         Arguments:
             output_file = File to save response to
         """
-        response_to_file(kwargs["parsed_args"].file_path, self.last_response)
+        response_to_file(
+            kwargs["parsed_args"].file_path,
+            kwargs["parsed_args"].append_to_file,
+            kwargs["parsed_args"].add_command,
+            self.last_command,
+            self.last_response,
+        )
 
     def do_response_reformat_json(self, line: str) -> None:  # pylint: disable=[unused-argument]
         """
@@ -1938,6 +1950,17 @@ class SzCmdShell(cmd.Cmd):
     # Helper methods
     # -----------------------------------------------------------------------------
 
+    # TODO - Ant -
+    def remove_per_cmd_settings(self, cmd_line: str) -> str:
+        """#TODO"""
+        # TODO - Ant -
+        # Remove any formatters from input command list and convert back to a string
+        cmd_list = [c for c in cmd_line.split() if c.lower() not in PER_CMD_FORMATTERS]
+        cmd_line_cleaned = " ".join(cmd_list)
+
+        return cmd_line_cleaned
+
+    # TODO - Ant - Rename method as it will do more than formats - timer, debug, scroll
     def apply_formats(
         self,
         cmd_line: str,
@@ -1972,11 +1995,13 @@ class SzCmdShell(cmd.Cmd):
                     if format_ in ["nocolor", "nocolour"]:
                         self.color_json_cmd = False
 
+            # TODO - Ant -
             # Remove any formatters from input command list and convert back to a string
-            cmd_list = [c for c in cmd_list if c not in PER_CMD_FORMATTERS]
-            cmd_line = " ".join(cmd_list)
+            # cmd_list = [c for c in cmd_list if c not in PER_CMD_FORMATTERS]
+            # cmd_line = " ".join(cmd_list)
+        cmd_line_cleaned = self.remove_per_cmd_settings(cmd_line)
 
-        return cmd_line
+        return cmd_line_cleaned
 
     # Parses command arguments into a list of argument strings
     def parse(self, argument_string: str) -> List[str]:
@@ -1986,22 +2011,18 @@ class SzCmdShell(cmd.Cmd):
             print_error(f"Unable to parse arguments: {err}")
             raise
 
-    # Try and read configuration ini file, if one doesn't exist create one
     def read_config(self) -> None:
-        # TODO - Ant -
-        # config_exists = pathlib.Path(self.config_file).exists()
-
-        # if config_exists:
         try:
-            config_parser = configparser.ConfigParser()
             with open(self.config_file, "r", encoding="utf-8") as _:
                 pass
+            config_parser = configparser.ConfigParser()
             config_parser.read(self.config_file)
-            self.format_json = config_parser["CONFIG"].getboolean("formatjson")
-            self.color_json = config_parser["CONFIG"].getboolean("outputcolor")
+            self.format_json = config_parser["CONFIG"].getboolean("format_json")
+            self.color_json = config_parser["CONFIG"].getboolean("output_color")
             self.timer = config_parser["CONFIG"].getboolean("timer")
             self.theme = config_parser["CONFIG"]["theme"]
-            self.scroll_output = config_parser["CONFIG"].getboolean("scroll_output2")
+            self.scroll_output = config_parser["CONFIG"].getboolean("scroll_output")
+            self.debug_sdk_call = config_parser["CONFIG"].getboolean("debug_sdk_call")
         except IOError as err:
             print_warning(
                 f"Error reading configuration file {self.config_file}: {err}",
@@ -2010,22 +2031,19 @@ class SzCmdShell(cmd.Cmd):
             print_warning(
                 f"Error reading entries from configuration file {self.config_file}: {err}",
             )
-        # else:
-        #     # If a configuration file doesn't exist attempt to create one
-        #     self.write_config()
 
-    # Try and write configuration ini file
     def write_config(self) -> None:
         if self.docker_launched:
             return
 
         write_config = configparser.ConfigParser()
         write_config["CONFIG"] = {
-            "formatjson": f'{"True" if self.format_json else "False"}',
-            "outputcolor": f'{"True" if self.color_json else "False"}',
+            "format_json": f'{"True" if self.format_json else "False"}',
+            "output_color": f'{"True" if self.color_json else "False"}',
             "timer": f'{"True" if self.timer else "False"}',
             "theme": self.theme,
             "scroll_output": f'{"True" if self.scroll_output else "False"}',
+            "debug_sdk_call": f'{"True" if self.scroll_output else "False"}',
         }
 
         try:
@@ -2088,27 +2106,6 @@ class SzCmdShell(cmd.Cmd):
 
             if not text and line[begidx - 1 :] == '"':
                 return ["}' "]
-
-            # TODO - Work in progress
-            # if not text and line[begidx : begidx + 1] not in [
-            #     '"',
-            #     ":",
-            #     " ",
-            #     ",",
-            #     "' ",
-            #     "}",
-            # ]:
-            #     if not re.search("\"}' *$", line):
-            #         print(f"{line = }")
-            #         print(f"{text = }")
-            #         print(f"begidx: {line[begidx:begidx] = }")
-            #         print(f"begidx + 1: {line[begidx:begidx+1] = }")
-            #         print(f"begidx + 2: {line[begidx:begidx+2] = }")
-            #         print(f"begidx - 1: {line[begidx-1:] = }")
-            #         print(f"begidx - 2: {line[begidx-2:] = }")
-            #         print(f"begidx - 3: {line[begidx-3:] = }")
-            #         print(f"begidx - 4: {line[begidx-4:] = }")
-            #         return ['"": "", ']
 
         return []
 
@@ -2215,6 +2212,7 @@ class SzCmdShell(cmd.Cmd):
     def complete_why_records(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
+    # TODO - Ant - Update to not complete if append/command added now
     def complete_response_to_file(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if re.match("response_to_file +", line):
             return self.path_completes(text, line, begidx, endidx, "response_to_file")
@@ -2254,11 +2252,6 @@ def parse_cli_args() -> argparse.Namespace:
         default=None,
         help="path and file name of file with commands to run",
         nargs="?",
-    )
-    arg_parser.add_argument(
-        "-o",
-        "--capture-file",
-        help="capture session output to a file",
     )
     arg_parser.add_argument(
         "-t",
