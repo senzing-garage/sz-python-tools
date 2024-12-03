@@ -229,7 +229,7 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 print_info(
                     f"Approximate execution time (s): {exec_time:.5f}",
                 )
-
+                
         return result
 
     return cast(_WrappedFunc, wrapper)
@@ -266,6 +266,7 @@ class SzCmdShell(cmd.Cmd):
             self.sz_factory = SzAbstractFactory(
                 MODULE_NAME, self.engine_settings, verbose_logging=self.cli_args.debug_trace
             )
+
             self.sz_config = self.sz_factory.create_config()
             self.sz_configmgr = self.sz_factory.create_configmanager()
             self.sz_diagnostic = self.sz_factory.create_diagnostic()
@@ -296,6 +297,7 @@ class SzCmdShell(cmd.Cmd):
             "do_shell",
         )
 
+
         # Themes - set early, used for setting cmd prompt, use the default colors set by the terminal
         self.themes = Colors.AVAILABLE_THEMES
         Colors.set_theme("TERMINAL")
@@ -308,6 +310,7 @@ class SzCmdShell(cmd.Cmd):
         self.history_avail = False
         self.history_disable = self.cli_args.hist_disable
         self.history_msg = ""
+
 
         # Prior response and command for post command functions
         self.last_response = ""
@@ -423,6 +426,7 @@ class SzCmdShell(cmd.Cmd):
         find_network_by_record_id_parser = self.subparsers.add_parser(
             "find_network_by_record_id", usage=argparse.SUPPRESS
         )
+
         find_network_by_record_id_parser.add_argument("record_keys", nargs="+")
         find_network_by_record_id_parser.add_argument("max_degrees", type=int)
         find_network_by_record_id_parser.add_argument("build_out_degrees", type=int)
@@ -451,6 +455,7 @@ class SzCmdShell(cmd.Cmd):
         find_path_by_record_id_parser.add_argument("end_data_source_code")
         find_path_by_record_id_parser.add_argument("end_record_id")
         find_path_by_record_id_parser.add_argument("max_degrees", type=int)
+
         find_path_by_record_id_parser.add_argument("-a", "--avoid_record_keys", default=[], nargs="+", required=False)
         find_path_by_record_id_parser.add_argument(
             "-r", "--required_data_sources", default=[], nargs="+", required=False
@@ -782,6 +787,7 @@ class SzCmdShell(cmd.Cmd):
                 - get_entity_by_entity_id 1001 jsonl nocolor
                 - get_entity_by_entity_id 1001 jsonl nocolor timer debug
 
+
         {colorize_str('History', 'highlight2')}
             {colorize_str('- Arrow keys to cycle through history of commands', 'dim')}
             {colorize_str('- Ctrl-r can be used to search history', 'dim')}
@@ -823,6 +829,7 @@ class SzCmdShell(cmd.Cmd):
     # szconfigmanager commands
     # -----------------------------------------------------------------------------
 
+
     @do_methods_decorator
     def do_get_config(self, **kwargs: Any) -> None:
         """
@@ -845,6 +852,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_configmgr.get_config(kwargs["parsed_args"].config_id)
         self.last_response = self.output_response(response)
 
+
     @do_methods_decorator
     def do_get_configs(self) -> None:
         """
@@ -856,6 +864,7 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_configmgr.get_configs()
         self.last_response = self.output_response(response)
 
+
     @do_methods_decorator
     def do_get_default_config_id(self) -> None:
         """
@@ -866,6 +875,7 @@ class SzCmdShell(cmd.Cmd):
 
         response = self.sz_configmgr.get_default_config_id()
         self.last_response = self.output_response(response, "success")
+
 
     @do_methods_decorator
     def do_replace_default_config_id(self, **kwargs: Any) -> None:
@@ -1790,7 +1800,7 @@ class SzCmdShell(cmd.Cmd):
 
         response = why_record(kwargs["flags"]) if "flags" in kwargs else why_record()
         self.last_response = self.output_response(response)
-
+        
     @do_methods_decorator
     def do_why_records(self, **kwargs: Any) -> None:
         """

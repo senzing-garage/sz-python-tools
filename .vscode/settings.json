@@ -26,6 +26,7 @@
         "ulonglong"
     ],
     "terminal.integrated.env.linux": {
+
         // "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python/src:/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing_abstract",
         "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python/src:/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing:./sz_tools",
         "LD_LIBRARY_PATH": "/opt/senzing/er/lib/",
@@ -40,6 +41,7 @@
         "./sz_tools"
         // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src",
         // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing_abstract"
+
     ],
     "python.analysis.extraPaths": [
         "/home/ant/Work/Senzing/git/sz-sdk-python/src",
