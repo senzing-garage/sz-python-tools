@@ -2,15 +2,6 @@
 
 """ # TODO """
 
-# TODO - Ant - Settings, even if can't write always have a default set each session that can be set
-# TODO - Ant - Response to file with append should also add the prior command or arg to add commands to both file an clipboard?
-# TODO - Ant - Once moved to settings (probably needs to be dict now) Each pre command makes a copy of settings to change for each per command setting to temporarily use
-# TODO - Ant - Remove commands not in settings
-# TODO - Ant - Add timer, scroll to per cmd
-# TODO - Ant - Remove all the self. vars no longer needed
-# TODO - Ant - Allow set to toggle bools if no value supplied?
-
-
 import argparse
 import cmd
 import functools
@@ -63,11 +54,10 @@ DEFAULT_CONFIG = {
 
 MODULE_NAME = pathlib.Path(__file__).stem
 
-# TODO - Ant - Add debug and timer?
-# Per command JSON formatting options
+# Per command settings
 PER_CMD_SETTINGS = ["json", "jsonl", "color", "colour", "nocolor", "nocolour", "debug", "timer", "page"]
 
-# TODO - Ant -
+# Map per command settings to configuration dictionary keys
 SETTINGS_TO_CONFIG_MAP = {
     "json": ["format_json", True],
     "jsonl": ["format_json", False],
@@ -80,20 +70,14 @@ SETTINGS_TO_CONFIG_MAP = {
     "page": ["page_output", True],
 }
 
-# TODO - Ant - Some of these will go away with new set command
+# Don't overwrite last command if we still need to use it
 CMDS_NOT_TO_SET_LAST_COMMAND = [
-    "history",
-    "json_color",
-    "json_format",
     "response_reformat_json",
     "response_to_clipboard",
     "response_to_file",
-    "scroll_output",
-    "timer",
 ]
 
 
-# TODO - Ant - Themes need to be pulled from helpers, add to class?
 CONFIG_SETTINGS = {
     "format_json": {
         "values": ["off", "on"],
@@ -112,7 +96,7 @@ CONFIG_SETTINGS = {
         "description": "Show approximate timings for command execution",
     },
     "theme": {
-        "values": ["default", "light", "dark", "terminal"],
+        "values": [c.lower() for c in Colors.AVAILABLE_THEMES],
         "description": "Set color scheme to use",
     },
     "page_output": {
@@ -124,7 +108,6 @@ CONFIG_SETTINGS = {
         "description": "Show the call sent to the Python Senzing SDK",
     },
 }
-
 
 # -------------------------------------------------------------------------
 # Metadata
@@ -150,20 +133,12 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
         # Remove do_ from wrapped method
         sdk_method_name = do_method.__name__[3:]
 
-        # TODO - Ant - Change name for new settings like timer, debug
-        # Apply and remove any command formatters such as jsonl, nocolor, etc
-        # TODO - Ant -
-        # cmd_args = self.apply_formats(args[0]
+        # Remove any per cmd line settings such as jsonl, nocolor, etc
         cmd_args = self.remove_per_cmd_settings(args[0])
-
-        # TODO - Ant -
-        print(f"\nDecorator: {self.config = }", flush=True)
-        print(f"\nDecorator: {self.per_cmd_config = }", flush=True)
 
         do_debug = self.per_cmd_config["debug_sdk_call"]
         do_timer = self.per_cmd_config["timer"]
-        # TODO - Ant -
-        # if self.debug_sdk_call:
+
         if do_debug:
             sdk_call = sdk_method_name
             sdk_call_dict = {}
@@ -175,16 +150,12 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 # Returns an argparse.Namespace, make a dict for logic checking and less complaints from mypy!
                 kwargs["parsed_args"] = self.parser.parse_args([f"{sdk_method_name}"] + self.parse(cmd_args))
                 # Get the argparse.Namespace as a dictionary to change any modified arguments for debug
-                # TODO - Ant -
-                # if self.debug_sdk_call:
                 if do_debug:
                     sdk_call_dict = kwargs["parsed_args"].__dict__.copy()
 
                 # If the command has flags get the int value
                 if hasattr(kwargs["parsed_args"], "flags") and kwargs["parsed_args"].flags:
                     kwargs["flags"] = get_engine_flags_as_int(kwargs["parsed_args"].flags)
-                    # TODO - Ant -
-                    # if self.debug_sdk_call:
                     if do_debug:
                         sdk_call_dict["flags"] = kwargs["flags"]
 
@@ -198,17 +169,13 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                     if len(record_keys) == 1:
                         record_keys = record_keys[0].split()
 
-                    # TODO - Ant - Move to SDK helpers?
                     if len(record_keys) % 2 != 0:
                         print_error(f"Uneven number of data source codes and record IDs: {record_keys}")
                         return None
 
-                    # Build the list of tuples for the SDK
-                    # [('REFERENCE', '2012'), ('CUSTOMERS', '1001')]
+                    # Build the list of tuples for the SDK: [('REFERENCE', '2012'), ('CUSTOMERS', '1001')]
                     kwargs[locals()["rk_type"]] = [tuple(record_keys[i : i + 2]) for i in range(0, len(record_keys), 2)]
 
-                    # TODO - Ant -
-                    # if self.debug_sdk_call:
                     if do_debug:
                         sdk_call_dict[locals()["rk_type"]] = kwargs[locals()["rk_type"]]
 
@@ -227,8 +194,6 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                         print_error(f"Entity IDs should be integers: {', '.join(non_ints)}")
                         return None
 
-                    # TODO - Ant -
-                    # if self.debug_sdk_call:
                     if do_debug:
                         sdk_call_dict["entity_ids"] = kwargs["entity_ids"]
 
@@ -245,15 +210,11 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 print_error(err)
                 return None
 
-        # TODO - Ant -
-        # if self.timer:
         if do_timer:
             timer_start = time.perf_counter()
 
         # Run the decorated method passing back kwargs for use in SDK call
         try:
-            # TODO - Ant -
-            # if self.debug_sdk_call:
             if do_debug:
                 sdk_call_args = ", ".join([f"{k} = {v}" for k, v in sdk_call_dict.items() if v])
                 sdk_call = f"{sdk_method_name}({sdk_call_args})"
@@ -263,8 +224,6 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
             result = None
             print_error(err)
         finally:
-            # TODO - Ant -
-            # if self.timer:
             if do_timer:
                 exec_time = time.perf_counter() - timer_start
                 print_info(
@@ -337,45 +296,26 @@ class SzCmdShell(cmd.Cmd):
             "do_shell",
         )
 
-        # TODO - Ant - Remove these / replace with config dict if really needed
-        # Session wide color disabled?
-        # self.color_disabled = self.cli_args.color_disable
-
         # Themes - set early, used for setting cmd prompt, use the default colors set by the terminal
         self.themes = Colors.AVAILABLE_THEMES
-        self.theme = "TERMINAL"
-        Colors.set_theme(self.theme)
+        Colors.set_theme("TERMINAL")
 
         # Cmd module settings
         self.intro = ""
         self.prompt = colorize_cmd_prompt("szcmd", "info")
-        # self.prompt = colorize_cmd_prompt("szcmd", "info", True)
 
         # Readline and history
         self.history_avail = False
         self.history_disable = self.cli_args.hist_disable
         self.history_msg = ""
 
-        # For pretty printing JSON responses
-        self.cmd_color = False
-        self.cmd_format = False
-        self.color_json = True
-        self.color_json_cmd = False
-        self.format_json = False
-        self.format_json_cmd = False
-
-        # General
+        # Prior response and command for post command functions
         self.last_response = ""
         self.last_command = ""
-        self.scroll_output = False
-        # TODO - Ant -
-        self.debug_sdk_call = False
-        self.timer = False
 
-        # Configuration file for this tool
-        # TODO - Ant - Always set a default in case can't read one from file
-        self.config = DEFAULT_CONFIG
-        self.per_cmd_config = DEFAULT_CONFIG
+        # Configuration
+        self.config = DEFAULT_CONFIG.copy()
+        self.per_cmd_config = DEFAULT_CONFIG.copy()
         config_file_str = f"~/.{MODULE_NAME}{'.json'}"
         self.config_file = pathlib.Path(config_file_str).expanduser()
         self.config_file_exists = pathlib.Path(self.config_file).exists()
@@ -493,12 +433,10 @@ class SzCmdShell(cmd.Cmd):
         find_path_by_entity_id_parser.add_argument("start_entity_id", type=int)
         find_path_by_entity_id_parser.add_argument("end_entity_id", type=int)
         find_path_by_entity_id_parser.add_argument("max_degrees", type=int)
-        # find_path_by_entity_id_parser.add_argument("-a", "--avoid_entity_ids", default="", nargs="?", required=False)
         find_path_by_entity_id_parser.add_argument(
             "-a", "--avoid_entity_ids", default=[], nargs="+", required=False, type=int
         )
         find_path_by_entity_id_parser.add_argument(
-            # "-r", "--required_data_sources", default="", nargs="?", required=False
             "-r",
             "--required_data_sources",
             default=[],
@@ -586,7 +524,6 @@ class SzCmdShell(cmd.Cmd):
 
         response_to_file_parser = self.subparsers.add_parser("response_to_file", usage=argparse.SUPPRESS)
         response_to_file_parser.add_argument("file_path")
-        # TODO - Ant -
         response_to_file_parser.add_argument(
             "-a", "--append", action="store_true", default=False, dest="append_to_file", required=False
         )
@@ -603,8 +540,6 @@ class SzCmdShell(cmd.Cmd):
 
     def get_config_attr_codes(self) -> List[str]:
         # TODO - Work in progress for JSON autocomplete
-        # TODO - Ant - If anything goes wrong, don't care as this is only used for autocomplete, if bigger issues with Sz would
-        #              show up before this
         try:
             config_id = self.sz_engine.get_active_config_id()
             config = self.sz_configmgr.get_config(config_id)
@@ -616,26 +551,14 @@ class SzCmdShell(cmd.Cmd):
 
         return attr_codes
 
-    # TODO - Ant - Signature didn't line up?
     # Call helper function to format and print command responses with constant values
     def output_response(self, response: Union[int, str], color: str = "") -> str:
-        # TODO - Ant -
-        print(f"\noutput_response: {self.per_cmd_config = }", flush=True)
-        print(f"\noutput_response: {color = }", flush=True)
         formatted_response: str = print_response(
             response,
-            # self.color_json,
-            # self.color_json_cmd,
-            # self.format_json,
-            # self.format_json_cmd,
-            # self.cmd_color,
-            # self.cmd_format,
-            # self.scroll_output,
-            self.per_cmd_config["color_json"],
-            self.per_cmd_config["format_json"],
-            self.per_cmd_config["page_output"],
-            self.per_cmd_config["color_output"],
-            # self.color_disabled,
+            self.per_cmd_config["color_json"],  # type: ignore[arg-type]
+            self.per_cmd_config["format_json"],  # type: ignore[arg-type]
+            self.per_cmd_config["page_output"],  # type: ignore[arg-type]
+            self.per_cmd_config["color_output"],  # type: ignore[arg-type]
             color=color,
         )
 
@@ -678,13 +601,8 @@ class SzCmdShell(cmd.Cmd):
         return list(dir(self.__class__))
 
     def postcmd(self, stop: bool, line: str) -> bool:
-        self.format_json_cmd = False
-        self.color_json_cmd = False
-        self.cmd_color = False
-        self.cmd_format = False
-
-        # TODO - Ant -
-        if line and line.split()[0] not in CMDS_NOT_TO_SET_LAST_COMMAND:
+        # Update last_command
+        if line and not line.startswith("!") and line.split()[0] not in CMDS_NOT_TO_SET_LAST_COMMAND:
             self.last_command = self.remove_per_cmd_settings(line)
 
         # Default configuration ID was changed by set_default_config_id or replace_default_config_id, sz_command
@@ -705,29 +623,22 @@ class SzCmdShell(cmd.Cmd):
         return cmd.Cmd.postcmd(self, stop, line)
 
     def precmd(self, line: str) -> str:
-        # TODO - Ant -
-        print(f"\nprecmd: {line = }", flush=True)
-        print(f"\n{self.get_per_cmd_settings(line) = }", flush=True)
+
+        # Before running each command check if there are per cmd settings such as json, jsonl, timer, etc
+        # If there are, modify the per_cmd_config dictionary to those values just for the run of the command
         cmd_line_settings = self.get_per_cmd_settings(line)
         self.per_cmd_config = self.config.copy()
         if cmd_line_settings:
             for cmd_setting in cmd_line_settings:
-                print(f"\nprecmd: {cmd_setting = }", flush=True)
-                print(f"\nprecmd: {SETTINGS_TO_CONFIG_MAP[cmd_setting] = }", flush=True)
                 config_key = SETTINGS_TO_CONFIG_MAP[cmd_setting][0]
                 config_setting = SETTINGS_TO_CONFIG_MAP[cmd_setting][1]
-                print(f"\n{config_key = }", flush=True)
-                print(f"\n{config_setting = }", flush=True)
-                print(f"\n{self.per_cmd_config = }", flush=True)
-                # TODO - Ant - It should only be bools need to flip?
+                # Per command settings are always bools
                 if isinstance(config_setting, bool):
-                    # self.per_cmd_config[setting_to_config] = not self.config[setting_to_config]
-                    self.per_cmd_config[config_key] = config_setting
+                    self.per_cmd_config[config_key] = config_setting  # type: ignore
 
         return line
 
     def preloop(self) -> None:
-        # TODO - Ant - goes into config too
         if not self.history_disable:
             history_check = history_setup()
             # Non-empty string means error and msg was returned
@@ -776,7 +687,6 @@ class SzCmdShell(cmd.Cmd):
             except (ValueError, TypeError) as err:
                 print_error(f"Problem with command: {err}")
 
-    # TODO - Ant -  What happens with new settings and color to a file?
     def commands_from_file(self, file_name: str) -> None:
         """
         Read commands from a file and call the matching commands. Command formatters (jsonl, json, etc) are
@@ -834,10 +744,6 @@ class SzCmdShell(cmd.Cmd):
             {colorize_str('- Can be combined with color formatting options', 'dim')}
                 - get_entity_by_entity_id 1001 jsonl nocolor
 
-            {colorize_str('- Toggle between json and jsonl output for the session, saves the preference to a configuration file for use across sessions', 'dim')}
-            {colorize_str('- Specifying the JSON and color formatting options at the end of a command override this setting only for that command', 'dim')}
-                - json_format
-
             {colorize_str('- Convert last response output between json and jsonl', 'dim')}
                 - response_reformat_json
 
@@ -848,24 +754,38 @@ class SzCmdShell(cmd.Cmd):
             {colorize_str('- Can be combined with JSON formatting options', 'dim')}
                 - get_entity_by_entity_id 1001 color jsonl
 
-            {colorize_str('- Toggle between color or no color for JSON output for the session, saves the preference to a configuration file for use across sessions', 'dim')}
-            {colorize_str('- Specifying the JSON and color formatting options at the end of a command override this setting for that command', 'dim')}
-                - json_color
-
         {colorize_str('Capturing Output', 'highlight2')}
             {colorize_str('- Capture the last response output to a file or the clipboard', 'dim')}
                 - response_to_clipboard
                 - response_to_file /tmp/myoutput.json
 
+        {colorize_str('Configuration', 'highlight2')}
+            {colorize_str('- Configuration options are stored in a configuration file', 'dim')}
+            {colorize_str('- To see the current configuration or to change it use the set command', 'dim')}
+                - set
+                - set format_json off
+
+            {colorize_str('- The current configuration can be modified on a per command basis', 'dim')}
+            {colorize_str('- Per command configuration settings only affect that command', 'dim')}
+            {colorize_str('- See the output from the set command for descriptions of the settings', 'dim')}
+            {colorize_str('- The available per command settings are:', 'dim')}
+                - json
+                - jsonl
+                - color / colour
+                - nocolor / nocolour
+                - debug
+                - timer
+                - page
+
+            {colorize_str('- Examples:', 'dim')}
+                - get_entity_by_entity_id 1001 jsonl
+                - get_entity_by_entity_id 1001 jsonl nocolor
+                - get_entity_by_entity_id 1001 jsonl nocolor timer debug
+
         {colorize_str('History', 'highlight2')}
             {colorize_str('- Arrow keys to cycle through history of commands', 'dim')}
             {colorize_str('- Ctrl-r can be used to search history', 'dim')}
             {colorize_str('- Display history:', 'dim')} history
-
-        {colorize_str('Timer', 'highlight2')}
-            {colorize_str('- Toggle on/off approximate time a command takes to complete', 'dim')}
-            {colorize_str('- Turn off JSON formatting and color output for higher accuracy', 'dim')}
-                - timer
 
         {colorize_str('Shell', 'highlight2')}
             {colorize_str('- Run basic OS shell commands', 'dim')}
@@ -971,10 +891,6 @@ class SzCmdShell(cmd.Cmd):
         )
         self.output_response("Default config ID replaced", "success")
         self.reinitialize = True
-        # self.sz_factory.reinitialize(kwargs["parsed_args"].new_default_config_id)
-
-        # # Configuration has changed, update attributes from configuration
-        # self.attrs = self.get_config_attr_codes()
 
     @do_methods_decorator
     def do_set_default_config_id(self, **kwargs: Any) -> None:
@@ -996,7 +912,6 @@ class SzCmdShell(cmd.Cmd):
         self.sz_configmgr.set_default_config_id(kwargs["parsed_args"].config_id)
         self.output_response("Default config ID set", "success")
         self.reinitialize = True
-        # # self.last_response = ""
 
     # -----------------------------------------------------------------------------
     # szdiagnostic commands
@@ -1222,7 +1137,6 @@ class SzCmdShell(cmd.Cmd):
             print_error(err)
         else:
             self.output_response(f"Total exported records: {rec_cnt}", "success")
-            # self.last_response = ""
 
     @do_methods_decorator
     def do_export_json_entity_report(self, **kwargs: Any) -> None:
@@ -1273,7 +1187,6 @@ class SzCmdShell(cmd.Cmd):
             print_error(err)
         else:
             self.output_response(f"Total exported records: {rec_cnt}", "success")
-            # self.last_response = ""
 
     @do_methods_decorator
     def do_find_interesting_entities_by_entity_id(self, **kwargs: Any) -> None:
@@ -1955,50 +1868,32 @@ class SzCmdShell(cmd.Cmd):
         """
         do_history()
 
-    def do_json_color(self, line: str) -> None:  # pylint: disable=unused-argument
-        """
-        Enables/disables adding colors to JSON responses for the session and saves preference
-
-        Syntax:
-            json_color
-        """
-        self.color_json = not self.color_json
-        print_info(f'Coloring of JSON responses {"enabled" if self.color_json else "disabled"}')
-
-        self.write_config()
-
-    def do_json_format(self, line: str) -> None:  # pylint: disable=unused-argument
-        """
-        Switch output between json (tall json) and jsonl (json lines) for JSON responses for the session and saves preference
-
-        Syntax:
-            json_format
-        """
-        self.format_json = not self.format_json
-        print_info(f'Formatting of JSON responses {"enabled" if self.format_json else "disabled"}')
-
-        self.write_config()
-
     def do_response_to_clipboard(self, line: str) -> None:  # pylint: disable=[unused-argument]
         """
-        Attempt to copy the last command response to the clipboard
+        Copy the last command response to the clipboard
 
         Syntax:
             response_to_clipboard
         """
         response_to_clipboard(self.last_response)
 
-    # TODO - Ant -Update help for append and command
     @do_methods_decorator
     def do_response_to_file(self, **kwargs: Any) -> None:
         """
-        Attempt to copy the last command response to a file
+        Copy the last command response to a file
 
         Syntax:
-            response_to_file output_file
+            response_to_file output_file [-a] [-c]
+
+        Examples:
+            response_to_file /tmp/response.out
+            response_to_file /tmp/response.out -a
+
 
         Arguments:
             output_file = File to save response to
+            -a = Append to file
+            -c = Add command and response to file
         """
         response_to_file(
             kwargs["parsed_args"].file_path,
@@ -2015,11 +1910,9 @@ class SzCmdShell(cmd.Cmd):
         Syntax:
             response_reformat_json
         """
-        # TODO - Ant - Change to use config/per dict
-        self.last_response = response_reformat_json(self.last_response, self.color_json)
 
-    # TODO - Ant -
-    # TODO - Ant -  Check colours are the same as other methods
+        self.last_response = response_reformat_json(self.last_response, self.per_cmd_config["color_json"])  # type: ignore[arg-type]
+
     def help_set(self):
         print(
             textwrap.dedent(
@@ -2038,10 +1931,10 @@ class SzCmdShell(cmd.Cmd):
             )
         )
         print()
+
         for setting, values_description in CONFIG_SETTINGS.items():
             values = ", ".join(values_description["values"])
             current_value = self.config[setting]
-            # TODO - Ant -  Convert the input on/off to bool
             if current_value is True:
                 current_value = "on"  # type: ignore[assignment]
 
@@ -2050,157 +1943,71 @@ class SzCmdShell(cmd.Cmd):
             current_value = colorize_str(current_value, "bold")
 
             desc = colorize_str(values_description["description"], "dim")
-            # TODO - Ant -
-            print(
-                # f"    {setting_data['setting']:<23} {'[' + ', '.join(setting_data['values']) + ']':<22} {current_value:<22} {colorize_str(setting_data['description'], 'dim')}"
-                # f"    {setting:<20} [{values}] {' ':<10} {current_value:<15} {desc}"
-                f"    {setting:<17} {'[' + values + ']':<34} {current_value:<19} {desc}"
-            )
+            print(f"    {setting:<17} {'[' + values + ']':<34} {current_value:<19} {desc}")
         print()
 
-    # TODO - Ant -
     def do_set(self, line: str):
-        """# TODO - Ant -"""
+        """Type 'set' to see help"""
         if not line:
             self.help_set()
             return
 
-        # TODO - Ant -
-        print(f"\n{line = }", flush=True)
         line_list = line.split()
-        print(f"\n{line_list = }", flush=True)
-        if len(line_list) < 2:
+        if len(line_list) < 1:
             self.help_set()
             return
 
         setting = line_list[0].lower()
-        value = line_list[1].lower()
+        if len(line_list) >= 2:
+            value = line_list[1].lower()
 
         if setting not in CONFIG_SETTINGS:
-            print_error(f"{setting} is an unknown configuration setting")
+            print_error(f"{setting} is an unknown configuration setting, type 'set' to see settings")
             return
 
-        if value not in CONFIG_SETTINGS[setting]["values"]:
-            print_error(f"{value} is not a valid value for configuration setting {setting}")
+        if "value" in locals() and value not in CONFIG_SETTINGS[setting]["values"]:
+            print_error(f"{value} is not a valid value for configuration setting {setting}, type 'set' to see values ")
             return
 
-        # TODO - Ant -  Convert the input on/off to bool
-        if value == "on":
+        # Convert set values to configuration bools
+        if "value" in locals() and value == "on":
             value = True  # type: ignore[assignment]
 
-        if value == "off":
+        if "value" in locals() and value == "off":
             value = False  # type: ignore[assignment]
+
+        # If a value wasn't received and the configuration setting is a bool, reverse current value
+        if "value" not in locals():
+            if isinstance(self.config[setting], bool):
+                value = not self.config[setting]  # type: ignore[assignment]
+            else:
+                self.help_set()
+                return
 
         self.config[setting] = value
         self.write_config()
+
         if setting == "theme":
             Colors.set_theme(value)
-        self.prompt = colorize_cmd_prompt("szcmd", "info")
-
-    def do_scroll_output(self, line: str) -> None:  # pylint: disable=[unused-argument]
-        """
-        Switch output between using a pager or not
-
-        Syntax:
-            scroll_output
-        """
-        self.scroll_output = not self.scroll_output
-        print_info(f'Paging of JSON responses {"enabled" if self.scroll_output else "disabled"}')
-
-        self.write_config()
-
-    @do_methods_decorator
-    def do_set_theme(self, **kwargs: Any) -> None:
-        """
-        Switch terminal ANSI colors
-
-        Syntax:
-            set_theme default|dark|light|{terminal}
-
-        Note:
-            - The default is terminal and recommended
-        """
-        Colors.set_theme(kwargs["parsed_args"].theme[0])
-        self.theme = kwargs["parsed_args"].theme[0]
-        self.write_config()
-
-    def do_timer(self, line: str) -> None:  # pylint: disable=unused-argument
-        """
-        Toggle on/off displaying an approximate time for commands to complete
-
-        Syntax:
-            timer
-
-        """
-        self.timer = not self.timer
-        print_info(f'Timer {"enabled" if self.timer else "disabled"}')
-        self.write_config()
+            self.prompt = colorize_cmd_prompt("szcmd", "info")
 
     # -----------------------------------------------------------------------------
     # Helper methods
     # -----------------------------------------------------------------------------
 
-    # TODO - Ant -
     def get_per_cmd_settings(self, cmd_line: str) -> List[str]:
-        """#TODO"""
-        # TODO - Ant -
+        """Get the settings from a command"""
         return [s for s in cmd_line.split() if s.lower() in PER_CMD_SETTINGS]
 
-    # TODO - Ant -
     def remove_per_cmd_settings(self, cmd_line: str) -> str:
-        """#TODO"""
-        # TODO - Ant -
-        # Remove any formatters from input command list and convert back to a string
+        """Remove any settings from a command"""
         cmd_list = [c for c in cmd_line.split() if c.lower() not in PER_CMD_SETTINGS]
         cmd_line_cleaned = " ".join(cmd_list)
 
         return cmd_line_cleaned
 
-    # # TODO - Ant - Rename method as it will do more than formats - timer, debug, scroll
-    # def per_cmd_settings(
-    #     self,
-    #     cmd_line: str,
-    # ) -> str:
-    #     """Check command for optional formatters, apply them and remove formatters from the command before running it"""
-    #     # Convert command str to a list, lower each element to check if any formatters are present
-    #     cmd_list_lower = [x.lower() for x in cmd_line.split()]
-    #     formatting = [f for f in PER_CMD_SETTINGS if f in cmd_list_lower]
-
-    #     # Set formatters if any are found on the input command
-    #     if formatting:
-    #         # Input command as a list to remove any formatters
-    #         cmd_list = cmd_line.split()
-
-    #         for format_ in formatting:
-    #             if format_ in ["json", "jsonl"]:
-    #                 self.cmd_format = True
-    #                 if format_ == "json":
-    #                     self.format_json_cmd = True
-    #                 if format_ == "jsonl":
-    #                     self.format_json_cmd = False
-
-    #             if format_ in [
-    #                 "color",
-    #                 "colour",
-    #                 "nocolor",
-    #                 "nocolour",
-    #             ]:
-    #                 self.cmd_color = True
-    #                 if format_ in ["color", "colour"]:
-    #                     self.color_json_cmd = True
-    #                 if format_ in ["nocolor", "nocolour"]:
-    #                     self.color_json_cmd = False
-
-    #         # TODO - Ant -
-    #         # Remove any formatters from input command list and convert back to a string
-    #         # cmd_list = [c for c in cmd_list if c not in PER_CMD_FORMATTERS]
-    #         # cmd_line = " ".join(cmd_list)
-    #     cmd_line_cleaned = self.remove_per_cmd_settings(cmd_line)
-
-    #     return cmd_line_cleaned
-
-    # Parses command arguments into a list of argument strings
     def parse(self, argument_string: str) -> List[str]:
+        """Parses command arguments into a list of argument strings"""
         try:
             return shlex.split(argument_string)
         except ValueError as err:
@@ -2209,44 +2016,19 @@ class SzCmdShell(cmd.Cmd):
 
     def read_config(self) -> None:
         try:
-            # with open(self.config_file, "r", encoding="utf-8") as _:
-            #     pass
-            # config_parser = configparser.ConfigParser()
-            # config_parser.read(self.config_file)
-            # self.format_json = config_parser["CONFIG"].getboolean("format_json")
-            # self.color_json = config_parser["CONFIG"].getboolean("output_color")
-            # self.timer = config_parser["CONFIG"].getboolean("timer")
-            # self.theme = config_parser["CONFIG"]["theme"]
-            # self.scroll_output = config_parser["CONFIG"].getboolean("scroll_output")
-            # self.debug_sdk_call = config_parser["CONFIG"].getboolean("debug_sdk_call")
             with open(self.config_file, "r", encoding="utf-8") as config_read:
                 self.config = json.load(config_read)
         except (OSError, json.JSONDecodeError) as err:
             print_warning(
                 f"Error reading configuration file {self.config_file}: {err}",
             )
-        # except (configparser.Error, KeyError) as err:
-        #     print_warning(
-        #         f"Error reading entries from configuration file {self.config_file}: {err}",
-        #     )
 
     def write_config(self) -> None:
         if self.docker_launched:
             return
 
-        # write_config = configparser.ConfigParser()
-        # write_config["CONFIG"] = {
-        #     "format_json": f'{"True" if self.format_json else "False"}',
-        #     "output_color": f'{"True" if self.color_json else "False"}',
-        #     "timer": f'{"True" if self.timer else "False"}',
-        #     "theme": self.theme,
-        #     "scroll_output": f'{"True" if self.scroll_output else "False"}',
-        #     "debug_sdk_call": f'{"True" if self.scroll_output else "False"}',
-        # }
-
         try:
             with open(self.config_file, "w", encoding="utf-8") as config_write:
-                # write_config.write(config_write)
                 config_write.write(json.dumps(self.config, indent=2))
         except (OSError, json.JSONDecodeError) as err:
             if not self.config_error:
@@ -2254,12 +2036,6 @@ class SzCmdShell(cmd.Cmd):
                     f"Error saving configuration to {self.config_file}: {err}",
                 )
                 self.config_error = not self.config_error
-        # except configparser.Error as err:
-        #     if not self.config_error:
-        #         print_warning(
-        #             f"Error writing entries to the configuration file {self.config_file}: {err}",
-        #         )
-        #         self.config_error = not self.config_error
 
     # -------------------------------------------------------------------------
     # Auto completers
@@ -2281,7 +2057,6 @@ class SzCmdShell(cmd.Cmd):
         # comp_cmd = re.match(r"\w+ +", line)
         comp_cmd = re.match(r"\w+ +\w+ +\w+ +", line)
         if comp_cmd and len(comp_cmd.group()) == len(line):
-            # print(f"{comp_cmd.group() = }")
             return ["""'{"": "", """]
 
         re_flags = re.search(" -f +.*$", line)
@@ -2411,7 +2186,6 @@ class SzCmdShell(cmd.Cmd):
     def complete_why_records(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         return self.flags_completes(text, line)
 
-    # TODO - Ant - Update to not complete if append/command added now
     def complete_response_to_file(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if re.match("response_to_file +", line):
             return self.path_completes(text, line, begidx, endidx, "response_to_file")
@@ -2422,11 +2196,6 @@ class SzCmdShell(cmd.Cmd):
             return [value for value in CONFIG_SETTINGS[m.group(1)]["values"] if value.startswith(text.lower())]
         if re.match("set +", line):
             return [setting for setting in CONFIG_SETTINGS if setting.startswith(text.lower())]
-        return []
-
-    def complete_set_theme(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        if re.match("set_theme +", line):
-            return [theme for theme in self.themes if theme.lower().startswith(text.lower())]
         return []
 
     # pylint: enable=[unused-argument]

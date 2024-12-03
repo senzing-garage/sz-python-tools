@@ -84,7 +84,6 @@ class Colors:
 
     @classmethod
     def apply(cls, to_color: Union[int, str], colors_list: str = "") -> Union[int, str]:
-        # TODO
         """apply list of colors to a string"""
         # TODO colors_list is a string with multiple entries separated by ,
         if colors_list:
@@ -93,7 +92,6 @@ class Colors:
 
         return to_color
 
-    # TODO - Ant - Order vars
     @classmethod
     def set_theme(cls, theme: str) -> None:
         """# TODO"""
@@ -291,8 +289,7 @@ class Colors:
 
 def check_environment() -> None:
     """# TODO"""
-    # The Senzing python tools call G2Paths before starting engine to locate the engine configuration. Error if can't locate
-    # a G2Module.ini or SENZING_ENGINE_CONFIGURATION_JSON
+    # Error if can't locate a G2Module.ini or SENZING_ENGINE_CONFIGURATION_JSON
     if "SENZING_ETC_PATH" not in os.environ and "SENZING_ROOT" not in os.environ:
         # Check if set or not and that it's not set to null
         secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
@@ -499,17 +496,11 @@ def colorize_json(json_str: str, color_disabled: bool = False) -> str:
 
 
 def colorize_output(
-    # output: Union[int, str], color_or_type: str, output_color: bool = True
     output: Union[Exception, int, str],
     color_or_type: str,
-    # TODO - Ant -
-    # color_disabled: bool = False,
     output_color: bool = True,
 ) -> str:
     """# TODO"""
-
-    # TODO - Ant -
-    print(f"\ncolorize_outuput: {output_color = }", flush=True)
     output = str(output) if isinstance(output, int) else output
 
     if not output:
@@ -517,9 +508,6 @@ def colorize_output(
 
     if not output_color:
         return output
-
-    # if output_color:
-    #     return output
 
     color_or_type = color_or_type.upper()
 
@@ -567,13 +555,11 @@ def print_error(msg: Union[Exception, str], end_str: str = "\n\n", output_color:
     print(f"\n{colorize_output('ERROR:', 'error', output_color)} {msg}", end=end_str)
 
 
-# TODO - Ant - Remove Union?
 def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
     print(colorize_output(f"\n{msg}", "info", output_color), end=end_str)
 
 
-# TODO - Ant - Remove Union?
 def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
     print(f"\n{colorize_output('WARNING:', 'warning', output_color)} {msg}", end=end_str)
@@ -582,14 +568,8 @@ def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_colo
 def print_response(
     response: Union[int, str],
     color_json: bool,
-    # color_json_cmd: bool,
     format_json: bool,
-    # format_json_cmd: bool,
-    # cmd_color: bool,
-    # cmd_format: bool,
-    # scroll_output: bool = False,
     scroll_output: bool,
-    # color_disabled: bool = False,
     color_output: bool,
     color: str = "",
 ) -> str:
@@ -631,26 +611,17 @@ def print_response(
 
             # Color JSON if global config or single command formatter specifies
             # if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
-            # TODO - Ant -
-            # if not color_disabled:
             output = json_str
-            # TODO - Ant -
-            print(f"\nhelpers add color: {color_output = }", flush=True)
-            print(f"\nhelpers add color: {color_json = }", flush=True)
-            if color_output and color_json:
-                # TODO - Ant -
-                print("I am coloring...")
+            if color_json:
                 output = colorize_json(json_str)
-            # else:
-            #     output = json_str
 
     if scroll_output:
         try:
             scroll_cmd = f"echo '{output}' | less -FRSX"
             subprocess.run([scroll_cmd], shell=True, check=True)
-        except subprocess.CalledProcessError as err:
+        except (OSError, subprocess.CalledProcessError) as err:
             print(f"\n{output}\n")
-            print_error(f"Couldn't use paging on JSON response, calling less returned: {err.args[0]}")
+            print_error(f"Couldn't use paging on JSON response, calling less returned: {err}")
     else:
         print(f"\n{output}\n")
 
@@ -804,15 +775,14 @@ def response_to_file(
         print_error(err)
 
 
-def response_reformat_json(last_response: str, color_json: bool, color_disabled: bool = False) -> str:
+def response_reformat_json(last_response: str, color_json: bool) -> str:
     """# TODO"""
-
     if not last_response.startswith("{"):
         print_warning("The last response isn't JSON")
         return ""
 
-    jsonl = False if "\n" in last_response else True
-    return print_response(last_response, color_json, False, jsonl, False, False, False, color_disabled=color_disabled)
+    json_format = False if "\n" in last_response else True
+    return print_response(last_response, color_json, json_format, False, False)
 
 
 # -------------------------------------------------------------------------
