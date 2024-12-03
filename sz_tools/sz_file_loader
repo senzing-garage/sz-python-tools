@@ -560,10 +560,10 @@ def get_sz_engines(
 ) -> Tuple[SzEngine, SzDiagnostic, SzProduct, SzConfigManager]:
     """# TODO"""
     try:
-        sz_engine = sz_factory.create_sz_engine()
-        sz_diag = sz_factory.create_sz_diagnostic()
-        sz_product = sz_factory.create_sz_product()
-        sz_configmgr = sz_factory.create_sz_configmanager()
+        sz_engine = sz_factory.create_engine()
+        sz_diag = sz_factory.create_diagnostic()
+        sz_product = sz_factory.create_product()
+        sz_configmgr = sz_factory.create_configmanager()
     except SzError as err:
         logger.error(err)
         sys.exit(1)
@@ -1185,7 +1185,7 @@ def main() -> None:
     engine_config = get_engine_config(cli_args["engine_settings"])
 
     try:
-        sz_factory = SzAbstractFactory("sz_file_loader", engine_config, verbose_logging=cli_args["debug_trace"])
+        sz_factory = SzAbstractFactory(MODULE_NAME, engine_config, verbose_logging=cli_args["debug_trace"])
     except SzError as err:
         logger.error(err)
         sys.exit(1)

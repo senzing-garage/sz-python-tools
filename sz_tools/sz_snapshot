@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import os
+import pathlib
 import random
 import signal
 import sys
@@ -28,6 +29,8 @@ import itertools
 # concurrency
 from multiprocessing import Process, Queue, Value
 from queue import Empty, Full
+
+MODULE_NAME = pathlib.Path(__file__).stem
 
 
 # -----------------------------------
@@ -462,7 +465,7 @@ def random_sample_index():
 def initialize_stat_pack():
     """# TODO"""
     stat_pack = {}
-    stat_pack["SOURCE"] = "G2Snapshot"
+    stat_pack["SOURCE"] = MODULE_NAME
     stat_pack["PROCESS"] = {}
     stat_pack["PROCESS"]["STATUS"] = "Incomplete"
     stat_pack["PROCESS"]["START_TIME"] = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
@@ -1313,10 +1316,10 @@ if __name__ == "__main__":
     g2dbUri = json.loads(engine_config)["SQL"]["CONNECTION"]
 
     try:
-        sz_factory = SzAbstractFactory("sz_snapshot", engine_config)
-        sz_configmgr = sz_factory.create_sz_configmanager()
-        sz_engine = sz_factory.create_sz_engine()
-        sz_product = sz_factory.create_sz_product()
+        sz_factory = SzAbstractFactory(MODULE_NAME, engine_config)
+        sz_configmgr = sz_factory.create_configmanager()
+        sz_engine = sz_factory.create_engine()
+        sz_product = sz_factory.create_product()
     except SzError as err:
         print(err)
         sys.exit(1)
