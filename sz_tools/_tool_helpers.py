@@ -564,6 +564,7 @@ def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_colo
     """# TODO"""
     print(f"\n{colorize_output('WARNING:', 'warning', output_color)} {msg}", end=end_str)
 
+
 def print_response(
     response: Union[int, str],
     color_json: bool,
@@ -571,7 +572,6 @@ def print_response(
     scroll_output: bool,
     color_output: bool,
     color: str = "",
-    color_disabled: bool = False,
 ) -> str:
     """# TODO"""
     strip_colors = True

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.4] - 2024-12-02
+
+### Changed in 0.0.4
+
+- Small fix to incorrect method merge
+
 ## [0.0.3] - 2024-12-02
 
 ### Changed in 0.0.3
