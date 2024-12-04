@@ -8,6 +8,7 @@ import glob
 import inspect
 import json
 import os
+import pathlib
 import re
 import readline
 import subprocess
@@ -18,7 +19,7 @@ from contextlib import suppress
 from typing import Any, Dict, List, Union
 
 from _tool_helpers import Colors, get_engine_config
-from senzing import SzAbstractFactory, SzEngineFlags, SzError
+from senzing_core import SzAbstractFactory, SzEngineFlags, SzError
 
 PRETTYTABLE_STYLE_AVAILABLE = False
 try:
@@ -40,6 +41,8 @@ with suppress(ImportError):
     from _sz_database import SzDatabase
 
     DATABASE_ACCESS = True
+
+MODULE_NAME = pathlib.Path(__file__).stem
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -332,10 +335,10 @@ class SzCmdShell(cmd.Cmd):
         self.sz_factory = sz_abstract_factory
 
         try:
-            self.sz_configmgr = self.sz_factory.create_sz_configmanager()
-            self.sz_diagnostic = self.sz_factory.create_sz_diagnostic()
-            self.sz_engine = self.sz_factory.create_sz_engine()
-            self.sz_product = self.sz_factory.create_sz_product()
+            self.sz_configmgr = self.sz_factory.create_configmanager()
+            self.sz_diagnostic = self.sz_factory.create_diagnostic()
+            self.sz_engine = self.sz_factory.create_engine()
+            self.sz_product = self.sz_factory.create_product()
             default_config_id = self.sz_configmgr.get_default_config_id()
             default_config_doc = self.sz_configmgr.get_config(default_config_id)
             self.api_version = json.loads(self.sz_product.get_version())
@@ -875,18 +878,18 @@ class SzCmdShell(cmd.Cmd):
             return
 
         # TODO - G2Snapshot?
-        if "SOURCE" in json_data and json_data["SOURCE"] in ("G2Snapshot"):  # 'pocSnapshot',
+        if "SOURCE" in json_data and json_data["SOURCE"] in ("sz_snapshot"):  # 'pocSnapshot',
             self.current_settings["snapshotFile"] = statpack_file_name
             self.snapshot_file = statpack_file_name
             self.snapshot_data = json_data
             print_message(f"successfully loaded {statpack_file_name}", "info")
-        elif "SOURCE" in json_data and json_data["SOURCE"] in ("G2Audit"):  # 'pocAudit',
+        elif "SOURCE" in json_data and json_data["SOURCE"] in ("g2_audit"):  # 'pocAudit',
             self.current_settings["auditFile"] = statpack_file_name
             self.audit_file = statpack_file_name
             self.audit_data = json_data
             print_message(f"successfully loaded {statpack_file_name}", "info")
         else:
-            print_message("Invalid G2Explorer statistics file", "error")
+            print_message("Invalid sz_snapshot statistics file", "error")
 
     # ---------------------------
     def complete_load(self, text, line, begidx, endidx):
@@ -4286,7 +4289,9 @@ class SzCmdShell(cmd.Cmd):
     # ---------------------------
     def why_entity(self, entity_list):
         # TODO
-        print("\nWhy on a single entity isn't currently implemented in V4 beta. Other why commands are implemented.\n")
+        print(
+            "\nWhy on a single entity isn't currently implemented in V4 beta. Other why command formats are implemented, see: help why\n"
+        )
 
         # why_flag_list = ["SZ_WHY_ENTITY_DEFAULT_FLAGS"]
         # try:
@@ -6668,7 +6673,7 @@ def main() -> None:
     engine_config = get_engine_config(cli_args.ini_file_name)
 
     try:
-        sz_abstract_factory = SzAbstractFactory("sz_explorer", engine_config, verbose_logging=cli_args.debugTrace)
+        sz_abstract_factory = SzAbstractFactory(MODULE_NAME, engine_config, verbose_logging=cli_args.debugTrace)
 
     except SzError as err:
         print_message(err, "error")

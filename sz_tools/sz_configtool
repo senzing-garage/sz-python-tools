@@ -5,6 +5,7 @@ import cmd
 import glob
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -12,13 +13,14 @@ import textwrap
 import traceback
 from collections import OrderedDict
 
+from _tool_helpers import Colors, get_engine_config
+
 try:
     import prettytable
 except (ImportError, ModuleNotFoundError):
     prettytable = None
 
-from _tool_helpers import get_engine_config
-from senzing import SzAbstractFactory, SzError
+from senzing_core import SzAbstractFactory, SzError
 
 try:
     import atexit
@@ -33,136 +35,8 @@ try:
 except ImportError:
     pygments_installed = False
 
-# ===== supporting classes =====
 
-
-# ==============================
-class Colors:
-
-    @classmethod
-    def apply(cls, in_string, color_list=None):
-        """apply list of colors to a string"""
-        if color_list:
-            prefix = "".join([getattr(cls, i.strip().upper()) for i in color_list.split(",")])
-            suffix = cls.RESET
-            return f"{prefix}{in_string}{suffix}"
-        return in_string
-
-    @classmethod
-    def set_theme(cls, theme):
-        # best for dark backgrounds
-        if theme.upper() == "DEFAULT":
-            cls.TABLE_TITLE = cls.FG_GREY42
-            cls.ROW_TITLE = cls.FG_GREY42
-            cls.COLUMN_HEADER = cls.FG_GREY42
-            cls.ENTITY_COLOR = cls.FG_MEDIUMORCHID1
-            cls.DSRC_COLOR = cls.FG_ORANGERED1
-            cls.ATTR_COLOR = cls.FG_CORNFLOWERBLUE
-            cls.GOOD = cls.FG_CHARTREUSE3
-            cls.BAD = cls.FG_RED3
-            cls.CAUTION = cls.FG_GOLD3
-            cls.HIGHLIGHT1 = cls.FG_DEEPPINK4
-            cls.HIGHLIGHT2 = cls.FG_DEEPSKYBLUE1
-        elif theme.upper() == "LIGHT":
-            cls.TABLE_TITLE = cls.FG_LIGHTBLACK
-            cls.ROW_TITLE = cls.FG_LIGHTBLACK
-            cls.COLUMN_HEADER = cls.FG_LIGHTBLACK  # + cls.ITALICS
-            cls.ENTITY_COLOR = cls.FG_LIGHTMAGENTA + cls.BOLD
-            cls.DSRC_COLOR = cls.FG_LIGHTYELLOW + cls.BOLD
-            cls.ATTR_COLOR = cls.FG_LIGHTCYAN + cls.BOLD
-            cls.GOOD = cls.FG_LIGHTGREEN
-            cls.BAD = cls.FG_LIGHTRED
-            cls.CAUTION = cls.FG_LIGHTYELLOW
-            cls.HIGHLIGHT1 = cls.FG_LIGHTMAGENTA
-            cls.HIGHLIGHT2 = cls.FG_LIGHTCYAN
-        elif theme.upper() == "DARK":
-            cls.TABLE_TITLE = cls.FG_LIGHTBLACK
-            cls.ROW_TITLE = cls.FG_LIGHTBLACK
-            cls.COLUMN_HEADER = cls.FG_LIGHTBLACK  # + cls.ITALICS
-            cls.ENTITY_COLOR = cls.FG_MAGENTA + cls.BOLD
-            cls.DSRC_COLOR = cls.FG_YELLOW + cls.BOLD
-            cls.ATTR_COLOR = cls.FG_CYAN + cls.BOLD
-            cls.GOOD = cls.FG_GREEN
-            cls.BAD = cls.FG_RED
-            cls.CAUTION = cls.FG_YELLOW
-            cls.HIGHLIGHT1 = cls.FG_MAGENTA
-            cls.HIGHLIGHT2 = cls.FG_CYAN
-
-    # styles
-    RESET = "\033[0m"
-    BOLD = "\033[01m"
-    DIM = "\033[02m"
-    ITALICS = "\033[03m"
-    UNDERLINE = "\033[04m"
-    BLINK = "\033[05m"
-    REVERSE = "\033[07m"
-    STRIKETHROUGH = "\033[09m"
-    INVISIBLE = "\033[08m"
-    # foregrounds
-    FG_BLACK = "\033[30m"
-    FG_WHITE = "\033[97m"
-    FG_BLUE = "\033[34m"
-    FG_MAGENTA = "\033[35m"
-    FG_CYAN = "\033[36m"
-    FG_YELLOW = "\033[33m"
-    FG_GREEN = "\033[32m"
-    FG_RED = "\033[31m"
-    FG_LIGHTBLACK = "\033[90m"
-    FG_LIGHTWHITE = "\033[37m"
-    FG_LIGHTBLUE = "\033[94m"
-    FG_LIGHTMAGENTA = "\033[95m"
-    FG_LIGHTCYAN = "\033[96m"
-    FG_LIGHTYELLOW = "\033[93m"
-    FG_LIGHTGREEN = "\033[92m"
-    FG_LIGHTRED = "\033[91m"
-    # backgrounds
-    BG_BLACK = "\033[40m"
-    BG_WHITE = "\033[107m"
-    BG_BLUE = "\033[44m"
-    BG_MAGENTA = "\033[45m"
-    BG_CYAN = "\033[46m"
-    BG_YELLOW = "\033[43m"
-    BG_GREEN = "\033[42m"
-    BG_RED = "\033[41m"
-    BG_LIGHTBLACK = "\033[100m"
-    BG_LIGHTWHITE = "\033[47m"
-    BG_LIGHTBLUE = "\033[104m"
-    BG_LIGHTMAGENTA = "\033[105m"
-    BG_LIGHTCYAN = "\033[106m"
-    BG_LIGHTYELLOW = "\033[103m"
-    BG_LIGHTGREEN = "\033[102m"
-    BG_LIGHTRED = "\033[101m"
-    # extended
-    FG_DARKORANGE = "\033[38;5;208m"
-    FG_SYSTEMBLUE = "\033[38;5;12m"  # darker
-    FG_DODGERBLUE2 = "\033[38;5;27m"  # lighter
-    FG_PURPLE = "\033[38;5;93m"
-    FG_DARKVIOLET = "\033[38;5;128m"
-    FG_MAGENTA3 = "\033[38;5;164m"
-    FG_GOLD3 = "\033[38;5;178m"
-    FG_YELLOW1 = "\033[38;5;226m"
-    FG_SKYBLUE1 = "\033[38;5;117m"
-    FG_SKYBLUE2 = "\033[38;5;111m"
-    FG_ROYALBLUE1 = "\033[38;5;63m"
-    FG_CORNFLOWERBLUE = "\033[38;5;69m"
-    FG_HOTPINK = "\033[38;5;206m"
-    FG_DEEPPINK4 = "\033[38;5;89m"
-    FG_MAGENTA3 = "\033[38;5;164m"
-    FG_SALMON = "\033[38;5;209m"
-    FG_MEDIUMORCHID1 = "\033[38;5;207m"
-    FG_NAVAJOWHITE3 = "\033[38;5;144m"
-    FG_DARKGOLDENROD = "\033[38;5;136m"
-    FG_STEELBLUE1 = "\033[38;5;81m"
-    FG_GREY42 = "\033[38;5;242m"
-    FG_INDIANRED = "\033[38;5;131m"
-    FG_DEEPSKYBLUE1 = "\033[38;5;39m"
-    FG_ORANGE3 = "\033[38;5;172m"
-    FG_RED3 = "\033[38;5;124m"
-    FG_SEAGREEN2 = "\033[38;5;83m"
-    FG_YELLOW3 = "\033[38;5;184m"
-    FG_CYAN3 = "\033[38;5;43m"
-    FG_CHARTREUSE3 = "\033[38;5;70m"
-    FG_ORANGERED1 = "\033[38;5;202m"
+MODULE_NAME = pathlib.Path(__file__).stem
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -244,14 +118,14 @@ class SzCfgShell(cmd.Cmd):
         # Create Senzing engines
         self.engine_config = engine_config
         try:
-            self.sz_factory2 = SzAbstractFactory("sz_command", self.engine_config)
+            self.sz_factory2 = SzAbstractFactory(MODULE_NAME, self.engine_config)
         except SzError as err:
             print(err)
             sys.exit(1)
 
         self.sz_factory = sz_abstract_factory
-        self.sz_config = self.sz_factory.create_sz_config()
-        self.sz_configmgr = self.sz_factory.create_sz_configmanager()
+        self.sz_config = self.sz_factory.create_config()
+        self.sz_configmgr = self.sz_factory.create_configmanager()
 
         # Cmd Module settings
         self.intro = ""
@@ -348,8 +222,10 @@ class SzCfgShell(cmd.Cmd):
             "FIELD": "string|255",
         }
 
-        # Setup for pretty printing
-        Colors.set_theme("DEFAULT")
+        # Themes - set early, used for setting cmd prompt, use the default colors set by the terminal
+        self.themes = Colors.AVAILABLE_THEMES
+        self.theme = "TERMINAL"
+        Colors.set_theme(self.theme)
         self.pygments_installed = True if "pygments" in sys.modules else False
         # self.current_output_format = 'table' if prettytable else 'jsonl'
         self.current_output_format_list = "table" if prettytable else "jsonl"
@@ -793,7 +669,7 @@ class SzCfgShell(cmd.Cmd):
                 raise
 
             colorize_msg("Default config added!", "success")
-            self.sz_factory.reinitialize
+            self.sz_factory.reinitialize(config_id)
 
         current_config = self.sz_configmgr.get_config(default_config_id)
         self.config_data = json.loads(current_config)
@@ -899,9 +775,9 @@ class SzCfgShell(cmd.Cmd):
                     return
 
             try:
-                new_config_id = self.sz_configmgr.add_config(json.dumps(self.config_data), "Updated by G2ConfigTool")
+                new_config_id = self.sz_configmgr.add_config(json.dumps(self.config_data), f"Updated by {MODULE_NAME}")
                 self.sz_configmgr.set_default_config_id(new_config_id)
-                self.sz_factory.reinitialize
+                self.sz_factory.reinitialize(new_config_id)
                 self.config_updated = False
                 colorize_msg("Configuration changes saved", "success")
             except SzError as err:

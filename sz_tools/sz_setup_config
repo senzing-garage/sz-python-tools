@@ -2,10 +2,13 @@
 """# TODO """
 
 import argparse
+import pathlib
 import sys
 
 from _tool_helpers import get_engine_config
-from senzing import SzAbstractFactory, SzError
+from senzing_core import SzAbstractFactory, SzError
+
+MODULE_NAME = pathlib.Path(__file__).stem
 
 
 def parse_cli_args() -> argparse.Namespace:
@@ -33,8 +36,8 @@ def main() -> None:
 
     # Determine if a default/initial Senzing configuration exists
     try:
-        sz_abstract_factory = SzAbstractFactory("sz_setup_config", engine_config)
-        sz_config_mgr = sz_abstract_factory.create_sz_configmanager()
+        sz_abstract_factory = SzAbstractFactory(MODULE_NAME, engine_config)
+        sz_config_mgr = sz_abstract_factory.create_configmanager()
         default_config_id = sz_config_mgr.get_default_config_id()
     except SzError as err:
         print("\nERROR: Could not initialize SzConfigManager or get default configuration ID")
@@ -56,18 +59,18 @@ def main() -> None:
 
     # Apply a default configuration
     try:
-        sz_config = sz_abstract_factory.create_sz_config()
+        sz_config = sz_abstract_factory.create_config()
         config_handle = sz_config.create_config()
         new_config = sz_config.export_config(config_handle)
         sz_config.close_config(config_handle)
     except SzError as err:
-        print("\nERROR: Could not initialize SzConfig or get a template configuration")
+        print("\nERROR: Could not get a template configuration")
         print(f"ERROR: {err}\n")
         sys.exit(1)
 
     # Save configuration JSON into Senzing database.
     try:
-        new_config_id = sz_config_mgr.add_config(new_config, "Configuration added from sz_setup_config")
+        new_config_id = sz_config_mgr.add_config(new_config, f"Configuration added by {MODULE_NAME}")
     except SzError as err:
         print("\nERROR: Failed to add configuration to the datastore")
         print(f"ERROR: {err}\n")

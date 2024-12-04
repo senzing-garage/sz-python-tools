@@ -23,7 +23,7 @@ from pathlib import Path
 from signal import SIGALRM, alarm, signal
 from typing import TYPE_CHECKING, Any, Dict, List, TextIO, Union
 
-from senzing import SzEngineFlags
+from senzing_core import SzEngineFlags
 
 READLINE_AVAIL = False
 with suppress(ImportError):
@@ -84,7 +84,6 @@ class Colors:
 
     @classmethod
     def apply(cls, to_color: Union[int, str], colors_list: str = "") -> Union[int, str]:
-        # TODO
         """apply list of colors to a string"""
         # TODO colors_list is a string with multiple entries separated by ,
         if colors_list:
@@ -108,6 +107,7 @@ class Colors:
             cls.GOOD = cls.SZ_GREEN  # cls.FG_CHARTREUSE3
             cls.BAD = cls.SZ_RED  # cls.FG_RED3
             cls.CAUTION = cls.SZ_YELLOW  # cls.FG_GOLD3
+            cls.DEBUG = cls.FG_MAGENTA
             cls.HIGHLIGHT1 = cls.SZ_PINK  # cls.FG_DEEPPINK4
             cls.HIGHLIGHT2 = cls.SZ_CYAN  # cls.FG_DEEPSKYBLUE1
             cls.MATCH = cls.SZ_BLUE
@@ -126,6 +126,7 @@ class Colors:
             cls.ATTR_COLOR = cls.FG_LIGHTCYAN + cls.BOLD
             cls.GOOD = cls.FG_LIGHTGREEN
             cls.BAD = cls.FG_LIGHTRED
+            cls.DEBUG = cls.FG_MAGENTA
             cls.CAUTION = cls.FG_LIGHTYELLOW
             cls.HIGHLIGHT1 = cls.FG_LIGHTMAGENTA
             cls.HIGHLIGHT2 = cls.FG_LIGHTCYAN
@@ -144,6 +145,7 @@ class Colors:
             cls.ATTR_COLOR = cls.FG_CYAN
             cls.GOOD = cls.FG_GREEN
             cls.BAD = cls.FG_RED
+            cls.DEBUG = cls.FG_MAGENTA
             cls.CAUTION = cls.FG_YELLOW
             cls.HIGHLIGHT1 = cls.FG_MAGENTA
             cls.HIGHLIGHT2 = cls.FG_CYAN
@@ -159,11 +161,12 @@ class Colors:
         # the colors set by the terminal preferences so a user will see the colors
         # they expect and set in their terminal in the output from tools
         elif theme == "TERMINAL":
-            cls.GOOD = cls.FG_GREEN  # Green
-            cls.BAD = cls.FG_RED  # Red
-            cls.CAUTION = cls.FG_YELLOW  # Yellow
-            cls.HIGHLIGHT1 = cls.FG_BLUE  # Blue
-            cls.HIGHLIGHT2 = cls.FG_CYAN  # Cyan
+            cls.GOOD = cls.FG_GREEN
+            cls.BAD = cls.FG_RED
+            cls.CAUTION = cls.FG_YELLOW
+            cls.DEBUG = cls.FG_MAGENTA
+            cls.HIGHLIGHT1 = cls.FG_BLUE
+            cls.HIGHLIGHT2 = cls.FG_CYAN
             cls.JSONKEYCOLOR = cls.FG_BLUE
             cls.JSONVALUECOLOR = cls.FG_YELLOW
 
@@ -267,6 +270,7 @@ class Colors:
     GOOD = SZ_GREEN
     BAD = SZ_RED
     CAUTION = SZ_YELLOW
+    DEBUG = FG_MAGENTA
     HIGHLIGHT1 = SZ_PINK
     HIGHLIGHT2 = SZ_CYAN
     MATCH = SZ_BLUE
@@ -285,8 +289,7 @@ class Colors:
 
 def check_environment() -> None:
     """# TODO"""
-    # The Senzing python tools call G2Paths before starting engine to locate the engine configuration. Error if can't locate
-    # a G2Module.ini or SENZING_ENGINE_CONFIGURATION_JSON
+    # Error if can't locate a G2Module.ini or SENZING_ENGINE_CONFIGURATION_JSON
     if "SENZING_ETC_PATH" not in os.environ and "SENZING_ROOT" not in os.environ:
         # Check if set or not and that it's not set to null
         secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
@@ -418,7 +421,7 @@ def get_engine_flag_names() -> List[str]:
     return list(SzEngineFlags.__members__.keys())
 
 
-def get_engine_flags_integer(flags: List[str]) -> int:
+def get_engine_flags_as_int(flags: List[str]) -> int:
     """Detect if int or named flags are used and convert to int"""
     if flags[0] == "-1":
         return -1
@@ -493,23 +496,18 @@ def colorize_json(json_str: str, color_disabled: bool = False) -> str:
 
 
 def colorize_output(
-    # output: Union[int, str], color_or_type: str, output_color: bool = True
     output: Union[Exception, int, str],
     color_or_type: str,
-    color_disabled: bool = False,
+    output_color: bool = True,
 ) -> str:
     """# TODO"""
-
     output = str(output) if isinstance(output, int) else output
 
     if not output:
         return ""
 
-    if color_disabled:
+    if not output_color:
         return output
-
-    # if output_color:
-    #     return output
 
     color_or_type = color_or_type.upper()
 
@@ -547,32 +545,33 @@ def colorize_cmd_prompt(prompt: str, color_or_type: str, color_disabled: bool = 
 # -------------------------------------------------------------------------
 
 
-def print_error(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
+def print_debug(msg: str, end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('ERROR:', 'error', color_disabled=color_disabled)} {msg}", end=end_str)
+    print(f"\n{colorize_output('DEBUG:', 'debug', output_color)} {msg}", end=end_str)
 
 
-def print_info(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
+def print_error(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    print(colorize_output(f"\n{msg}", "info", color_disabled=color_disabled), end=end_str)
+    print(f"\n{colorize_output('ERROR:', 'error', output_color)} {msg}", end=end_str)
 
 
-def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", color_disabled: bool = False) -> None:
+def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('WARNING:', 'warning', color_disabled=color_disabled)} {msg}", end=end_str)
+    print(colorize_output(f"\n{msg}", "info", output_color), end=end_str)
+
+
+def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
+    """# TODO"""
+    print(f"\n{colorize_output('WARNING:', 'warning', output_color)} {msg}", end=end_str)
 
 
 def print_response(
     response: Union[int, str],
     color_json: bool,
-    color_json_cmd: bool,
     format_json: bool,
-    format_json_cmd: bool,
-    cmd_color: bool,
-    cmd_format: bool,
-    scroll_output: bool = False,
+    scroll_output: bool,
+    color_output: bool,
     color: str = "",
-    color_disabled: bool = False,
 ) -> str:
     """# TODO"""
     strip_colors = True
@@ -582,13 +581,13 @@ def print_response(
         color = "info"
 
     if isinstance(response, int) or not response.startswith("{"):
-        output = colorize_output(response, color, color_disabled)
+        output = colorize_output(response, color, color_output)
     else:
         try:
             # Test if data is json and format appropriately
             _ = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
         except (JsonDecodeError, TypeError):
-            output = colorize_output(response, color, color_disabled)
+            output = colorize_output(response, color, color_output)
             strip_colors = False
         else:
             # TODO Is this check still needed?
@@ -596,7 +595,8 @@ def print_response(
                 response = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
 
             # Format JSON if global config or single command formatter specifies
-            if (format_json and not cmd_format) or (cmd_format and format_json_cmd):
+            # if (format_json and not cmd_format) or (cmd_format and format_json_cmd):
+            if format_json:
                 json_ = (
                     orjson.dumps(response, option=orjson.OPT_INDENT_2)
                     if ORJSON_AVAIL
@@ -610,18 +610,18 @@ def print_response(
             json_str: str = json_.decode() if ORJSON_AVAIL else json_  # type: ignore
 
             # Color JSON if global config or single command formatter specifies
-            if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
+            # if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
+            output = json_str
+            if color_json:
                 output = colorize_json(json_str)
-            else:
-                output = json_str
 
     if scroll_output:
         try:
             scroll_cmd = f"echo '{output}' | less -FRSX"
             subprocess.run([scroll_cmd], shell=True, check=True)
-        except subprocess.CalledProcessError as err:
+        except (OSError, subprocess.CalledProcessError) as err:
             print(f"\n{output}\n")
-            print_error(f"Couldn't use paging on JSON response, calling less returned: {err.args[0]}")
+            print_error(f"Couldn't use paging on JSON response, calling less returned: {err}")
     else:
         print(f"\n{output}\n")
 
@@ -659,7 +659,8 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
         print_warning(f"No help found for {help_topic[3:]}")
         return
 
-    help_text = current_section = ""
+    help_text = ""
+    current_section = ""
     headers = [
         "Syntax:",
         "Examples:",
@@ -735,17 +736,6 @@ def history_setup() -> str:
     return hist_error
 
 
-def capture_file(file_path: str) -> TextIO:
-    """# TODO"""
-    try:
-        out_file = open(file_path, "w", encoding="utf-8")
-    except IOError as err:
-        print_warning(f"Can't write to capture file, continuing without capturing: {err}", end_str="\n")
-        raise IOError from err
-
-    return out_file
-
-
 def response_to_clipboard(last_response: str) -> None:
     """# TODO"""
     if not PYCLIP_AVAIL:
@@ -765,26 +755,34 @@ def response_to_clipboard(last_response: str) -> None:
         print_warning(f"Couldn't copy to clipboard: {err}")
 
 
-def response_to_file(file_path: str, last_response: str) -> None:
+def response_to_file(
+    file_path: str, append_to_file: bool, add_last_command: bool, last_command: str, last_response: str
+) -> None:
     """# TODO"""
     try:
-        with open(file_path, "w", encoding="utf-8") as out:
-            out.write(last_response)
-            out.write("\n")
-            out.flush()
-    except IOError as err:
+        mode = "a" if append_to_file else "w"
+        with open(file_path, mode, encoding="utf-8") as response_out:
+            response_file_size = Path(file_path).stat().st_size
+            if mode == "a" and response_file_size:
+                response_out.write("\n")
+            if add_last_command:
+                response_out.write(last_command)
+                response_out.write("\n\n")
+            response_out.write(last_response)
+            response_out.write("\n")
+            response_out.flush()
+    except OSError as err:
         print_error(err)
 
 
-def response_reformat_json(last_response: str, color_json: bool, color_disabled: bool = False) -> str:
+def response_reformat_json(last_response: str, color_json: bool) -> str:
     """# TODO"""
-
     if not last_response.startswith("{"):
         print_warning("The last response isn't JSON")
         return ""
 
-    jsonl = False if "\n" in last_response else True
-    return print_response(last_response, color_json, False, jsonl, False, False, False, color_disabled=color_disabled)
+    json_format = False if "\n" in last_response else True
+    return print_response(last_response, color_json, json_format, False, False)
 
 
 # -------------------------------------------------------------------------

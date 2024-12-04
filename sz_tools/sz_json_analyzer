@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import os
+import pathlib
 import signal
 import subprocess
 import sys
@@ -12,7 +13,7 @@ import time
 from typing import Any, Dict, List, Union
 
 from _tool_helpers import get_engine_config
-from senzing import SzAbstractFactory, SzError
+from senzing_core import SzAbstractFactory, SzError
 
 try:
     import prettytable
@@ -21,12 +22,14 @@ except ImportError as err:
     input(err)
     prettytable = None
 
+MODULE_NAME = pathlib.Path(__file__).stem
+
 
 def get_environment_config(settings: str) -> Dict[str, Any]:
     """# TODO"""
     try:
-        sz_abstract_factory = SzAbstractFactory("sz_json_analyzer", settings)
-        sz_configmgr = sz_abstract_factory.create_sz_configmanager()
+        sz_abstract_factory = SzAbstractFactory(MODULE_NAME, settings)
+        sz_configmgr = sz_abstract_factory.create_configmanager()
         config_id = sz_configmgr.get_default_config_id()
         config_str = sz_configmgr.get_config(config_id)
         config_json: Dict[str, Any] = json.loads(config_str)
