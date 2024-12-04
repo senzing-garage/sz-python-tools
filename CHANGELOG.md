@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.5] - 2024-12-04
+
+### Changed in 0.0.5
+
+- Align to senzing-core
+
 ## [0.0.4] - 2024-12-02
 
 ### Changed in 0.0.4
