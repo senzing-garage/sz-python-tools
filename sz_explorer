@@ -36,6 +36,48 @@ except ImportError:
     sys.exit(1)
 
 
+def print_exception_info():
+    print(colorize(traceback.format_exc(), "dim"))
+
+
+def print_message(msg_text, msg_type_or_color=""):
+    if msg_type_or_color.upper() == "ERROR":
+        msg_color = "FG_RED"
+    elif msg_type_or_color.upper() == "WARNING":
+        msg_color = "FG_YELLOW"
+    elif msg_type_or_color.upper() == "INFO":
+        msg_color = "FG_CYAN"
+    elif msg_type_or_color.upper() == "SUCCESS":
+        msg_color = "FG_GREEN"
+    else:
+        msg_color = msg_type_or_color
+    print(f"\n{colorize(msg_text, msg_color)}\n")
+
+
+def show_debug(call: str, output: str = "") -> None:
+    """# TODO"""
+    if args.debug_output.upper() in ("S", "SCR", "SCREEN") and output:
+        print(f"- {call} -\n")
+        print(f"{output}\n")
+        return
+
+    try:
+        with open(args.debug_output, "a", encoding="utf-8") as f:
+            f.write(f"- {call} -\n")
+            f.write(f"{output}\n\n")
+    except IOError as err:
+        # TODO - Ant - Color
+        print(f"cannot write to {args.debug_output}: {err}")
+
+
+# --------------------------------------
+def fmt_statistic(amt):
+    amt = int(amt)
+    if amt > 1000000:
+        return "{:,.2f}m".format(round(amt / 1000000, 2))
+    return "{:,}".format(amt)
+
+
 # -------------------
 # colorizers
 # -------------------
@@ -159,7 +201,8 @@ def wrap_text(_str, _width, _color=None):
 
 
 def view_report(report, **kwargs):
-    no_scroll = kwargs.get("no_scroll")
+    if kwargs.get("extra_header"):
+        report = f"{kwargs.get("extra_header")}\n\n{report}"
     print()
     if kwargs.get("no_scroll"):
         screen_width = os.get_terminal_size()[0] - 1
@@ -331,7 +374,8 @@ class sz_pretty_table:
                         prior_header_len += len(headers1[i]) + 1
                     if prior_header_len > 0:
                         new_header1 += f"{headers1[i-1]:^{prior_header_len-1}}{col_sep}"
-                        new_header1_colored += f"{Colors.apply(headers1[i-1], 'column_header'):^{prior_header_len-1+colorize_characters_width}}{col_sep}"
+                        padding = prior_header_len - 1 + colorize_characters_width
+                        new_header1_colored += f"{Colors.apply(headers1[i-1], 'column_header'):^{padding}}{col_sep}"
                         prior_header_len = 0
                 prior_header_len += len(headers1[i]) + 1
         new_header0 = report[0]
@@ -343,67 +387,322 @@ class sz_pretty_table:
         return "\n".join(new_report)
 
 
-class sz_report_viewer:
-    def __init__(self, report_data, report_file):
-        self.report_data = report_data
-        self.report_file = report_file
+class EDAReports:
+    def __init__(self):
+        self.match_categories = {
+            "Duplicates": "DUPLICATE_PRINCIPLES",
+            "Ambiguous matches": "AMBIGUOUS_MATCH_PRINCIPLES",
+            "Possible matches": "POSSIBLE_MATCH_PRINCIPLES",
+            "Possibly related": "POSSIBLY_RELATED_PRINCIPLES",
+        }
+        self.audit_colors = {
+            "MERGE": "good",
+            "SPLIT": "bad",
+            "SPLIT+MERGE": "fg_red,bg_green",
+            "unknown": "bg_red,fg_white",
+        }
 
-    def load_dss(self):
-
-        self.naster_report = tbl.render_table(super_header=True)
-
-        self.sub_report_data = {}
-
-        arg_tokens = arg.split()
-        if len(arg_tokens) != 2:
-            print_message(
-                "Arguments missing: data source and match level are required",
-                "warning",
-            )
+    def load_file(self, file_name):
+        if not os.path.exists(file_name):
+            raise Exception(f"{file_name} not found!")
             return
-
-        data_source = arg_tokens[0].upper()
-        if data_source not in self.snapshot_data["DATA_SOURCES"]:
-            print_message("Invalid data source", "error")
-            return
-
-        match_level = arg_tokens[1].upper()
-        match_level_code = None
-        for match_level_parm in self.valid_match_level_parameters:
-            if match_level.startswith(match_level_parm):
-                match_level_code = self.valid_match_level_parameters[match_level_parm]
-                break
-        if not match_level_code:
-            print_message("Invalid match level", "error")
-            return
-
         try:
-            sample_records = sorted(
-                self.snapshot_data["DATA_SOURCES"][data_source][match_level_code],
-                key=lambda x: int(str(x).split()[0]),
-            )
-        except:
-            sample_records = []
-        if len(sample_records) == 0:
-            print_message("No records found", "warning")
+            json_data = json.load(open(file_name))
+        except Exception as ex:
+            raise Exception(f"{file_name}: {ex}")
             return
+        if json_data.get("SOURCE") == "sz_snapshot":
+            self.snapshot_file = file_name
+            self.snapshot_data = json_data
 
-        match_level_base = match_level_code.replace("_SAMPLE", "")
-        if not self.snapshot_data["DATA_SOURCES"][data_source].get(match_level_code.replace("_SAMPLE", "_PRINCIPLES")):
-            print_message(
-                "Outdated snapshot, please create a new one using the latest G2Snapshot.py",
-                "error",
-            )
-            return
+        elif json_data.get("SOURCE") == "sz_audit":
+            self.audit_file = file_name
+            self.audit_data = json_data
+        else:
+            raise Exception(f"{file_name} not created by sz_snapshot or sz_audit", "error")
 
+    def generate_dss(self):
+        if not self.snapshot_data:
+            raise Exception("Please load a json file created with sz_snapshot.py to access this report")
+
+        report_data = {}
+        tbl = sz_pretty_table()
+        tbl.title = f"Data Source Summary from {self.snapshot_file}"
+        tbl.columns = [
+            {"name": "\nrow", "width": 5, "align": "center"},
+            {"name": "\nData Source", "width": 25, "align": "left"},
+            {"name": "\nRecords", "width": 15, "align": "right"},
+            {"name": "\nEntities", "width": 15, "align": "right"},
+            {"name": "\nCompression", "width": 15, "align": "right"},
+            {"name": "Matched\nRecords", "width": 15, "align": "right"},
+            {"name": "Matched\nEntities", "width": 15, "align": "right"},
+            {"name": "Related Entities\nAmbiguous Matches", "width": 15, "align": "right"},
+            {"name": "Related Entities\nPossible Matches", "width": 15, "align": "right"},
+            {"name": "Related Entities\nPossible Relationships", "width": 15, "align": "right"},
+        ]
+        tbl.rows = []
+        row_num = 0
+        for data_source in sorted(self.snapshot_data["DATA_SOURCES"]):
+            row_num += 1
+            report_segment = self.snapshot_data["DATA_SOURCES"][data_source]
+            row = [
+                row_num,
+                colorize_dsrc(data_source),
+                fmt_statistic(report_segment.get("RECORD_COUNT", 0)),
+                fmt_statistic(report_segment.get("ENTITY_COUNT", 0)),
+                report_segment.get("COMPRESSION", 0),
+                fmt_statistic(report_segment.get("DUPLICATE_RECORD_COUNT", 0)),
+                fmt_statistic(report_segment.get("DUPLICATE_ENTITY_COUNT", 0)),
+                fmt_statistic(report_segment.get("AMBIGUOUS_MATCH_RELATION_COUNT", 0)),
+                fmt_statistic(report_segment.get("POSSIBLE_MATCH_RELATION_COUNT", 0)),
+                fmt_statistic(report_segment.get("POSSIBLY_RELATED_RELATION_COUNT", 0)),
+            ]
+            tbl.rows.append(row)
+            report_data[data_source] = {}
+            for category in self.match_categories:
+                category_tag = self.match_categories[category]
+                if not report_segment.get(category_tag):
+                    continue
+                report_data[data_source][category] = {}
+                for errule_code in report_segment[category_tag]:
+                    for match_key in report_segment[category_tag][errule_code]:
+                        sub_category = f"{match_key}||{errule_code}"
+                        sample_list = report_segment[category_tag][errule_code][match_key]
+                        report_data[data_source][category][sub_category] = sample_list
+
+        report_table = tbl.render_table(super_header=True)
+        select_levels = ["data_source", "match_level", "match_key"]
+        self.drill_into(report_table, report_data, select_levels)
+
+    def generate_css(self, data_source_filter=None):
+        if not self.snapshot_data:
+            raise Exception("Please load a json file created with sz_snapshot.py to access this report")
+        report_data = {}
+        tbl = sz_pretty_table()
+        tbl.title = f"Cross Source Summary from {self.snapshot_file}"
+        tbl.columns = [
+            {"name": "\nrow", "width": 5, "align": "center"},
+            {"name": "From\nData Source", "width": 25, "align": "center"},
+            {"name": "To\nData Source", "width": 25, "align": "center"},
+            {"name": "Matched\nRecords", "width": 15, "align": "right"},
+            {"name": "Matched\nEntities", "width": 15, "align": "right"},
+            {"name": "Entities with\nAmbiguous Matches", "width": 15, "align": "right"},
+            {"name": "Entities with\nPossible Matches", "width": 15, "align": "right"},
+            {"name": "Entities with\nPossible Relationships", "width": 15, "align": "right"},
+        ]
+        tbl.rows = []
+        row_num = 0
+        for data_source1 in sorted(self.snapshot_data["DATA_SOURCES"]):
+            if data_source_filter and data_source1 != data_source_filter.upper():
+                continue
+            for data_source2 in sorted(self.snapshot_data["DATA_SOURCES"][data_source1]["CROSS_MATCHES"]):
+                row_num += 1
+                report_segment = self.snapshot_data["DATA_SOURCES"][data_source1]["CROSS_MATCHES"][data_source2]
+                row = [
+                    row_num,
+                    colorize_dsrc(data_source1),
+                    colorize_dsrc(data_source2),
+                    fmt_statistic(report_segment.get("MATCH_RECORD_COUNT", 0)),
+                    fmt_statistic(report_segment.get("MATCH_ENTITY_COUNT", 0)),
+                    fmt_statistic(report_segment.get("AMBIGUOUS_MATCH_ENTITY_COUNT", 0)),
+                    fmt_statistic(report_segment.get("POSSIBLE_MATCH_ENTITY_COUNT", 0)),
+                    fmt_statistic(report_segment.get("POSSIBLY_RELATED_ENTITY_COUNT", 0)),
+                ]
+                tbl.rows.append(row)
+
+                row_key = f"{data_source1}|{data_source2}"
+                report_data[row_key] = {}
+                for category in self.match_categories:
+                    category_tag = self.match_categories[category]
+                    if not report_segment.get(category_tag):
+                        continue
+                    report_data[row_key][category] = {}
+                    for errule_code in report_segment[category_tag]:
+                        for match_key in report_segment[category_tag][errule_code]:
+                            sub_category = f"{match_key}||{errule_code}"
+                            sample_list = report_segment[category_tag][errule_code][match_key]
+                            report_data[row_key][category][sub_category] = sample_list
+
+        report_table = tbl.render_table(super_header=True)
+        select_levels = ["data_sources", "match_level", "match_key"]
+        self.drill_into(report_table, report_data, select_levels)
+
+    def generate_mss(self, data_source_filter=None):
+        if not self.snapshot_data:
+            raise Exception("Please load a json file created with sz_snapshot.py to access this report")
+        report_data = {}
+        tbl = sz_pretty_table()
+        tbl.title = f"Multi-Source Summary from {self.snapshot_file}"
+        tbl.columns = [
+            {"name": "row", "width": 5, "align": "center"},
+            {"name": "Data Sources", "width": 100, "align": "left"},
+            {"name": "Records", "width": 15, "align": "right"},
+        ]
+        tbl.rows = []
+        row_num = 0
+        for data_sources in sorted(self.snapshot_data["MULTI_SOURCE"]):
+            if data_source_filter and data_source_filter.upper() not in data_sources:
+                continue
+            row_num += 1
+            report_segment = self.snapshot_data["MULTI_SOURCE"][data_sources]
+            row = [
+                row_num,
+                colorize(" | ", "dim").join(colorize_dsrc(x) for x in data_sources.split("|")),
+                fmt_statistic(report_segment.get("COUNT", 0)),
+            ]
+            tbl.rows.append(row)
+            report_data[data_sources] = report_segment
+
+        report_table = tbl.render_table()
+        select_levels = ["row"]
+        self.drill_into(report_table, report_data, select_levels)
+
+    def drill_into(self, report_table, report_data, select_levels):
+        report_levels = [[report_table, report_data, select_levels[0], ""]]
         while True:
-            header = f"Matching statistics for {match_level_base} in {data_source}"
-            report_row = self.select_matching_category(
-                self.snapshot_data["DATA_SOURCES"][data_source][match_level_code.replace("_SAMPLE", "_PRINCIPLES")],
-                header,
-            )
-            if not report_row:
+            select_table, select_data, select_level, prior_keys = report_levels[-1]
+            if select_table == "build":
+                tbl = sz_pretty_table()
+                tbl.title = f"Selected {prior_keys}"
+                tbl.columns = [
+                    {"name": "row", "width": 5, "align": "center"},
+                    {"name": select_level, "width": 100, "align": "left"},
+                    {"name": "count", "width": 10, "align": "right"},
+                ]
+                row_num = 0
+                for key in select_data.keys():
+                    row_num += 1
+                    formatted_key = key
+                    item_count = 0
+                    if select_level == "match_key":
+                        item_count = select_data[key]["COUNT"]
+                        match_key, errule_code = key.split("||")
+                        print(key.split("||"))
+                        formatted_key = sz_pretty.fmt_match_key({"MATCH_KEY": match_key, "ERRULE_CODE": errule_code})
+
+                    elif select_level == "match_level":
+                        for key1 in select_data[key]:
+                            item_count += select_data[key][key1]["COUNT"]
+                    tbl.rows.append([row_num, formatted_key, item_count])
+                select_table = tbl.render_table()
+
+            view_report(select_table, no_scroll=True)
+            selection = input(f"Select row number to review or (Q) to quit ... ")
+            if not selection:
+                continue
+            remove_from_history()
+            if selection.upper().startswith("Q"):
+                del report_levels[-1]
+                if len(report_levels) == 0:
+                    break
+            elif selection.isdigit() and 1 <= int(selection) <= len(select_data.keys()):
+                selected_key = list(select_data.keys())[int(selection) - 1]
+                select_data = select_data[selected_key]
+                if select_level.startswith("data_source"):
+                    prior_key = colorize_dsrc(selected_key)
+                elif select_level == "match_key":
+                    prior_key = colorize_match_key(selected_key.split("||")[0])
+                else:
+                    prior_key = selected_key
+                prior_keys += " " + prior_key if prior_keys else prior_key
+
+                if "SAMPLE" in select_data:
+                    sample_records = sorted(select_data["SAMPLE"])
+                    self.browse_list(prior_keys, sample_records)
+                else:
+                    select_level = select_levels[len(report_levels)]
+                    report_levels.append(["build", select_data, select_level, prior_keys])
+
+    def browse_list(self, list_header, list_records):
+        list_count = len(list_records)
+        current_index = 0
+        while True:
+            item_header = colorize(f"Sample {current_index + 1} of {list_count} for {list_header}", "bold")
+            entity_list = str(list_records[current_index]).split()
+            # print(type(current_sample), current_sample)
+            if len(entity_list) == 1:
+                report = sz_pretty.get_entity(entity_list, show_detail=True)
+            else:
+                # if match_level_code == "AMBIGUOUS_MATCH_SAMPLE":
+                #    for this_entity_id in current_records:
+                #        ambiguous_list = self.get_ambiguous_entity_set(
+                #            this_entity_id
+                #        )  # returns all the relationships for the truly ambiguous entity
+                #        if ambiguous_list:
+                #            current_records = ambiguous_list
+                #            break
+                report = sz_pretty.compare_entities(entity_list)
+            view_report(report, no_scroll=True, extra_header=item_header)
+
+            # if return_code != 0:
+            #    print_message("This entity no longer exists", "error")
+
+            while True:
+                if len(entity_list) == 1:
+                    prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
+                    special_actions = "DHWE"
+                else:
+                    prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
+                    special_actions = "WE"
+                reply = input(colorize_prompt(prompt))
+                if reply:
+                    remove_from_history()
+                else:
+                    reply = "N"
+
+                if reply.upper().startswith("Q"):
+                    break
+                elif reply.upper() == "S":
+                    self.do_scroll("")
+                elif reply.upper()[0] in "PNG":  # previous, next, goto
+                    current_index = self.move_pointer(reply, current_index, list_count)
+                    break
+                elif reply.upper().startswith("W") and "W" in special_actions:
+                    if len(entity_list) == 1:
+                        report = sz_pretty.why_how(entity_list[0])
+                    elif len(entity_list) == 2:
+                        report = sz_pretty.why_not(entity_list)
+                    else:
+                        report = sz_pretty.why_not_many(entity_list)
+                    view_report(report)
+
+                # elif reply.upper().startswith("H"):
+                #     self.do_how(",".join(current_records))
+                #     break
+                # elif reply.upper().startswith("E"):
+                #     self.export_report_sample(
+                #         reply,
+                #         current_records,
+                #         f"{'-'.join(current_records)}.json",
+                #     )
+
+            if reply.upper().startswith("Q"):
                 break
+
+    def move_pointer(self, reply, current_item, max_items):
+        """moves the sample record pointer for all reports"""
+        if reply.upper().startswith("P"):  # previous
+            if current_item == 0:
+                input("\nNo prior records, press enter to continue")
+            else:
+                return current_item - 1
+        elif reply.upper().startswith("N"):  # next
+            if current_item == max_items - 1:
+                input("\nno more records, press enter to continue")
+            else:
+                return current_item + 1
+        elif reply.upper().startswith("G"):  # goto
+            reply = reply[1:]
+            if not reply:
+                reply = input("\nSample item number to go to? ")
+                if reply:
+                    remove_from_history()
+            if reply:
+                if reply.isnumeric() and int(reply) > 0 and int(reply) <= max_items:
+                    return int(reply) - 1
+                else:
+                    print_message("Invalid sample item number for this sample set!", "warning")
+        return current_item
 
 
 class sz_pretty_sdk:
@@ -975,8 +1274,11 @@ class sz_pretty_sdk:
             colored_key = colorize_match_key(match_data["MATCH_KEY"])
         colored_rule = ""
         if match_data.get("ERRULE_CODE"):
-            rule_id = match_data.get("ERRULE_ID", self.errule_code_lookup[match_data["ERRULE_CODE"]]["ERRULE_ID"])
-            colored_rule = colorize(f'Principle {rule_id}: {match_data["ERRULE_CODE"]}', "dim")
+            if ":" in match_data["ERRULE_CODE"]:
+                colored_rule = colorize(f'Principle {match_data["ERRULE_CODE"]}', "dim")
+            else:
+                rule_id = match_data.get("ERRULE_ID", self.errule_code_lookup[match_data["ERRULE_CODE"]]["ERRULE_ID"])
+                colored_rule = colorize(f'Principle {rule_id}: {match_data["ERRULE_CODE"]}', "dim")
             if not colored_key:
                 colored_key = colored_rule
             else:
@@ -1045,7 +1347,7 @@ class sz_pretty_sdk:
         return entity_desc
 
     # -------------------
-    # reports
+    # formatted tables
     # -------------------
 
     def get_features(self, arg_tokens, **kwargs):
@@ -1064,7 +1366,6 @@ class sz_pretty_sdk:
             print_message(err, "error")
             return 0
 
-        related_entity_count = len(json_data.get("RELATED_ENTITIES", []))
         entity_id = json_data["RESOLVED_ENTITY"]["ENTITY_ID"]
         entity_name = json_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
         entity_features = self.get_entity_features(json_data["RESOLVED_ENTITY"]["FEATURES"])["BY_ID"]
@@ -1844,30 +2145,19 @@ class G2CmdShell(cmd.Cmd):
         readline.set_completer_delims(" ")
         self.histCheck()
 
+        self.eda_reports = EDAReports()
+        if not os.path.exists(self.current_settings.get("snapshot_json_file")):
+            self.current_settings["snapshot_json_file"] = ""
         if args.snapshot_json_file:
             self.current_settings["snapshot_json_file"] = args.snapshot_json_file
-        if self.current_settings.get("snapshot_json_file") and os.path.exists(
-            self.current_settings["snapshot_json_file"]
-        ):
+        if self.current_settings.get("snapshot_json_file"):
             self.do_load(self.current_settings["snapshot_json_file"])
-        else:
-            self.snapshot_file = None
-            self.snapshot_data = {}
-
-        if args.audit_json_file:
-            self.current_settings["audit_json_file"] = args.audit_json_file
-        if self.current_settings.get("audit_json_file") and os.path.exists(self.current_settings["audit_json_file"]):
+        if not os.path.exists(self.current_settings.get("audit_json_file")):
+            self.current_settings["audit_json_file"] = ""
+        if args.snapshot_json_file:
+            self.current_settings["audit_json_file"] = args.snapshot_json_file
+        if self.current_settings.get("audit_json_file"):
             self.do_load(self.current_settings["audit_json_file"])
-        else:
-            self.audit_file = {}
-            self.audit_data = {}
-
-        self.audit_colors = {
-            "MERGE": "good",
-            "SPLIT": "bad",
-            "SPLIT+MERGE": "fg_red,bg_green",
-            "unknown": "bg_red,fg_white",
-        }
 
     def get_names(self):
         """hides functions from available list of Commands. Seperate help sections for some"""
@@ -2116,28 +2406,18 @@ class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
     def do_load(self, arg):
-        statpack_file_name = arg
-        if not os.path.exists(statpack_file_name):
-            print_message(f"{statpack_file_name} not found!", "error")
-            return
         try:
-            json_data = json.load(open(statpack_file_name))
+            self.eda_reports.load_file(arg)
         except Exception as ex:
-            print_message(f"{stat_pack_file_name}: {ex}", "error")
-            return
-        if json_data.get("SOURCE", "unknown") == "sz_snapshot":
-            self.current_settings["snapshot_json_file"] = statpack_file_name
-            self.snapshot_file = statpack_file_name
-            self.snapshot_data = json_data
-
-        elif json_data.get("SOURCE", "unknown") == "sz_audit":
-            self.current_settings["audit_json_file"] = statpack_file_name
-            self.audit_file = statpack_file_name
-            self.audit_data = json_data
+            print_message(ex, "error")
         else:
-            print_message(f"{statpack_file_name} not created by sz_snapshot or sz_audit", "error")
-            return
-        print_message(f"successfully loaded {statpack_file_name}", "info")
+            print(arg)
+            json_data = json.load(open(arg))
+            if json_data.get("SOURCE") == "sz_snapshot":
+                self.current_settings["snapshot_json_file"] = arg
+            elif json_data.get("SOURCE") == "sz_audit":
+                self.current_settings["audit_json_file"] = arg
+            print_message(f"successfully loaded {arg}", "info")
 
     # ---------------------------
     def complete_load(self, text, line, begidx, endidx):
@@ -2899,6 +3179,13 @@ class G2CmdShell(cmd.Cmd):
     # ---------------------------
     # TODO - Ant - Auto complete doesn't work for data source
     def do_multiSourceSummary(self, arg):
+        try:
+            self.eda_reports.generate_mss()
+        except Exception as ex:
+            print_message(ex, "error")
+
+        return
+
         if not self.snapshot_data or not self.snapshot_data.get("MULTI_SOURCE"):
             print_message(
                 "Please create a new snapshot with the latest G2Snapshot.py to access this report",
@@ -3401,363 +3688,10 @@ class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
     def do_dataSourceSummary(self, arg):
-        if not self.snapshot_data or "DATA_SOURCES" not in self.snapshot_data:
-            print_message(
-                "Please load a json file created with sz_napshot.py to access this report",
-                "warning",
-            )
-            return
-
-        report_data = {}
-        categories = {
-            "Duplicates": "DUPLICATE_PRINCIPLES",
-            "Ambiguous matches": "AMBIGUOUS_MATCH_PRINCIPLES",
-            "Possible matches": "POSSIBLE_MATCH_PRINCIPLES",
-            "Possibly related": "POSSIBLY_RELATED_PRINCIPLES",
-        }
-        tbl = sz_pretty_table()
-        tbl.title = f"Data Source Summary from {self.snapshot_file}"
-        tbl.columns = [
-            {"name": "\nrow", "width": 5, "align": "center"},
-            {"name": "\nData Source", "width": 25, "align": "left"},
-            {"name": "\nRecords", "width": 15, "align": "right"},
-            {"name": "\nEntities", "width": 15, "align": "right"},
-            {"name": "\nCompression", "width": 15, "align": "right"},
-            {"name": "Matched\nRecords", "width": 15, "align": "right"},
-            {"name": "Matched\nEntities", "width": 15, "align": "right"},
-            {"name": "Related Entities\nAmbiguous Matches", "width": 15, "align": "right"},
-            {"name": "Related Entities\nPossible Matches", "width": 15, "align": "right"},
-            {"name": "Related Entities\nPossible Relationships", "width": 15, "align": "right"},
-        ]
-        tbl.rows = []
-        row_num = 0
-        for data_source in sorted(self.snapshot_data["DATA_SOURCES"]):
-            row_num += 1
-            report_segment = self.snapshot_data["DATA_SOURCES"][data_source]
-            row = [
-                row_num,
-                colorize_dsrc(data_source),
-                fmt_statistic(report_segment.get("RECORD_COUNT", 0)),
-                fmt_statistic(report_segment.get("ENTITY_COUNT", 0)),
-                report_segment.get("COMPRESSION", 0),
-                fmt_statistic(report_segment.get("DUPLICATE_RECORD_COUNT", 0)),
-                fmt_statistic(report_segment.get("DUPLICATE_ENTITY_COUNT", 0)),
-                fmt_statistic(report_segment.get("AMBIGUOUS_MATCH_RELATION_COUNT", 0)),
-                fmt_statistic(report_segment.get("POSSIBLE_MATCH_RELATION_COUNT", 0)),
-                fmt_statistic(report_segment.get("POSSIBLY_RELATED_RELATION_COUNT", 0)),
-            ]
-            tbl.rows.append(row)
-
-            report_data[data_source] = {}
-            for category in categories:
-                category_tag = categories[category]
-                if not report_segment.get(category_tag):
-                    continue
-                report_data[data_source][category] = {}
-                for errule_code in report_segment[category_tag]:
-                    for match_key in report_segment[category_tag][errule_code]:
-                        sub_category = f"{match_key}\n  {errule_code}"
-                        sample_list = report_segment[category_tag][errule_code][match_key]
-                        report_data[data_source][category][sub_category] = sample_list
-
-        master_report = tbl.render_table(super_header=True)
-        report_levels = ["data_source", "match_level", "match_key"]
-        selections = []
-        while True:
-            view_report(master_report, no_scroll=True)
-            display_data = report_data.copy()
-            they_quit = False
-            for i in range(len(report_levels)):
-                report_level = report_levels[i]
-                selections = []
-                if i > 0:
-                    tbl = sz_pretty_table()
-                    tbl.title = f"Selected {' '.join(selections)}"
-                    tbl.columns = [
-                        {"name": "row", "width": 5, "align": "center"},
-                        {"name": report_level, "width": 100, "align": "left"},
-                        {"name": "count", "width": 10, "align": "right"},
-                    ]
-                    row_num = 0
-                    for key in display_data.keys():
-                        row_num += 1
-                        item_count = 0
-                        if report_level == "match_key":
-                            item_count = display_data[key]["COUNT"]
-                        elif report_level == "match_level":
-                            for key1 in display_data[key]:
-                                item_count += display_data[key][key1]["COUNT"]
-                        tbl.rows.append([row_num, key, item_count])
-                    view_report(tbl.render_table(), no_scroll=True)
-
-                while True:
-                    selection = input(f"Select row number to review or (Q) to quit ... ")
-                    if not selection:
-                        break
-                    remove_from_history()
-                    selection = selection.upper()
-                    if selection == "Q":
-                        they_quit = True
-                        break
-                    if selection.isdigit() and 1 <= int(selection) <= len(display_data.keys()):
-                        selection = list(display_data.keys())[int(selection) - 1]
-                    if selection not in display_data:
-                        print_message("Invalid selection, try again", "warning")
-                        continue
-                    display_data = display_data[selection]
-                    selections.append(selection)
-                    break
-                if they_quit or i == len(report_levels) - 1:
-                    break
-            if they_quit:
-                break
-
-            review_base = " ".join(selections)
-
-            sample_records = sorted(display_data["SAMPLE"])
-            sample_count = len(sample_records)
-            current_index = 0
-            while True:
-                review_header = f"Sample {current_index + 1} of {sample_count} for {review_base}"
-                current_sample = str(sample_records[current_index]).split()
-                # print(type(current_sample), current_sample)
-                if len(current_sample) == 1:
-                    report = sz_pretty.get_entity(current_sample, show_detail=True)
-                else:
-                    # if match_level_code == "AMBIGUOUS_MATCH_SAMPLE":
-                    #    for this_entity_id in current_records:
-                    #        ambiguous_list = self.get_ambiguous_entity_set(
-                    #            this_entity_id
-                    #        )  # returns all the relationships for the truly ambiguous entity
-                    #        if ambiguous_list:
-                    #            current_records = ambiguous_list
-                    #            break
-                    report = sz_pretty.compare_entities(current_sample)
-                view_report(report, no_scroll=True)
-
-                # if return_code != 0:
-                #    print_message("This entity no longer exists", "error")
-
-                while True:
-                    if len(current_sample) == 1:
-                        prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                        special_actions = "DHWE"
-                    else:
-                        prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                        special_actions = "WE"
-                    reply = input(colorize_prompt(prompt))
-                    if reply:
-                        remove_from_history()
-                    else:
-                        reply = "N"
-
-                    if reply.upper().startswith("Q"):
-                        break
-                    elif reply.upper() == "S":
-                        self.do_scroll("")
-                    elif reply.upper()[0] in "PNG":  # previous, next, goto
-                        current_index = self.move_pointer(reply, current_index, sample_count)
-                        break
-                    elif reply.upper().startswith("W") and "W" in special_actions:
-                        if len(current_sample) == 1:
-                            report = sz_pretty.why_how(current_sample[0])
-                        elif len(current_sample) == 2:
-                            report = sz_pretty.why_not(current_sample)
-                        else:
-                            report = sz_pretty.why_not_many(current_sample)
-                        view_report(report)
-
-                    # elif reply.upper().startswith("H"):
-                    #     self.do_how(",".join(current_records))
-                    #     break
-                    # elif reply.upper().startswith("E"):
-                    #     self.export_report_sample(
-                    #         reply,
-                    #         current_records,
-                    #         f"{'-'.join(current_records)}.json",
-                    #     )
-
-                if reply.upper().startswith("Q"):
-                    break
-
-        return
-
-        # display the summary if 0 arguments (all datasources) or 1 argument signifying a single data source
-        if not arg or " " not in arg:
-
-            tbl.title = "Data Source Summary from %s" % self.snapshot_file
-            tbl.columns = [
-                {"name": "\nData Source", "width": 25, "align": "left"},
-                {"name": "\nRecords", "width": 15, "align": "right"},
-                {"name": "\nEntities", "width": 15, "align": "right"},
-                {"name": "\nCompression", "width": 15, "align": "right"},
-                # {'name': 'Records\nUnmatched', 'width': 15, 'align': 'right'},
-                {"name": "Matched\nRecords", "width": 15, "align": "right"},
-                {"name": "Matched\nEntities", "width": 15, "align": "right"},
-                {"name": "Related Entities\nAmbiguous Matches", "width": 15, "align": "right"},
-                {"name": "Related Entities\nPossible Matches", "width": 15, "align": "right"},
-                {"name": "Related Entities\nPossible Relationships", "width": 15, "align": "right"},
-            ]
-
-            tbl.rows = []
-            for data_source in sorted(self.snapshot_data["DATA_SOURCES"]):
-                if arg and not data_source.startswith(arg.upper()):
-                    continue
-                report_segment = self.snapshot_data["DATA_SOURCES"][data_source]
-                row = []
-                row.append(colorize_dsrc(data_source))
-                row.append(fmt_statistic(report_segment.get("RECORD_COUNT", 0)))
-                row.append(fmt_statistic(report_segment.get("ENTITY_COUNT", 0)))
-                row.append(report_segment.get("COMPRESSION", 0))
-                # row.append(fmtStatistic(report_segment.get('SINGLE_COUNT', 0)))
-                row.append(fmt_statistic(report_segment.get("DUPLICATE_RECORD_COUNT", 0)))
-                # row.append(fmtStatistic(report_segment.get('RECORD_COUNT', 0)-report_segment.get('ENTITY_COUNT', 0)))
-                row.append(fmt_statistic(report_segment.get("DUPLICATE_ENTITY_COUNT", 0)))
-                row.append(fmt_statistic(report_segment.get("AMBIGUOUS_MATCH_RELATION_COUNT", 0)))
-                row.append(fmt_statistic(report_segment.get("POSSIBLE_MATCH_RELATION_COUNT", 0)))
-                row.append(fmt_statistic(report_segment.get("POSSIBLY_RELATED_RELATION_COUNT", 0)))
-                tbl.rows.append(row)
-
-            self.render_table(tbl.title, tbl.columns, tbl.rows, super_header=True)
-        else:
-            arg_tokens = arg.split()
-            if len(arg_tokens) != 2:
-                print_message(
-                    "Arguments missing: data source and match level are required",
-                    "warning",
-                )
-                return
-
-            data_source = arg_tokens[0].upper()
-            if data_source not in self.snapshot_data["DATA_SOURCES"]:
-                print_message("Invalid data source", "error")
-                return
-
-            match_level = arg_tokens[1].upper()
-            match_level_code = None
-            for match_level_parm in self.valid_match_level_parameters:
-                if match_level.startswith(match_level_parm):
-                    match_level_code = self.valid_match_level_parameters[match_level_parm]
-                    break
-            if not match_level_code:
-                print_message("Invalid match level", "error")
-                return
-
-            try:
-                sample_records = sorted(
-                    self.snapshot_data["DATA_SOURCES"][data_source][match_level_code],
-                    key=lambda x: int(str(x).split()[0]),
-                )
-            except:
-                sample_records = []
-            if len(sample_records) == 0:
-                print_message("No records found", "warning")
-                return
-
-            match_level_base = match_level_code.replace("_SAMPLE", "")
-            if not self.snapshot_data["DATA_SOURCES"][data_source].get(
-                match_level_code.replace("_SAMPLE", "_PRINCIPLES")
-            ):
-                print_message(
-                    "Outdated snapshot, please create a new one using the latest G2Snapshot.py",
-                    "error",
-                )
-                return
-
-            while True:
-                header = f"Matching statistics for {match_level_base} in {data_source}"
-                report_row = self.select_matching_category(
-                    self.snapshot_data["DATA_SOURCES"][data_source][match_level_code.replace("_SAMPLE", "_PRINCIPLES")],
-                    header,
-                )
-                if not report_row:
-                    break
-
-                current_sample = 0
-                sample_records = report_row[4]
-                color_match_key = colorize_match_data({"matchKey": report_row[2]})
-                while True:
-                    self.current_review_list = f"Sample {current_sample + 1} of {len(sample_records)} for {match_level_base} on {color_match_key} in {data_source}"
-                    current_records = str(sample_records[current_sample]).split()
-                    if match_level_code in ("SINGLE_SAMPLE", "DUPLICATE_SAMPLE"):
-                        return_code = self.do_get(
-                            "detail " + current_records[0],
-                            dataSourceFilter=[data_source],
-                        )
-                    else:
-                        if match_level_code == "AMBIGUOUS_MATCH_SAMPLE":
-                            for this_entity_id in current_records:
-                                ambiguous_list = self.get_ambiguous_entity_set(
-                                    this_entity_id
-                                )  # returns all the relationships for the truly ambiguous entity
-                                if ambiguous_list:
-                                    current_records = ambiguous_list
-                                    break
-                            return_code = self.do_compare(
-                                ",".join(current_records),
-                                dataSourceFilter=[data_source],
-                            )
-                        else:
-                            if len(current_records) > 2:
-                                self.current_review_list += colorize(
-                                    f"\n(showing 1 of {len(current_records)} qualifying relationships for entity {current_records[0]})",
-                                    "reset,dim,italics",
-                                )
-                                current_records = current_records[:2]
-                            return_code = self.do_compare(
-                                ",".join(current_records),
-                                dataSourceFilter=[data_source],
-                            )
-
-                    if return_code != 0:
-                        print_message("This entity no longer exists", "error")
-
-                    while True:
-                        if match_level_code in ("SINGLE_SAMPLE", "DUPLICATE_SAMPLE"):
-                            reply = input(
-                                colorize_prompt(
-                                    "Select (P)revious, (N)ext, (G)oto, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                                )
-                            )
-                            special_actions = "DHWE"
-                        else:
-                            reply = input(
-                                colorize_prompt(
-                                    "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                                )
-                            )
-                            special_actions = "WE"
-                        if reply:
-                            remove_from_history()
-                        else:
-                            reply = "N"
-
-                        if reply.upper().startswith("Q"):
-                            break
-                        elif reply.upper() == "S":
-                            self.do_scroll("")
-                        elif reply.upper()[0] in "PNG":  # previous, next, goto
-                            current_sample = self.move_pointer(reply, current_sample, len(sample_records))
-                            break
-                        elif reply.upper()[0] in special_actions:
-                            if reply.upper().startswith("D"):
-                                self.do_get("detail " + ",".join(current_records))
-                            elif reply.upper().startswith("W"):
-                                self.do_why(",".join(current_records))
-                            elif reply.upper().startswith("H"):
-                                self.do_how(",".join(current_records))
-                                break
-                            elif reply.upper().startswith("E"):
-                                self.export_report_sample(
-                                    reply,
-                                    current_records,
-                                    f"{'-'.join(current_records)}.json",
-                                )
-
-                    if reply.upper().startswith("Q"):
-                        break
-
-            self.current_review_list = None
+        try:
+            self.eda_reports.generate_dss()
+        except Exception:
+            print_exception_info()
 
     # ---------------------------
     def help_crossSourceSummary(self):
@@ -3811,209 +3745,11 @@ class G2CmdShell(cmd.Cmd):
     # ---------------------------
     # TODO - Ant - Auto complete doesn't work for data source
     def do_crossSourceSummary(self, arg):
-
-        if not self.snapshot_data or "DATA_SOURCES" not in self.snapshot_data:
-            print_message(
-                "Please load a json file created with G2Snapshot.py to use this command",
-                "warning",
-            )
-            return
-
-        # display the summary if no arguments
-        if not arg or len(arg.split()) == 1:
-            tbl.title = f"Cross Source Summary from {self.snapshot_file}"
-            tbl.columns = []
-            tbl.columns.append({"name": "From\nData Source", "width": 25, "align": "center"})
-            tbl.columns.append({"name": "To\nData Source", "width": 25, "align": "center"})
-            tbl.columns.append({"name": "Matched\nRecords", "width": 15, "align": "right"})
-            tbl.columns.append({"name": "Matched\nEntities", "width": 15, "align": "right"})
-            tbl.columns.append(
-                {
-                    "name": "Entities with\nAmbiguous Matches",
-                    "width": 15,
-                    "align": "right",
-                }
-            )
-            tbl.columns.append(
-                {
-                    "name": "Entities with\nPossible Matches",
-                    "width": 15,
-                    "align": "right",
-                }
-            )
-            tbl.columns.append(
-                {
-                    "name": "Entities with\nPossible Relationships",
-                    "width": 15,
-                    "align": "right",
-                }
-            )
-
-            tbl.rows = []
-            for data_source_1 in sorted(self.snapshot_data["DATA_SOURCES"]):
-                if arg and data_source_1 != arg.upper():
-                    continue
-                for data_source_2 in sorted(self.snapshot_data["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"]):
-                    report_segment = self.snapshot_data["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2]
-                    row = []
-                    row.append(colorize_dsrc(data_source_1))
-                    row.append(colorize_dsrc(data_source_2))
-                    row.append(fmt_statistic(report_segment.get("MATCH_RECORD_COUNT", 0)))
-                    row.append(fmt_statistic(report_segment.get("MATCH_ENTITY_COUNT", 0)))
-                    row.append(fmt_statistic(report_segment.get("AMBIGUOUS_MATCH_ENTITY_COUNT", 0)))
-                    row.append(fmt_statistic(report_segment.get("POSSIBLE_MATCH_ENTITY_COUNT", 0)))
-                    row.append(fmt_statistic(report_segment.get("POSSIBLY_RELATED_ENTITY_COUNT", 0)))
-                    tbl.rows.append(row)
-
-            self.render_table(tbl.title, tbl.columns, tbl.rows, super_header=True)
-        else:
-            arg_tokens = arg.split()
-            if len(arg_tokens) != 3:
-                print_message(
-                    "Arguments missing: two data sources and match level are required",
-                    "warning",
-                )
-                return
-
-            data_source_1 = arg_tokens[0].upper()
-            if data_source_1 not in self.snapshot_data["DATA_SOURCES"]:
-                print_message(f"Invalid data source: {data_source_1}", "error")
-                return
-
-            data_source_2 = arg_tokens[1].upper()
-            if data_source_2 not in self.snapshot_data["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"]:
-                print_message(f"Invalid data source: {data_source_2}", "error")
-                return
-
-            match_level = arg_tokens[2].upper()
-            match_level_code = None
-            for match_level_arm in self.valid_match_level_parameters:
-                if match_level.startswith(match_level_arm):
-                    match_level_code = self.valid_match_level_parameters[match_level_arm]
-                    break
-
-            if not match_level_code:
-                print_message("Invalid match level", "error")
-                return
-
-            # duplicates are matches for cross source
-            if match_level_code == "DUPLICATE_SAMPLE":
-                match_level_code = "MATCH_SAMPLE"
-            try:
-                sample_records = sorted(
-                    self.snapshot_data["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][match_level_code],
-                    key=lambda x: int(str(x).split()[0]),
-                )
-            except:
-                sample_records = []
-
-            if len(sample_records) == 0:
-                print_message("No records found", "warning")
-                return
-
-            match_level_base = match_level_code.replace("_SAMPLE", "")
-            if not self.snapshot_data["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2].get(
-                match_level_code.replace("_SAMPLE", "_PRINCIPLES")
-            ):
-                print_message(
-                    "Outdated snapshot, please create a new one using the latest G2Snapshot.py",
-                    "error",
-                )
-                return
-
-            while True:
-                header = f"Matching statistics for {match_level_base} between {data_source_1} and {data_source_2}"
-                report_row = self.select_matching_category(
-                    self.snapshot_data["DATA_SOURCES"][data_source_1]["CROSS_MATCHES"][data_source_2][
-                        match_level_code.replace("_SAMPLE", "_PRINCIPLES")
-                    ],
-                    header,
-                )
-                if not report_row:
-                    break
-
-                current_sample = 0
-                sample_records = report_row[4]
-                color_match_key = colorize_match_data({"matchKey": report_row[2]})
-                while True:
-                    self.current_review_list = f"Sample {current_sample + 1} of {len(sample_records)} for {match_level_base} on {color_match_key} between {data_source_1} and {data_source_2}"
-                    current_records = str(sample_records[current_sample]).split()
-                    if match_level_code in ("MATCH_SAMPLE"):
-                        return_code = self.do_get(
-                            "detail " + current_records[0],
-                            dataSourceFilter=[data_source_1, data_source_2],
-                        )
-                    else:
-                        if match_level_code == "AMBIGUOUS_MATCH_SAMPLE":
-                            for this_entity_id in current_records:
-                                ambiguous_list = self.get_ambiguous_entity_set(
-                                    this_entity_id
-                                )  # returns all the relationships for the truly ambiguous entity
-                                if ambiguous_list:
-                                    current_records = ambiguous_list
-                                    break
-                            return_code = self.do_compare(
-                                ",".join(current_records),
-                                dataSourceFilter=[data_source_1, data_source_2],
-                            )
-                        else:
-                            if len(current_records) > 2:
-                                self.current_review_list += colorize(
-                                    f"\n(showing 2 of {len(current_records)} qualifying relationships for entity {current_records[0]})",
-                                    "reset,dim,italics",
-                                )
-                            return_code = self.do_compare(
-                                ",".join(current_records[:3]),
-                                dataSourceFilter=[data_source_1, data_source_2],
-                            )
-
-                    if return_code != 0:
-                        print_message("This entity no longer exists", "error")
-
-                    while True:
-                        if match_level_code in ("MATCH_SAMPLE"):
-                            reply = input(
-                                colorize_prompt(
-                                    "Select (P)revious, (N)ext, (G)oto, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                                )
-                            )
-                            special_actions = "DHWE"
-                        else:
-                            reply = input(
-                                colorize_prompt(
-                                    "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                                )
-                            )
-                            special_actions = "WE"
-                        if reply:
-                            remove_from_history()
-                        else:
-                            reply = "N"
-
-                        if reply.upper().startswith("Q"):
-                            break
-                        elif reply.upper() == ("S"):
-                            self.do_scroll("")
-                        elif reply.upper()[0] in "PNG":  # previous, next, goto
-                            current_sample = self.move_pointer(reply, current_sample, len(sample_records))
-                            break
-                        elif reply.upper()[0] in special_actions:
-                            if reply.upper().startswith("D"):
-                                self.do_get("detail " + ",".join(current_records))
-                            elif reply.upper().startswith("W"):
-                                self.do_why(",".join(current_records))
-                            elif reply.upper().startswith("H"):
-                                self.do_how(",".join(current_records))
-                                break
-                            elif reply.upper().startswith("E"):
-                                self.export_report_sample(
-                                    reply,
-                                    current_records,
-                                    f"{'-'.join(current_records)}.json",
-                                )
-                    if reply.upper().startswith("Q"):
-                        break
-            self.current_review_list = None
+        try:
+            self.eda_reports.generate_css()
+        except Exception:
+            print_exception_info()
+        return
 
     # ---------------------------
     def help_search(self):
@@ -6985,44 +6721,6 @@ class G2CmdShell(cmd.Cmd):
 
 
 # --------------------------------------
-def print_message(msg_text, msg_type_or_color=""):
-    if msg_type_or_color.upper() == "ERROR":
-        msg_color = "FG_RED"
-    elif msg_type_or_color.upper() == "WARNING":
-        msg_color = "FG_YELLOW"
-    elif msg_type_or_color.upper() == "INFO":
-        msg_color = "FG_CYAN"
-    elif msg_type_or_color.upper() == "SUCCESS":
-        msg_color = "FG_GREEN"
-    else:
-        msg_color = msg_type_or_color
-    print(f"\n{colorize(msg_text, msg_color)}\n")
-
-
-# --------------------------------------
-def show_debug(call: str, output: str = "") -> None:
-    """# TODO"""
-    if args.debug_output.upper() in ("S", "SCR", "SCREEN") and output:
-        print(f"- {call} -\n")
-        print(f"{output}\n")
-        return
-
-    try:
-        with open(args.debug_output, "a", encoding="utf-8") as f:
-            f.write(f"- {call} -\n")
-            f.write(f"{output}\n\n")
-    except IOError as err:
-        # TODO - Ant - Color
-        print(f"cannot write to {args.debug_output}: {err}")
-
-
-# --------------------------------------
-def fmt_statistic(amt):
-    amt = int(amt)
-    if amt > 1000000:
-        return "{:,.2f}m".format(round(amt / 1000000, 2))
-
-    return "{:,}".format(amt)
 
 
 # --------------------------------------
