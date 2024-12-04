@@ -23,7 +23,7 @@ from pathlib import Path
 from signal import SIGALRM, alarm, signal
 from typing import TYPE_CHECKING, Any, Dict, List, TextIO, Union
 
-from senzing import SzEngineFlags
+from senzing_core import SzEngineFlags
 
 READLINE_AVAIL = False
 with suppress(ImportError):
