@@ -6,7 +6,7 @@ import pathlib
 import sys
 
 from _tool_helpers import get_engine_config
-from senzing import SzAbstractFactory, SzError
+from senzing_core import SzAbstractFactory, SzError
 
 MODULE_NAME = pathlib.Path(__file__).stem
 
@@ -64,7 +64,7 @@ def main() -> None:
         new_config = sz_config.export_config(config_handle)
         sz_config.close_config(config_handle)
     except SzError as err:
-        print(f"\nERROR: Could not get a template configuration")
+        print("\nERROR: Could not get a template configuration")
         print(f"ERROR: {err}\n")
         sys.exit(1)
 

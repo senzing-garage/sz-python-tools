@@ -24,7 +24,7 @@ from _tool_helpers import (
     get_max_futures_workers,
     human_readable_bytes,
 )
-from senzing import (
+from senzing_core import (
     SzAbstractFactory,
     SzConfigManager,
     SzDiagnostic,

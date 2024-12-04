@@ -14,7 +14,7 @@ from datetime import datetime
 
 from _sz_database import SzDatabase
 from _tool_helpers import get_engine_config, get_max_futures_workers
-from senzing import SzAbstractFactory, SzEngine, SzEngineFlags, SzError
+from senzing_core import SzAbstractFactory, SzEngine, SzEngineFlags, SzError
 
 try:
     import orjson

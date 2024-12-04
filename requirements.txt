@@ -1,1 +1,2 @@
-senzing-abstract==0.1.12
+senzing==0.2.0
+senzing-core==0.3.1

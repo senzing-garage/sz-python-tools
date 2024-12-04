@@ -28,7 +28,8 @@
     "terminal.integrated.env.linux": {
 
         // "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python/src:/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing_abstract",
-        "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python/src:/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing:./sz_tools",
+        // "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python-core/src:/home/ant/Work/Senzing/git/sz-sdk-python-core/src/senzing:./sz_tools",
+        "PYTHONPATH": "./sz_tools",
         "LD_LIBRARY_PATH": "/opt/senzing/er/lib/",
         // "SENZING_ENGINE_CONFIGURATION_JSON": "{\"PIPELINE\":{\"CONFIGPATH\":\"/etc/opt/senzing\",\"RESOURCEPATH\":\"/opt/senzing/er/resources\",\"SUPPORTPATH\":\"/opt/senzing/data\"},\"SQL\":{\"CONNECTION\":\"sqlite3://na:na@/tmp/sqlite/G2C.db\"}}"
         "SENZING_ENGINE_CONFIGURATION_JSON": "{\"PIPELINE\":{\"CONFIGPATH\":\"/etc/opt/senzing\",\"RESOURCEPATH\":\"/opt/senzing/er/resources\",\"SUPPORTPATH\":\"/opt/senzing/data\"},\"SQL\":{\"CONNECTION\":\"sqlite3://na:na@/tmp/sqlite/G2C.db\"}, \"LOGGING\":{\"CONFIG\":\"console://stdout/?style=jsonl *.TRCE;*.CRIT;*.ERR\"}}"
@@ -36,16 +37,16 @@
     },
     "python.testing.pytestArgs": [],
     "python.autoComplete.extraPaths": [
-        "/home/ant/Work/Senzing/git/sz-sdk-python/src",
-        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing",
+        "/home/ant/Work/Senzing/git/sz-sdk-python-core/src",
+        "/home/ant/Work/Senzing/git/sz-sdk-python-core/src/senzing",
         "./sz_tools"
         // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src",
         // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing_abstract"
 
     ],
     "python.analysis.extraPaths": [
-        "/home/ant/Work/Senzing/git/sz-sdk-python/src",
-        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing",
+        "/home/ant/Work/Senzing/git/sz-sdk-python-core/src",
+        "/home/ant/Work/Senzing/git/sz-sdk-python-core/src/senzing",
         "./sz_tools"
         // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src",
         // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing_abstract"

@@ -37,7 +37,7 @@ from _tool_helpers import (
     response_to_clipboard,
     response_to_file,
 )
-from senzing import SzAbstractFactory, SzError
+from senzing_core import SzAbstractFactory, SzError
 
 _WrappedFunc = TypeVar("_WrappedFunc", bound=Callable[..., Any])
 
@@ -229,7 +229,7 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
                 print_info(
                     f"Approximate execution time (s): {exec_time:.5f}",
                 )
-                
+
         return result
 
     return cast(_WrappedFunc, wrapper)
@@ -297,7 +297,6 @@ class SzCmdShell(cmd.Cmd):
             "do_shell",
         )
 
-
         # Themes - set early, used for setting cmd prompt, use the default colors set by the terminal
         self.themes = Colors.AVAILABLE_THEMES
         Colors.set_theme("TERMINAL")
@@ -311,7 +310,6 @@ class SzCmdShell(cmd.Cmd):
         self.history_disable = self.cli_args.hist_disable
         self.history_msg = ""
 
-
         # Prior response and command for post command functions
         self.last_response = ""
         self.last_command = ""
@@ -323,7 +321,7 @@ class SzCmdShell(cmd.Cmd):
         self.config_file = pathlib.Path(config_file_str).expanduser()
         self.config_file_exists = pathlib.Path(self.config_file).exists()
 
-        # Display can't read/write config message once, not at all in container
+        # Display the can't read/write config message once, not at all in container
         self.config_error = False
         docker_launched = os.getenv("SENZING_DOCKER_LAUNCHED")
         self.docker_launched = True if docker_launched in ("y", "yes", "t", "true", "on", "1") else False
@@ -829,7 +827,6 @@ class SzCmdShell(cmd.Cmd):
     # szconfigmanager commands
     # -----------------------------------------------------------------------------
 
-
     @do_methods_decorator
     def do_get_config(self, **kwargs: Any) -> None:
         """
@@ -852,7 +849,6 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_configmgr.get_config(kwargs["parsed_args"].config_id)
         self.last_response = self.output_response(response)
 
-
     @do_methods_decorator
     def do_get_configs(self) -> None:
         """
@@ -864,7 +860,6 @@ class SzCmdShell(cmd.Cmd):
         response = self.sz_configmgr.get_configs()
         self.last_response = self.output_response(response)
 
-
     @do_methods_decorator
     def do_get_default_config_id(self) -> None:
         """
@@ -875,7 +870,6 @@ class SzCmdShell(cmd.Cmd):
 
         response = self.sz_configmgr.get_default_config_id()
         self.last_response = self.output_response(response, "success")
-
 
     @do_methods_decorator
     def do_replace_default_config_id(self, **kwargs: Any) -> None:
@@ -1800,7 +1794,7 @@ class SzCmdShell(cmd.Cmd):
 
         response = why_record(kwargs["flags"]) if "flags" in kwargs else why_record()
         self.last_response = self.output_response(response)
-        
+
     @do_methods_decorator
     def do_why_records(self, **kwargs: Any) -> None:
         """

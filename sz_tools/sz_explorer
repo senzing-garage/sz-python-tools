@@ -19,7 +19,7 @@ from contextlib import suppress
 from typing import Any, Dict, List, Union
 
 from _tool_helpers import Colors, get_engine_config
-from senzing import SzAbstractFactory, SzEngineFlags, SzError
+from senzing_core import SzAbstractFactory, SzEngineFlags, SzError
 
 PRETTYTABLE_STYLE_AVAILABLE = False
 try:
