@@ -13,7 +13,7 @@ import time
 from typing import Any, Dict, List, Union
 
 from _tool_helpers import get_engine_config
-from senzing import SzAbstractFactory, SzError
+from senzing_core import SzAbstractFactory, SzError
 
 try:
     import prettytable

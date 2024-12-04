@@ -20,8 +20,7 @@ try:
 except (ImportError, ModuleNotFoundError):
     prettytable = None
 
-from _tool_helpers import get_engine_config
-from senzing import SzAbstractFactory, SzError
+from senzing_core import SzAbstractFactory, SzError
 
 try:
     import atexit
