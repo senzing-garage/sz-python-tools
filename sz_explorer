@@ -145,7 +145,7 @@ def colorize_match_key(match_key):
     return colored_key + ambiguous_tag
 
 
-def colorize_match_data(matchDict):
+def colorize_match_dataxxx(matchDict):
     if not matchDict["matchKey"]:
         if matchDict.get("anyCandidates", False):
             if matchDict.get("ruleCode"):
@@ -226,22 +226,34 @@ def view_report(report, **kwargs):
                 print(f" {nline}{Colors.RESET}")
         return
 
-    # if arg == "auto":
     less_options = "-FMXSR"
-    # else:
-    #    less_options = "-MXSR"
+    if kwargs.get("search"):
+        less_options + " /" + kwargs["search"]
 
-    # --start with a search
-    search = kwargs.get("search")
-    if search:
-        less_options + " /" + search
-
-    # try pipe to less on small enough files (pipe buffer usually 1mb and fills up on large entity displays)
     less = subprocess.Popen(["less", less_options], stdin=subprocess.PIPE)
     with suppress(Exception):
         less.stdin.write(report.encode())
         less.stdin.close()
         less.wait()
+    print()
+
+
+# -----------------------------
+def scroll(report, **kwargs):
+    print()
+    # if arg == "auto":
+    lessOptions = "FMXSR"
+    # else:
+    #    lessOptions = "MXSR"
+
+    # try pipe to less on small enough files (pipe buffer usually 1mb and fills up on large entity displays)
+    less = subprocess.Popen(["less", "-FMXSR"], stdin=subprocess.PIPE)
+    try:
+        less.stdin.write(report.encode())
+    except IOError:
+        pass
+    less.stdin.close()
+    less.wait()
     print()
 
 
@@ -557,8 +569,16 @@ class EDAReports:
         select_levels = ["row"]
         self.drill_into(report_table, report_data, select_levels)
 
+    def fmt_match_key_category(self, key):
+        if "||" not in key:
+            return key
+        else:
+            match_key, errule_code = key.split("||")
+            return f"{colorize_match_key(match_key)}\n  {colorize(errule_code, 'dim')}"
+
     def drill_into(self, report_table, report_data, select_levels):
         report_levels = [[report_table, report_data, select_levels[0], ""]]
+        summarized_match_key = 0
         while True:
             select_table, select_data, select_level, prior_keys = report_levels[-1]
             if select_table == "build":
@@ -570,31 +590,53 @@ class EDAReports:
                     {"name": "count", "width": 10, "align": "right"},
                 ]
                 row_num = 0
+                if select_level == "match_key":
+                    keys = sorted(select_data.keys(), key=lambda k: select_data[k]["COUNT"], reverse=True)
+                    if len(keys) > 10 and summarized_match_key != 2:
+                        summarized_match_key = 1
+                        summarized_data = {}
+                        key_count = 0
+                        for key in keys:
+                            key_count += 1
+                            if key_count < 10:
+                                summarized_data[key] = select_data[key]
+                            else:
+                                summarized_key = f"{len(keys)-9} more match_keys"
+                                if summarized_key not in summarized_data:
+                                    summarized_data[summarized_key] = select_data[key]
+                                else:
+                                    summarized_data[summarized_key]["COUNT"] += select_data[key]["COUNT"]
+                                    summarized_data[summarized_key]["SAMPLE"] += select_data[key]["SAMPLE"]
+                        select_data = summarized_data
                 for key in select_data.keys():
                     row_num += 1
                     formatted_key = key
                     item_count = 0
                     if select_level == "match_key":
                         item_count = select_data[key]["COUNT"]
-                        match_key, errule_code = key.split("||")
-                        print(key.split("||"))
-                        formatted_key = sz_pretty.fmt_match_key({"MATCH_KEY": match_key, "ERRULE_CODE": errule_code})
-
+                        formatted_key = self.fmt_match_key_category(key)
+                        tbl.rows.append([row_num, formatted_key, item_count])
                     elif select_level == "match_level":
                         for key1 in select_data[key]:
                             item_count += select_data[key][key1]["COUNT"]
-                    tbl.rows.append([row_num, formatted_key, item_count])
+                        tbl.rows.append([row_num, formatted_key, item_count])
                 select_table = tbl.render_table()
 
             view_report(select_table, no_scroll=True)
-            selection = input(f"Select row number to review or (Q) to quit ... ")
+            if select_level == "match_key" and summarized_match_key == 1:
+                selection = input("Select row number to review, (A) for all match_keys, or (Q) to quit ... ")
+            else:
+                selection = input("Select row number to review or (Q) to quit ... ")
             if not selection:
-                continue
-            remove_from_history()
+                selection = "Q"
+            else:
+                remove_from_history()
             if selection.upper().startswith("Q"):
                 del report_levels[-1]
                 if len(report_levels) == 0:
                     break
+            elif selection.upper().startswith("A"):
+                summarized_match_key = 2
             elif selection.isdigit() and 1 <= int(selection) <= len(select_data.keys()):
                 selected_key = list(select_data.keys())[int(selection) - 1]
                 select_data = select_data[selected_key]
@@ -612,6 +654,31 @@ class EDAReports:
                 else:
                     select_level = select_levels[len(report_levels)]
                     report_levels.append(["build", select_data, select_level, prior_keys])
+                    if select_level == "match_key":
+                        summarized_match_key = 0
+
+    def get_ambiguous_entity_set(self, entity_id):
+        # get other ambiguous relationships if this is the ambiguous entity
+        get_flag_list = [
+            "SZ_ENTITY_INCLUDE_ALL_FEATURES",
+            "SZ_ENTITY_INCLUDE_ALL_RELATIONS",
+            "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
+        ]
+        try:
+            json_data_2 = sz_pretty.call_sdk("get_entity_by_entity_id", get_flag_list, int(entity_id))
+        except SzError as err:
+            print_message(err, "error")
+            return
+
+        ambiguous_entity = "AMBIGUOUS_ENTITY" in json_data_2["RESOLVED_ENTITY"]["FEATURES"]
+        if ambiguous_entity and "RELATED_ENTITIES" in json_data_2:
+            entity_set = []
+            for related_entity in json_data_2["RELATED_ENTITIES"]:
+                if related_entity["IS_AMBIGUOUS"] != 0:
+                    entity_set.append(str(related_entity["ENTITY_ID"]))
+            if len(entity_set) > 1:
+                return [entity_id] + entity_set
+        return
 
     def browse_list(self, list_header, list_records):
         list_count = len(list_records)
@@ -619,18 +686,15 @@ class EDAReports:
         while True:
             item_header = colorize(f"Sample {current_index + 1} of {list_count} for {list_header}", "bold")
             entity_list = str(list_records[current_index]).split()
-            # print(type(current_sample), current_sample)
             if len(entity_list) == 1:
                 report = sz_pretty.get_entity(entity_list, show_detail=True)
             else:
-                # if match_level_code == "AMBIGUOUS_MATCH_SAMPLE":
-                #    for this_entity_id in current_records:
-                #        ambiguous_list = self.get_ambiguous_entity_set(
-                #            this_entity_id
-                #        )  # returns all the relationships for the truly ambiguous entity
-                #        if ambiguous_list:
-                #            current_records = ambiguous_list
-                #            break
+                if "Ambiguous" in list_header:
+                    for this_entity_id in entity_list:
+                        ambiguous_list = self.get_ambiguous_entity_set(this_entity_id)
+                        if ambiguous_list:
+                            entity_list = ambiguous_list
+                            break
                 report = sz_pretty.compare_entities(entity_list)
             view_report(report, no_scroll=True, extra_header=item_header)
 
@@ -653,7 +717,7 @@ class EDAReports:
                 if reply.upper().startswith("Q"):
                     break
                 elif reply.upper() == "S":
-                    self.do_scroll("")
+                    scroll(report)
                 elif reply.upper()[0] in "PNG":  # previous, next, goto
                     current_index = self.move_pointer(reply, current_index, list_count)
                     break
@@ -1276,9 +1340,11 @@ class sz_pretty_sdk:
         if match_data.get("ERRULE_CODE"):
             if ":" in match_data["ERRULE_CODE"]:
                 colored_rule = colorize(f'Principle {match_data["ERRULE_CODE"]}', "dim")
-            else:
+            elif self.errule_code_lookup.get(match_data["ERRULE_CODE"]):
                 rule_id = match_data.get("ERRULE_ID", self.errule_code_lookup[match_data["ERRULE_CODE"]]["ERRULE_ID"])
                 colored_rule = colorize(f'Principle {rule_id}: {match_data["ERRULE_CODE"]}', "dim")
+            else:
+                colored_rule = colorize(match_data["ERRULE_CODE"], "dim")
             if not colored_key:
                 colored_key = colored_rule
             else:
@@ -4134,31 +4200,6 @@ class G2CmdShell(cmd.Cmd):
         self.show_report2(sz_pretty.get_relationship_tree(root_entity_id, **kwargs))
 
     # ---------------------------
-    def get_ambiguous_entity_set(self, entity_id):
-        # get other ambiguous relationships if this is the ambiguous entity
-        get_flag_list = [
-            "SZ_ENTITY_INCLUDE_ALL_FEATURES",
-            "SZ_ENTITY_OPTION_INCLUDE_INTERNAL_FEATURES",
-            "SZ_ENTITY_INCLUDE_ALL_RELATIONS",
-            "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
-        ]
-        try:
-            json_data_2 = self.call_sdk("get_entity_by_entity_id", get_flag_list, int(entity_id))
-        except SzError as err:
-            print_message(err, "error")
-            return
-
-        ambiguous_entity = "AMBIGUOUS_ENTITY" in json_data_2["RESOLVED_ENTITY"]["FEATURES"]
-        if ambiguous_entity and "RELATED_ENTITIES" in json_data_2:
-            entity_set = []
-            for related_entity in json_data_2["RELATED_ENTITIES"]:
-                if related_entity["IS_AMBIGUOUS"] != 0:
-                    entity_set.append(str(related_entity["ENTITY_ID"]))
-            if len(entity_set) > 1:
-                return [entity_id] + entity_set
-        return
-
-    # ---------------------------
     def get_related_entity_set(self, entity_id, sample_category=""):
         get_flag_list = [
             "SZ_ENTITY_INCLUDE_ALL_RELATIONS",
@@ -6521,27 +6562,6 @@ class G2CmdShell(cmd.Cmd):
             less.stdin.write(report.encode())
             less.stdin.close()
             less.wait()
-        print()
-
-    # -----------------------------
-    def do_scroll(self, arg):
-        print()
-        if not self.current_report:
-            return
-        # TODO - Ant - Not used?
-        if arg == "auto":
-            lessOptions = "FMXSR"
-        else:
-            lessOptions = "MXSR"
-
-        # try pipe to less on small enough files (pipe buffer usually 1mb and fills up on large entity displays)
-        less = subprocess.Popen(["less", "-FMXSR"], stdin=subprocess.PIPE)
-        try:
-            less.stdin.write(self.current_report.encode())
-        except IOError:
-            pass
-        less.stdin.close()
-        less.wait()
         print()
 
     # ---------------------------
