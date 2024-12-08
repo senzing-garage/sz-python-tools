@@ -266,6 +266,12 @@ class writer():
             with open(self.stats_file_name, "w", encoding="utf-8") as outfile:
                 json.dump(self.stat_pack, outfile, indent=4)
 
+    def get_random_index(self):
+        target_index = int(self.sample_size * random.random())
+        if target_index % 10 != 0:
+            return target_index
+        return 0
+
     def update_stat_pack(self, prior_keys, stats):
         d = self.stat_pack
         for key in prior_keys:
@@ -279,20 +285,18 @@ class writer():
                 d[k] += v
 
     def compute_stats(self, resume_rows):
-        self.random_index = self.random_sample_index()
-        entity_size = 0
         record_list = []
         resume_data = {}
-
         entity_size = 0
         entity_id = resume_rows[0]["RESOLVED_ENTITY_ID"]
+        self.random_index = self.get_random_index() if entity_id % 10 == 0 else 0
         for row_data in resume_rows:
             related_id = row_data["RELATED_ENTITY_ID"]
             data_source = row_data["DATA_SOURCE"]
             record_id = row_data["RECORD_ID"]
             principle = f"{row_data['ERRULE_ID']}: {row_data['ERRULE_CODE']}" if row_data["ERRULE_ID"] else ""
             match_key = row_data["MATCH_KEY"]
-            if related_id == "0":
+            if related_id == 0:
                 match_level = "MATCH"
                 entity_size += 1
                 record_list.append(data_source + ":" + record_id)
@@ -310,6 +314,7 @@ class writer():
                 resume_data[related_id] = {}
                 resume_data[related_id]["MATCH_LEVEL"] = match_level
                 resume_data[related_id]["DATA_SOURCES"] = {}
+                resume_data[related_id]["PRINCIPLES"] = {}
                 
             if data_source not in resume_data[related_id]["DATA_SOURCES"]:
                 resume_data[related_id]["DATA_SOURCES"][data_source] = {"COUNT": 1, "PRINCIPLES": []}
@@ -320,21 +325,68 @@ class writer():
                 principle_matchkey = f"{principle}||{match_key}"
                 if principle_matchkey not in resume_data[related_id]["DATA_SOURCES"][data_source]["PRINCIPLES"]:
                     resume_data[related_id]["DATA_SOURCES"][data_source]["PRINCIPLES"].append(principle_matchkey)
-
-        #print('-' * 10)
-        #print(json.dumps(resume_data, indent=4))
-
-        self.stat_pack["TOTALS"]["ENTITY_COUNT"] += 1
-        self.stat_pack["TOTALS"]["RECORD_COUNT"] += entity_size
-
-
-    def random_sample_index(self):
-        target_index = int(self.sample_size * random.random())
-        if target_index % 10 != 0:
-            return target_index
-        return 0
+                if related_id == 0:
+                    if principle_matchkey not in resume_data[related_id]["PRINCIPLES"]: 
+                        resume_data[related_id]["PRINCIPLES"][principle_matchkey] = 1
+                    else:
+                        resume_data[related_id]["PRINCIPLES"][principle_matchkey] += 1
+                    
 
 
+
+        self.update_stat_pack(["TOTALS"], {'ENTITY_COUNT': 1})
+        self.update_stat_pack(["TOTALS"], {'RECORD_COUNT': entity_size})
+        self.update_stat_pack(['ENTITY_SIZES', entity_size], {'COUNT': 1, 'SAMPLE': [entity_id]})
+
+        print('-' * 10)
+        print(json.dumps(resume_data, indent=4))
+
+        entity0_sources = None # should get set as entity list is sorted
+        for related_id in sorted(resume_data.keys()):
+            match_level = resume_data[related_id]["MATCH_LEVEL"]
+            if related_id == 0:
+                for principle_matchkey in resume_data[related_id]["PRINCIPLES"]:
+                    record_count = resume_data[related_id]["PRINCIPLES"][principle_matchkey]
+                    stat_keys = ["TOTALS", match_level, principle_matchkey]
+                    self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_count, "SAMPLE": [entity_id]})
+                    
+                entity0_sources = resume_data[related_id]["DATA_SOURCES"] 
+                for data_source1 in entity0_sources:
+                    record_cnt = entity0_sources[data_source1]["COUNT"]
+                    for data_source2 in entity0_sources:
+                        if data_source2 == data_source1:
+                            stat_keys = ["DATA_SOURCE", data_source1]
+                            self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_cnt})
+                            if record_cnt > 1:
+                                stat_keys.append(match_level)
+                                self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_cnt})
+                                if len(entity0_sources[data_source1]["PRINCIPLES"]) == 1:
+                                    principle_matchkey = entity0_sources[data_source1]["PRINCIPLES"][0]
+                                elif len(entity0_sources[data_source1]["PRINCIPLES"]) > 1:
+                                    principle_matchkey = "multiple||multiple"
+                                else:
+                                    principle_matchkey = "none||none"
+                                stat_keys.extend(["PRINCIPLES", principle_matchkey])
+                                self.update_stat_pack(stat_keys, {'COUNT': 1, 'SAMPLE': [entity_id]})
+                        else:
+                            stat_keys = ["CROSS_SOURCE", f"{data_source1}||{data_source2}", match_level]
+                            self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_cnt})
+                            if len(entity0_sources[data_source2]["PRINCIPLES"]) == 1:
+                                principle_matchkey = entity0_sources[data_source2]["PRINCIPLES"][0]
+                            elif len(entity0_sources[data_source2]["PRINCIPLES"]) > 1:
+                                principle_matchkey = "multiple||multiple"
+                            elif len(entity0_sources[data_source1]["PRINCIPLES"]) == 1:
+                                principle_matchkey = entity0_sources[data_source1]["PRINCIPLES"][0]
+                            else:
+                                principle_matchkey = "indeterminate||indeterminate"
+                            stat_keys.extend(["PRINCIPLES", principle_matchkey])
+                            self.update_stat_pack(stat_keys, {'COUNT': 1, 'SAMPLE': [entity_id]})
+                if len(entity0_sources) > 1:
+                    multi_source_key = "||".join(sorted(entity0_sources.keys()))
+                    self.update_stat_pack(["MULTI_SOURCE", multi_source_key], {'COUNT': 1, 'SAMPLE': [entity_id]})
+
+                                                        
+                                                        
 def initialize_stat_pack(stats_file_name, csv_file_name, quiet):
     new_stat_pack = True
     stats_file_existed = os.path.exists(stats_file_name)
@@ -369,37 +421,16 @@ def initialize_stat_pack(stats_file_name, csv_file_name, quiet):
                 "START_TIME": datetime.now().strftime("%m/%d/%Y %H:%M:%S"),
                 "LAST_ENTITY_ID": 0
             },
-            "TOTALS": {
-                "RECORD_COUNT": 0,
-                "ENTITY_COUNT": 0,
-                "AMBIGUOUS_MATCH": {
-                    "ENTITIES": 0,
-                    "RELATIONS": 0
-                },
-                "POSSIBLE_MATCH": {
-                    "ENTITIES": 0,
-                    "RELATIONS": 0
-                },
-                "POSSIBLY_RELATED": {
-                    "ENTITIES": 0,
-                    "RELATIONS": 0
-                },
-                "DISCLOSED_RELATION": {
-                    "ENTITIES": 0,
-                    "RELATIONS": 0
-                },
-                "PRINCIPLES": {}
-                
-            },
-            "SOURCES": {},
+            "TOTALS": {},
+            "DATA_SOURCE": {},
+            "CROSS_SOURCE": {},
             "MULTI_SOURCE": {},
-            "ENTITY_SIZE": {}
+            "ENTITY_SIZES": {}
         }
-
     return stat_pack
 
 def get_entity_sql(sz_dbo, data_source_filter):
-    print("Deterning entity range ...")
+    print("Determining entity range ...")
     if not datasource_filter:
         max_sql = "select max(RES_ENT_ID) from RES_ENT"
         min_entity_id = 0
