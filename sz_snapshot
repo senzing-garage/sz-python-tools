@@ -253,7 +253,15 @@ class writer():
         self.export_csv = kwargs.get("for_audit")
         self.stats_file_name = kwargs.get("stats_file_name")
         self.csv_file_name = kwargs.get("csv_file_name")
-
+        self.match_levels = [
+            "MATCH",
+            "AMBIGUOUS_MATCH",
+            "POSSIBLE_MATCH",
+            "POSSIBLE_RELATION",
+            "DISCLOSED_RELATION"
+        ]
+        if not self.stat_pack:
+            self.initialize_stat_pack()
     def close(self):
         return None
 
@@ -284,6 +292,34 @@ class writer():
             else:
                 d[k] += v
 
+
+    def initialize_stat_pack(self):
+        self.stat_pack = {
+            "SOURCE": "sz_snapshot",
+            "PROCESS": {
+                "STATUS": "Incomplete",
+                "START_TIME": datetime.now().strftime("%m/%d/%Y %H:%M:%S"),
+                "LAST_ENTITY_ID": 0
+            },
+            "TOTALS": {
+                "ENTITY_COUNT": 0,
+                "RECORD_COUNT": 0
+            },
+            "DATA_SOURCE": {},
+            "CROSS_SOURCE": {},
+            "MULTI_SOURCE": {},
+            "ENTITY_SIZES": {}
+        }
+        self.initialize_match_levels(['TOTALS'])
+
+    def initialize_match_levels(self, stat_keys):
+        for _match_level in self.match_levels:
+            if _match_level == 'MATCH':
+                stats = {"ENTITY_COUNT": 0, "RECORD_COUNT": 0}
+            else:
+                stats = {"RELATION_COUNT": 0}
+            self.update_stat_pack(stat_keys + [_match_level], stats)
+
     def compute_stats(self, resume_rows):
         record_list = []
         resume_data = {}
@@ -308,7 +344,7 @@ class writer():
             elif row_data["MATCH_LEVEL"] == 2:
                 match_level = "POSSIBLE_MATCH"
             else:
-                match_level = "POSSIBLY_RELATED"
+                match_level = "POSSIBLE_RELATION"
 
             if related_id not in resume_data:
                 resume_data[related_id] = {}
@@ -325,33 +361,29 @@ class writer():
                 principle_matchkey = f"{principle}||{match_key}"
                 if principle_matchkey not in resume_data[related_id]["DATA_SOURCES"][data_source]["PRINCIPLES"]:
                     resume_data[related_id]["DATA_SOURCES"][data_source]["PRINCIPLES"].append(principle_matchkey)
-                if related_id == 0:
-                    if principle_matchkey not in resume_data[related_id]["PRINCIPLES"]: 
-                        resume_data[related_id]["PRINCIPLES"][principle_matchkey] = 1
-                    else:
-                        resume_data[related_id]["PRINCIPLES"][principle_matchkey] += 1
-                    
-
-
+                if principle_matchkey not in resume_data[related_id]["PRINCIPLES"]: 
+                    resume_data[related_id]["PRINCIPLES"][principle_matchkey] = 1
+                else:
+                    resume_data[related_id]["PRINCIPLES"][principle_matchkey] += 1
 
         self.update_stat_pack(["TOTALS"], {'ENTITY_COUNT': 1})
         self.update_stat_pack(["TOTALS"], {'RECORD_COUNT': entity_size})
         self.update_stat_pack(['ENTITY_SIZES', entity_size], {'COUNT': 1, 'SAMPLE': [entity_id]})
 
-        print('-' * 10)
-        print(json.dumps(resume_data, indent=4))
-
-        entity0_sources = None # should get set as entity list is sorted
+        entity0_sources = [] # should get set by entity 0 as list is sorted
         for related_id in sorted(resume_data.keys()):
             match_level = resume_data[related_id]["MATCH_LEVEL"]
             if related_id == 0:
                 for principle_matchkey in resume_data[related_id]["PRINCIPLES"]:
                     record_count = resume_data[related_id]["PRINCIPLES"][principle_matchkey]
-                    stat_keys = ["TOTALS", match_level, principle_matchkey]
-                    self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_count, "SAMPLE": [entity_id]})
-                    
+                    stat_keys = ["TOTALS", match_level]
+                    self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_count})
+                    stat_keys = ["TOTALS", match_level, "PRINCIPLES", principle_matchkey]
+                    self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [entity_id]})
                 entity0_sources = resume_data[related_id]["DATA_SOURCES"] 
                 for data_source1 in entity0_sources:
+                    if data_source1 not in self.stat_pack["DATA_SOURCE"]:
+                        self.initialize_match_levels(["DATA_SOURCE", data_source1])
                     record_cnt = entity0_sources[data_source1]["COUNT"]
                     for data_source2 in entity0_sources:
                         if data_source2 == data_source1:
@@ -369,7 +401,10 @@ class writer():
                                 stat_keys.extend(["PRINCIPLES", principle_matchkey])
                                 self.update_stat_pack(stat_keys, {'COUNT': 1, 'SAMPLE': [entity_id]})
                         else:
-                            stat_keys = ["CROSS_SOURCE", f"{data_source1}||{data_source2}", match_level]
+                            data_source_pair = f"{data_source1}||{data_source2}"
+                            if data_source_pair not in self.stat_pack["CROSS_SOURCE"]:
+                                self.initialize_match_levels(["CROSS_SOURCE", data_source_pair])
+                            stat_keys = ["CROSS_SOURCE", data_source_pair, match_level]
                             self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_cnt})
                             if len(entity0_sources[data_source2]["PRINCIPLES"]) == 1:
                                 principle_matchkey = entity0_sources[data_source2]["PRINCIPLES"][0]
@@ -383,51 +418,57 @@ class writer():
                             self.update_stat_pack(stat_keys, {'COUNT': 1, 'SAMPLE': [entity_id]})
                 if len(entity0_sources) > 1:
                     multi_source_key = "||".join(sorted(entity0_sources.keys()))
-                    self.update_stat_pack(["MULTI_SOURCE", multi_source_key], {'COUNT': 1, 'SAMPLE': [entity_id]})
+                    self.update_stat_pack(["MULTI_SOURCE", multi_source_key], {'ENTITY_COUNT': 1, 'SAMPLE': [entity_id]})
+            elif related_id > entity_id:
+                sample = f"{entity_id} {related_id}"
+                principle_matchkey = list(resume_data[related_id]["PRINCIPLES"].keys())[0]
+                record_count = resume_data[related_id]["PRINCIPLES"][principle_matchkey]
+                stat_keys = ["TOTALS", match_level]
+                self.update_stat_pack(stat_keys, {"RELATION_COUNT": 1})
+                stat_keys = ["TOTALS", match_level, "PRINCIPLES", principle_matchkey]
+                self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [sample]})
 
-                                                        
-                                                        
-def initialize_stat_pack(stats_file_name, csv_file_name, quiet):
-    new_stat_pack = True
-    stats_file_existed = os.path.exists(stats_file_name)
-    if stats_file_existed:
-        stat_pack = json.load(open(stats_file_name))
-        prior_status = "Unknown"
-        last_entity_id = 0
-        if stat_pack.get("PROCESS"):
-            prior_status = stat_pack["PROCESS"]["STATUS"]
-            last_entity_id = stat_pack["PROCESS"].get("LAST_ENTITY_ID", 0)
-            entity_count = stat_pack["TOTALS"]["ENTITY_COUNT"]
-        print(f'\n{prior_status} snapshot file exists with {entity_count} entities processed!')
-        if quiet:
-            print("PRIOR FILES WILL BE OVERWRITTEN")
-        else:
-            if prior_status != "Complete" and last_entity_id != 0:
-                ans = input("\nDo you want to pick up where it left off? (y/n) ")
-                if ans.upper().startswith("Y"):
-                    new_stat_pack = False
-            if new_stat_pack:
-                ans = input("\nAre you sure you want to overwrite it? (y/n) ")
-                if not ans.upper().startswith("Y"):
-                    return None
-            print()
-    if new_stat_pack and os.path.exists(csv_file_name):
+                for data_source1 in entity0_sources:
+                    for data_source2 in resume_data[related_id]["DATA_SOURCES"]:
+                        if data_source1 == data_source2:
+                            stat_keys = ["DATA_SOURCE", data_source1, match_level]
+                        else:
+                            data_source_pair = f"{data_source1}||{data_source2}"
+                            if data_source_pair not in self.stat_pack["CROSS_SOURCE"]:
+                                self.initialize_match_levels(["CROSS_SOURCE", data_source_pair])
+                            stat_keys = ["CROSS_SOURCE", data_source_pair, match_level]
+                        self.update_stat_pack(stat_keys, {"RELATION_COUNT": 1})
+                        stat_keys.extend(["PRINCIPLES", principle_matchkey])
+                        self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [sample]})
+                            
+def check_stat_pack(stats_file_name, csv_file_name, quiet):
+    abort = False
+    stat_pack = json.load(open(stats_file_name))
+    prior_status = "unknown"
+    last_entity_id = 0
+    if stat_pack.get("PROCESS"):
+        prior_status = stat_pack["PROCESS"]["STATUS"]
+        last_entity_id = stat_pack["PROCESS"].get("LAST_ENTITY_ID", 0)
+        entity_count = stat_pack["TOTALS"]["ENTITY_COUNT"]
+    print(f'\n{prior_status} snapshot file exists with {entity_count} entities processed!')
+    if quiet:
+        print("PRIOR FILES WILL BE OVERWRITTEN")
+        stat_pack = {}
+    else:
+        if prior_status == "Interim":
+            ans = input("\nDo you want to pick up where it left off? (y/n) ")
+            if not ans.upper().startswith("Y"):
+                stat_pack = {}
+        elif prior_status != "Final":
+            stat_pack = {}
+        if stat_pack:
+            ans = input("\nAre you sure you want to overwrite it? (y/n) ")
+            if not ans.upper().startswith("Y"):
+                abort = True
+        print()
+    if not stat_pack and os.path.exists(csv_file_name):
         os.remove(csv_file_name)
-    if new_stat_pack:
-        stat_pack = {
-            "SOURCE": "sz_snapshot",
-            "PROCESS": {
-                "STATUS": "Incomplete",
-                "START_TIME": datetime.now().strftime("%m/%d/%Y %H:%M:%S"),
-                "LAST_ENTITY_ID": 0
-            },
-            "TOTALS": {},
-            "DATA_SOURCE": {},
-            "CROSS_SOURCE": {},
-            "MULTI_SOURCE": {},
-            "ENTITY_SIZES": {}
-        }
-    return stat_pack
+    return stat_pack, abort
 
 def get_entity_sql(sz_dbo, data_source_filter):
     print("Determining entity range ...")
@@ -544,9 +585,11 @@ if __name__ == "__main__":
 
     stats_file_name = args.output_file_root + ".json"
     csv_file_name = args.output_file_root + ".csv"
-    stat_pack = initialize_stat_pack(stats_file_name, csv_file_name, args.quiet)
-    if not stat_pack:
-        sys.exit(1)
+    stat_pack = {}
+    if os.path.exists(stats_file_name):
+        stat_pack, abort = check_stat_pack(stats_file_name, csv_file_name, args.quiet)
+        if abort:
+            sys.exit(1)
 
     entity_sql, min_entity_id, max_entity_id = get_entity_sql(sz_dbo, dsrc_id_filter)
     if not max_entity_id:
