@@ -47,7 +47,6 @@ def get_version_details(sz_root_path: Path) -> List[str]:
 
     details: List[str] = []
     details.append(version_details.get("BUILD_VERSION", ""))
-    details.append(version_details.get("DATA_VERSION", ""))
 
     if not all(details):
         print(f"\nERROR: Problem reading values from version details, missing value(s) - {details}")
