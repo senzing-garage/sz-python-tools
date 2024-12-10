@@ -136,7 +136,7 @@ this action runs [pytest] on the Darwin/macOS platform to perform unit tests and
   - Uses:
     - [actions/checkout]
     - [actions/setup-python]
-    - [senzing-factory/github-action-install-senzing-api]
+    - [senzing-factory/github-action-install-senzing-sdk]
     - [pytest]
     - [actions/upload-artifact]
 
@@ -149,7 +149,7 @@ this action runs [pytest] on the Linux platform to perform unit tests and code c
   - Uses:
     - [actions/checkout]
     - [actions/setup-python]
-    - [senzing-factory/github-action-install-senzing-api]
+    - [senzing-factory/github-action-install-senzing-sdk]
     - [pytest]
     - [actions/upload-artifact]
 
@@ -162,7 +162,7 @@ this action runs [pytest] on the Windows platform to perform unit tests and code
   - Uses:
     - [actions/checkout]
     - [actions/setup-python]
-    - [senzing-factory/github-action-install-senzing-api]
+    - [senzing-factory/github-action-install-senzing-sdk]
     - [pytest]
     - [actions/upload-artifact]
 
@@ -213,5 +213,5 @@ this action runs [pytest] on the Windows platform to perform unit tests and code
 [senzing-factory/build-resources/.../lint-workflows.yaml]: https://github.com/senzing-factory/build-resources/blob/main/.github/workflows/lint-workflows.yaml
 [senzing-factory/build-resources/.../move-pr-to-done-dependabot.yaml]: https://github.com/senzing-factory/build-resources/blob/main/.github/workflows/move-pr-to-done-dependabot.yaml
 [senzing-factory/github-action-docker-buildx-build]: https://github.com/senzing-factory/github-action-docker-buildx-build
-[senzing-factory/github-action-install-senzing-api]: https://github.com/senzing-factory/github-action-install-senzing-api
+[senzing-factory/github-action-install-senzing-sdk]: https://github.com/senzing-factory/github-action-install-senzing-sdk
 [super-linter]: https://github.com/super-linter/super-linter
