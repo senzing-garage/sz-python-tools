@@ -3,62 +3,71 @@
 import argparse
 import csv
 import json
+import logging
+import multiprocessing
 import os
+import pathlib
 import random
 import signal
 import sys
-import textwrap
 import time
+import traceback
 from datetime import datetime
-
-from _tool_helpers import get_engine_config, get_max_futures_workers
-from senzing import SzConfigManager, SzEngine, SzEngineFlags, SzError, SzProduct
-from sz_database import SzDatabase
-try:
-    import orjson
-except:
-    orjson = None
-
-import multiprocessing
 from queue import Empty, Full
 
-class IOQueueProcessor():
+from senzing_core import SzAbstractFactory, SzEngine, SzEngineFlags, SzError
+
+from _sz_database import SzDatabase
+from _tool_helpers import get_engine_config
+
+MODULE_NAME = pathlib.Path(__file__).stem
+
+
+class IOQueueProcessor:
 
     def __init__(self, input_class, output_class, **kwargs):
 
-        self.process_count = kwargs.get('process_count', multiprocessing.cpu_count())
-        self.all_stop = multiprocessing.Value('i', 0)
+        self.process_count = kwargs.get("process_count", multiprocessing.cpu_count())
+        self.all_stop = multiprocessing.Value("i", 0)
 
         self.input_class = input_class
         self.output_class = output_class
         self.input_queue = multiprocessing.Queue(self.process_count * 10)
         self.output_queue = multiprocessing.Queue(self.process_count * 10)
 
-        self.input_queue_read_cnt = multiprocessing.Value('i', 0)
-        self.output_queue_read_cnt = multiprocessing.Value('i', 0)
-
         self.kwargs = kwargs
         self.process_list = []
 
     def start_up(self):
-        self.process_list.append(multiprocessing.Process(target=self.output_queue_reader, args=(0, self.output_queue, self.output_class), kwargs=self.kwargs))
+        self.process_list.append(
+            multiprocessing.Process(
+                target=self.output_queue_reader, args=(0, self.output_queue, self.output_class), kwargs=self.kwargs
+            )
+        )
         for process_number in range(self.process_count - 1):
-            self.process_list.append(multiprocessing.Process(target=self.input_queue_reader, args=(process_number+1, self.input_queue, self.output_queue, self.input_class), kwargs=self.kwargs))
+            self.process_list.append(
+                multiprocessing.Process(
+                    target=self.input_queue_reader,
+                    args=(process_number + 1, self.input_queue, self.output_queue, self.input_class),
+                    kwargs=self.kwargs,
+                )
+            )
         for process in self.process_list:
             process.start()
 
-    def wait_for_queues(self, max_wait = 2):
+    def wait_for_queues(self, max_wait=2):
         waits = 0
         while self.input_queue.qsize() or self.output_queue.qsize():
             size1 = self.input_queue.qsize()
             size2 = self.output_queue.qsize()
-            print(f"waiting for {size1} input and {size2} output queue records")
+            if waits > 1:
+                logging.info(f"waiting for %s input and %s output queue records" % (size1, size2))
             time.sleep(1)
             waits += 1
             if max_wait and waits > max_wait:
                 break
         if self.input_queue.qsize() or self.output_queue.qsize():
-            print('WARNING: Queues not empty!')
+            logging.warning("queues not empty!")
 
     def finish_up(self):
         self.wait_for_queues()
@@ -73,7 +82,7 @@ class IOQueueProcessor():
 
         for process in self.process_list:
             if process.is_alive():
-                print(process.name, 'did not terminate gracefully')
+                logging.warning("%s did not terminate gracefully" % process.name)
                 process.terminate()
             process.join()
 
@@ -95,14 +104,12 @@ class IOQueueProcessor():
             break
 
     def input_queue_reader(self, process_number, input_queue, output_queue, function_ref, **kwargs):
-        kwargs['process_number'] = process_number
+        kwargs["process_number"] = process_number
         input_class = function_ref(**kwargs)
 
         while self.all_stop.value == 0:
             queue_data = self.queue_read(input_queue)
             if queue_data:
-                with self.input_queue_read_cnt.get_lock():
-                    self.input_queue_read_cnt.value += 1
                 result = input_class.run(queue_data)
                 if result:
                     self.queue_write(output_queue, result)
@@ -111,14 +118,12 @@ class IOQueueProcessor():
 
     def output_queue_reader(self, process_number, output_queue, function_ref, **kwargs):
 
-        kwargs['process_number'] = process_number
+        kwargs["process_number"] = process_number
         output_class = function_ref(**kwargs)
 
         while self.all_stop.value == 0:
             queue_data = self.queue_read(output_queue)
             if queue_data:
-                with self.output_queue_read_cnt.get_lock():
-                    self.output_queue_read_cnt.value += 1
                 output_class.run(queue_data)
 
         output_class.close()
@@ -129,34 +134,29 @@ class IOQueueProcessor():
     def signal_writer(self, msg):
         self.queue_write(self.output_queue, msg)
 
-    def get_input_queue_read_cnt(self):
-        return self.input_queue_read_cnt.value
 
-    def get_output_queue_read_cnt(self):
-        return self.output_queue_read_cnt.value
-
-
-class reader():
+class reader:
 
     def __init__(self, **kwargs):
-        
+
         self.sz_config_data = kwargs.get("sz_config_data")
         self.relationship_filter = kwargs.get("relationship_filter")
 
         self.sz_db_uri = kwargs.get("sz_db_uri")
-        self.api_version = kwargs.get("api_version")
+        self.sdk_version = kwargs.get("sdk_version")
         self.sz_config_data = kwargs.get("sz_config_data")
-        self.dsrc_lookup = {item["DSRC_ID"]: item for item in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
-        self.dsrc_code_lookup = {item["DSRC_CODE"]: item for item in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
-        self.errule_lookup = {item["ERRULE_ID"]: item for item in sz_config_data["G2_CONFIG"]["CFG_ERRULE"]}
-        self.errule_code_lookup = {item["ERRULE_CODE"]: item for item in sz_config_data["G2_CONFIG"]["CFG_ERRULE"]}
+        self.dsrc_lookup = {x["DSRC_ID"]: x for x in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
+        self.dsrc_code_lookup = {x["DSRC_CODE"]: x for x in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
+        self.errule_lookup = {x["ERRULE_ID"]: x for x in sz_config_data["G2_CONFIG"]["CFG_ERRULE"]}
+        self.errule_code_lookup = {x["ERRULE_CODE"]: x for x in sz_config_data["G2_CONFIG"]["CFG_ERRULE"]}
         self.errule_code_lookup["DISCLOSED"] = {"ERRULE_ID": 0}
-        self.ftype_lookup = {item["FTYPE_ID"]: item for item in sz_config_data["G2_CONFIG"]["CFG_FTYPE"]}
-        self.ftype_code_lookup = {item["FTYPE_CODE"]: item for item in sz_config_data["G2_CONFIG"]["CFG_FTYPE"]}
+        self.ftype_lookup = {x["FTYPE_ID"]: x for x in sz_config_data["G2_CONFIG"]["CFG_FTYPE"]}
+        self.ftype_code_lookup = {x["FTYPE_CODE"]: x for x in sz_config_data["G2_CONFIG"]["CFG_FTYPE"]}
+        self.esb_ftype_ids = [x["FTYPE_ID"] for x in sz_config_data["G2_CONFIG"]["CFG_FTYPE"] if x["DERIVED"] == "No"]
 
         self.sz_dbo = SzDatabase(self.sz_db_uri)
         sql_entities = (
-            "select " 
+            "select "
             " a.RES_ENT_ID as RESOLVED_ENTITY_ID, "
             " a.ERRULE_ID, "
             " a.MATCH_KEY, "
@@ -184,44 +184,38 @@ class reader():
             "where a.RES_ENT_ID = ?"
         )
         self.sql_relations = sz_dbo.sqlPrep(sql_relations)
+        sql_features = (
+            "select "
+            " FTYPE_ID "
+            "from RES_FEAT_EKEY a "
+            "where RES_ENT_ID = ?"
+            "and FTYPE_ID in (" + ",".join(str(x) for x in self.esb_ftype_ids) + ")"
+            "and SUPPRESSED = 'N'"
+        )
+        self.sql_features = sz_dbo.sqlPrep(sql_features)
 
-    def old_init(self):
-        dsrc_lookup = {}
-        dsrc_lookup_by_code = {}
-        # TODO - Ant - SZ_CONFIG? Jira
-        for cfg_record in config_data["G2_CONFIG"]["CFG_DSRC"]:
-            dsrc_lookup[cfg_record["DSRC_ID"]] = cfg_record
-            dsrc_lookup_by_code[cfg_record["DSRC_CODE"]] = cfg_record
-
-        errule_lookup = {}
-        errule_lookup_2 = {}
-        for cfg_record in config_data["G2_CONFIG"]["CFG_ERRULE"]:
-            errule_lookup[cfg_record["ERRULE_ID"]] = cfg_record
-            errule_lookup_2[cfg_record["ERRULE_CODE"]] = cfg_record
-
-        AMBIGUOUS_FTYPE_ID = 0
-        esb_ftype_lookup = {}
-        for cfg_record in config_data["G2_CONFIG"]["CFG_FTYPE"]:
-            if cfg_record["DERIVED"] == "No":
-                esb_ftype_lookup[cfg_record["FTYPE_ID"]] = cfg_record
-            if cfg_record["FTYPE_CODE"] == "AMBIGUOUS_ENTITY":
-                AMBIGUOUS_FTYPE_ID = cfg_record["FTYPE_ID"]
-        
     def close(self):
         self.sz_dbo.close()
 
-    def run(self, entity_id):
-        resume_rows = []
-        cursor = self.sz_dbo.sqlExec(self.sql_entities, [entity_id,])
-        for row_data in self.sz_dbo.fetchAllDicts(cursor):
-            row_data = self.complete_resume_db(row_data)
-            resume_rows.append(row_data)
-        if resume_rows and self.relationship_filter in (2, 3):
-            cursor = self.sz_dbo.sqlExec(self.sql_relations, [entity_id,])
+    def run(self, queue_data):
+        if queue_data[0] == "RESUME":
+            entity_id = queue_data[1]
+            resume_rows = []
+            cursor = self.sz_dbo.sqlExec(self.sql_entities, [entity_id])
             for row_data in self.sz_dbo.fetchAllDicts(cursor):
                 row_data = self.complete_resume_db(row_data)
                 resume_rows.append(row_data)
-        return resume_rows
+            if resume_rows and self.relationship_filter in (2, 3):
+                cursor = self.sz_dbo.sqlExec(self.sql_relations, [entity_id])
+                for row_data in self.sz_dbo.fetchAllDicts(cursor):
+                    row_data = self.complete_resume_db(row_data)
+                    resume_rows.append(row_data)
+            return (queue_data[0], resume_rows)
+
+        elif queue_data[0] == "REVIEW":
+            entity_size, entity_id, review_features = self.review_features(queue_data)
+            return ("REVIEW", entity_size, entity_id, review_features)
+        return None
 
     def complete_resume_db(self, row_data):
         if "RELATED_ENTITY_ID" not in row_data:
@@ -231,10 +225,10 @@ class reader():
         if "RECORD_ID" not in row_data:
             row_data["RECORD_ID"] = "n/a"
         row_data["DATA_SOURCE"] = self.dsrc_lookup[row_data["DSRC_ID"]]["DSRC_CODE"]
-        if not row_data['ERRULE_ID']:
+        if not row_data["ERRULE_ID"]:
             row_data["ERRULE_CODE"] = "unk"
-        else:             
-            row_data["ERRULE_CODE"] =self. errule_lookup[row_data["ERRULE_ID"]]["ERRULE_CODE"]
+        else:
+            row_data["ERRULE_CODE"] = self.errule_lookup[row_data["ERRULE_ID"]]["ERRULE_CODE"]
 
         if row_data["RELATED_ENTITY_ID"] == 0:
             row_data["MATCH_LEVEL"] = 1 if row_data["ERRULE_CODE"] else 0
@@ -244,8 +238,23 @@ class reader():
             row_data["MATCH_LEVEL"] = self.errule_lookup[row_data["ERRULE_ID"]]["RTYPE_ID"]
         return row_data
 
+    def review_features(self, queue_data):
+        entity_id = queue_data[1]
+        entity_size = queue_data[2]
+        cursor = self.sz_dbo.sqlExec(self.sql_features, [entity_id])
+        features = {}
+        if entity_size > 1:
+            for row in self.sz_dbo.fetchAllRows(cursor):
+                ftype_code = self.ftype_lookup[row[0]]["FTYPE_CODE"]
+                if ftype_code not in features:
+                    features[ftype_code] = 1
+                else:
+                    features[ftype_code] += 1
 
-class writer():
+        return entity_size, entity_id, features
+
+
+class writer:
 
     def __init__(self, **kwargs):
         self.stat_pack = kwargs.get("stat_pack")
@@ -253,24 +262,60 @@ class writer():
         self.export_csv = kwargs.get("for_audit")
         self.stats_file_name = kwargs.get("stats_file_name")
         self.csv_file_name = kwargs.get("csv_file_name")
-        self.match_levels = [
-            "MATCH",
-            "AMBIGUOUS_MATCH",
-            "POSSIBLE_MATCH",
-            "POSSIBLE_RELATION",
-            "DISCLOSED_RELATION"
-        ]
+        self.match_levels = ["MATCH", "AMBIGUOUS_MATCH", "POSSIBLE_MATCH", "POSSIBLE_RELATION", "DISCLOSED_RELATION"]
         if not self.stat_pack:
             self.initialize_stat_pack()
+        self.esb_features = {}
+
+        if self.export_csv:
+            column_headers = [
+                "RESOLVED_ENTITY_ID",
+                "RELATED_ENTITY_ID",
+                "MATCH_LEVEL",
+                "MATCH_KEY",
+                "DATA_SOURCE",
+                "RECORD_ID",
+            ]
+            self.csv_handle = open(self.csv_file_name, "a", encoding="utf-8")
+            self.csv_writer = csv.writer(self.csv_handle)
+            self.csv_writer.writerow(column_headers)
+
     def close(self):
         return None
 
     def run(self, queue_data):
-        if isinstance(queue_data, list):
-            self.compute_stats(queue_data)
-        else:
-            print(f'updated stats')
-            self.stat_pack["PROCESS"].update(queue_data)
+        if queue_data[0] == "RESUME":
+            self.compute_stats(queue_data[1])
+            if self.export_csv:
+                csv_rows = [
+                    [
+                        x["RESOLVED_ENTITY_ID"],
+                        x["RELATED_ENTITY_ID"],
+                        x["MATCH_LEVEL"],
+                        x["MATCH_KEY"],
+                        x["DATA_SOURCE"],
+                        x["RECORD_ID"],
+                    ]
+                    for x in queue_data[1]
+                ]
+                self.csv_writer.writerows(csv_rows)
+
+        elif queue_data[0] == "REVIEW":
+            entity_size = queue_data[1]
+            sample = {queue_data[2]: queue_data[3]}
+            if entity_size not in self.esb_features:
+                self.esb_features[entity_size] = {"COUNT": 1, "SAMPLE": [sample]}
+            else:
+                self.esb_features[entity_size]["COUNT"] += 1
+                self.esb_features[entity_size]["SAMPLE"].append(sample)
+
+        elif queue_data[0] == "DUMP_STATS":
+            self.stat_pack["PROCESS"].update(queue_data[1])
+            if self.stat_pack["PROCESS"]["STATUS"] == "Complete":
+                if self.esb_features:
+                    self.stat_pack["ENTITY_SIZES"] = self.esb_features
+                if self.export_csv:
+                    self.csv_handle.close()
             with open(self.stats_file_name, "w", encoding="utf-8") as outfile:
                 json.dump(self.stat_pack, outfile, indent=4)
 
@@ -285,13 +330,12 @@ class writer():
         for key in prior_keys:
             if not d.get(key):
                 d[key] = {}
-            d = d[key] 
+            d = d[key]
         for k, v in stats.items():
             if k not in d:
-                d[k] = v            
+                d[k] = v
             else:
                 d[k] += v
-
 
     def initialize_stat_pack(self):
         self.stat_pack = {
@@ -299,22 +343,19 @@ class writer():
             "PROCESS": {
                 "STATUS": "Incomplete",
                 "START_TIME": datetime.now().strftime("%m/%d/%Y %H:%M:%S"),
-                "LAST_ENTITY_ID": 0
+                "LAST_ENTITY_ID": 0,
             },
-            "TOTALS": {
-                "ENTITY_COUNT": 0,
-                "RECORD_COUNT": 0
-            },
-            "DATA_SOURCE": {},
-            "CROSS_SOURCE": {},
-            "MULTI_SOURCE": {},
-            "ENTITY_SIZES": {}
+            "TOTALS": {"ENTITY_COUNT": 0, "RECORD_COUNT": 0},
+            "DATA_SOURCES": {},
+            "CROSS_SOURCES": {},
+            "MULTI_SOURCES": {},
+            "ENTITY_SIZES": {},
         }
-        self.initialize_match_levels(['TOTALS'])
+        self.initialize_match_levels(["TOTALS"])
 
     def initialize_match_levels(self, stat_keys):
         for _match_level in self.match_levels:
-            if _match_level == 'MATCH':
+            if _match_level == "MATCH":
                 stats = {"ENTITY_COUNT": 0, "RECORD_COUNT": 0}
             else:
                 stats = {"RELATION_COUNT": 0}
@@ -351,7 +392,7 @@ class writer():
                 resume_data[related_id]["MATCH_LEVEL"] = match_level
                 resume_data[related_id]["DATA_SOURCES"] = {}
                 resume_data[related_id]["PRINCIPLES"] = {}
-                
+
             if data_source not in resume_data[related_id]["DATA_SOURCES"]:
                 resume_data[related_id]["DATA_SOURCES"][data_source] = {"COUNT": 1, "PRINCIPLES": []}
             else:
@@ -361,16 +402,16 @@ class writer():
                 principle_matchkey = f"{principle}||{match_key}"
                 if principle_matchkey not in resume_data[related_id]["DATA_SOURCES"][data_source]["PRINCIPLES"]:
                     resume_data[related_id]["DATA_SOURCES"][data_source]["PRINCIPLES"].append(principle_matchkey)
-                if principle_matchkey not in resume_data[related_id]["PRINCIPLES"]: 
+                if principle_matchkey not in resume_data[related_id]["PRINCIPLES"]:
                     resume_data[related_id]["PRINCIPLES"][principle_matchkey] = 1
                 else:
                     resume_data[related_id]["PRINCIPLES"][principle_matchkey] += 1
 
-        self.update_stat_pack(["TOTALS"], {'ENTITY_COUNT': 1})
-        self.update_stat_pack(["TOTALS"], {'RECORD_COUNT': entity_size})
-        self.update_stat_pack(['ENTITY_SIZES', entity_size], {'COUNT': 1, 'SAMPLE': [entity_id]})
+        self.update_stat_pack(["TOTALS"], {"ENTITY_COUNT": 1})
+        self.update_stat_pack(["TOTALS"], {"RECORD_COUNT": entity_size})
+        self.update_stat_pack(["ENTITY_SIZES", entity_size], {"COUNT": 1, "SAMPLE": [entity_id]})
 
-        entity0_sources = [] # should get set by entity 0 as list is sorted
+        entity0_sources = []  # should get set by entity 0 as list is sorted
         for related_id in sorted(resume_data.keys()):
             match_level = resume_data[related_id]["MATCH_LEVEL"]
             if related_id == 0:
@@ -380,14 +421,14 @@ class writer():
                     self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_count})
                     stat_keys = ["TOTALS", match_level, "PRINCIPLES", principle_matchkey]
                     self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [entity_id]})
-                entity0_sources = resume_data[related_id]["DATA_SOURCES"] 
+                entity0_sources = resume_data[related_id]["DATA_SOURCES"]
                 for data_source1 in entity0_sources:
-                    if data_source1 not in self.stat_pack["DATA_SOURCE"]:
-                        self.initialize_match_levels(["DATA_SOURCE", data_source1])
+                    if data_source1 not in self.stat_pack["DATA_SOURCES"]:
+                        self.initialize_match_levels(["DATA_SOURCES", data_source1])
                     record_cnt = entity0_sources[data_source1]["COUNT"]
                     for data_source2 in entity0_sources:
                         if data_source2 == data_source1:
-                            stat_keys = ["DATA_SOURCE", data_source1]
+                            stat_keys = ["DATA_SOURCES", data_source1]
                             self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_cnt})
                             if record_cnt > 1:
                                 stat_keys.append(match_level)
@@ -399,12 +440,12 @@ class writer():
                                 else:
                                     principle_matchkey = "none||none"
                                 stat_keys.extend(["PRINCIPLES", principle_matchkey])
-                                self.update_stat_pack(stat_keys, {'COUNT': 1, 'SAMPLE': [entity_id]})
+                                self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [entity_id]})
                         else:
                             data_source_pair = f"{data_source1}||{data_source2}"
-                            if data_source_pair not in self.stat_pack["CROSS_SOURCE"]:
-                                self.initialize_match_levels(["CROSS_SOURCE", data_source_pair])
-                            stat_keys = ["CROSS_SOURCE", data_source_pair, match_level]
+                            if data_source_pair not in self.stat_pack["CROSS_SOURCES"]:
+                                self.initialize_match_levels(["CROSS_SOURCES", data_source_pair])
+                            stat_keys = ["CROSS_SOURCES", data_source_pair, match_level]
                             self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_cnt})
                             if len(entity0_sources[data_source2]["PRINCIPLES"]) == 1:
                                 principle_matchkey = entity0_sources[data_source2]["PRINCIPLES"][0]
@@ -415,10 +456,12 @@ class writer():
                             else:
                                 principle_matchkey = "indeterminate||indeterminate"
                             stat_keys.extend(["PRINCIPLES", principle_matchkey])
-                            self.update_stat_pack(stat_keys, {'COUNT': 1, 'SAMPLE': [entity_id]})
+                            self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [entity_id]})
                 if len(entity0_sources) > 1:
                     multi_source_key = "||".join(sorted(entity0_sources.keys()))
-                    self.update_stat_pack(["MULTI_SOURCE", multi_source_key], {'ENTITY_COUNT': 1, 'SAMPLE': [entity_id]})
+                    self.update_stat_pack(
+                        ["MULTI_SOURCES", multi_source_key], {"ENTITY_COUNT": 1, "SAMPLE": [entity_id]}
+                    )
             elif related_id > entity_id:
                 sample = f"{entity_id} {related_id}"
                 principle_matchkey = list(resume_data[related_id]["PRINCIPLES"].keys())[0]
@@ -431,26 +474,26 @@ class writer():
                 for data_source1 in entity0_sources:
                     for data_source2 in resume_data[related_id]["DATA_SOURCES"]:
                         if data_source1 == data_source2:
-                            stat_keys = ["DATA_SOURCE", data_source1, match_level]
+                            stat_keys = ["DATA_SOURCES", data_source1, match_level]
                         else:
                             data_source_pair = f"{data_source1}||{data_source2}"
-                            if data_source_pair not in self.stat_pack["CROSS_SOURCE"]:
-                                self.initialize_match_levels(["CROSS_SOURCE", data_source_pair])
-                            stat_keys = ["CROSS_SOURCE", data_source_pair, match_level]
+                            if data_source_pair not in self.stat_pack["CROSS_SOURCES"]:
+                                self.initialize_match_levels(["CROSS_SOURCES", data_source_pair])
+                            stat_keys = ["CROSS_SOURCES", data_source_pair, match_level]
                         self.update_stat_pack(stat_keys, {"RELATION_COUNT": 1})
                         stat_keys.extend(["PRINCIPLES", principle_matchkey])
                         self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [sample]})
-                            
+
+
 def check_stat_pack(stats_file_name, csv_file_name, quiet):
     abort = False
     stat_pack = json.load(open(stats_file_name))
     prior_status = "unknown"
-    last_entity_id = 0
+    entity_count = 0
     if stat_pack.get("PROCESS"):
         prior_status = stat_pack["PROCESS"]["STATUS"]
-        last_entity_id = stat_pack["PROCESS"].get("LAST_ENTITY_ID", 0)
         entity_count = stat_pack["TOTALS"]["ENTITY_COUNT"]
-    print(f'\n{prior_status} snapshot file exists with {entity_count} entities processed!')
+    print(f"\n{prior_status} snapshot file exists with {entity_count} entities processed!")
     if quiet:
         print("PRIOR FILES WILL BE OVERWRITTEN")
         stat_pack = {}
@@ -459,19 +502,21 @@ def check_stat_pack(stats_file_name, csv_file_name, quiet):
             ans = input("\nDo you want to pick up where it left off? (y/n) ")
             if not ans.upper().startswith("Y"):
                 stat_pack = {}
-        elif prior_status != "Final":
+        elif prior_status != "Complete":
             stat_pack = {}
         if stat_pack:
             ans = input("\nAre you sure you want to overwrite it? (y/n) ")
             if not ans.upper().startswith("Y"):
                 abort = True
+            stat_pack = {}
         print()
     if not stat_pack and os.path.exists(csv_file_name):
         os.remove(csv_file_name)
     return stat_pack, abort
 
-def get_entity_sql(sz_dbo, data_source_filter):
-    print("Determining entity range ...")
+
+def get_entity_sql(sz_dbo, dsrc_id_filter):
+    logging.info("Determining entity range ...")
     if not datasource_filter:
         max_sql = "select max(RES_ENT_ID) from RES_ENT"
         min_entity_id = 0
@@ -484,16 +529,15 @@ def get_entity_sql(sz_dbo, data_source_filter):
             " max(b.RES_ENT_ID) "
             "from OBS_ENT a "
             "join RES_ENT_OKEY b on b.OBS_ENT_ID = a.OBS_ENT_ID "
-            "where a.DSRC_ID = " + data_source_filter
+            "where a.DSRC_ID = " + dsrc_id_filter
         )
-        min_entity_id, max_entity_id = sz_dbo.fetchRow(g2Dbo.sqlExec(sql))
+        min_entity_id, max_entity_id = sz_dbo.fetchRow(sz_dbo.sqlExec(max_sql))
         entity_sql = (
             "select distinct"
             " a.RES_ENT_ID "
             "from RES_ENT_OKEY a "
             "join OBS_ENT b on b.OBS_ENT_ID = a.OBS_ENT_ID "
-            "where a.RES_ENT_ID between ? and ? and b.DSRC_ID = "
-            + str(datasourceFilterID)
+            "where a.RES_ENT_ID between ? and ? and b.DSRC_ID = " + str(data_source_filter)
         )
     return entity_sql, min_entity_id, max_entity_id
 
@@ -506,9 +550,11 @@ def debug_print(_value, _desc="some variable"):
     else:
         print(_value)
     input("press any key ...")
-        
+
+
 def print_exception_info():
     print(traceback.format_exc())
+
 
 def signal_handler(signal, frame):
     global shut_down
@@ -531,35 +577,43 @@ if __name__ == "__main__":
     chunk_size = int(env_chunk) if env_chunk and env_chunk.isdigit() else 1000000
     env_thread = os.getenv("SENZING_THREAD_COUNT", None)
     thread_count = int(env_thread) if env_thread and env_thread.isdigit() else 0
-    argParser = argparse.ArgumentParser()
-    argParser.add_argument("-o", "--output_file_root", default=output_file_root, help='root name for files to be created')
-    argParser.add_argument("-c", "--config_file_name", help="Path and name of optional G2Module.ini file to use.")
-    argParser.add_argument("-s", "--sample_size", type=int, default=sample_size, help="the number of samples to log")
-    argParser.add_argument("-d", "--dsrc_filter", help="optional data source code to analayze")
-    argParser.add_argument("-f","--relationship_filter", type=int, default=relationship_filter, 
-        help="filter options 1=No Relationships, 2=Include possible matches, 3=Include possibly related and disclosed")
-    argParser.add_argument("-a", "--for_audit", action="store_true", default=False, help="export csv file for audit")
-    argParser.add_argument("-k", "--chunk_size", type=int, default=chunk_size, help="records per batch")
-    argParser.add_argument("-t", "--thread_count", type=int, default=thread_count, help="number of threads to start")
-    argParser.add_argument("-u", "--use_api", action="store_true", default=False, help="use export api instead of sql to perform snapshot")
-    argParser.add_argument("-q", "--quiet", action="store_true", default=False, help="doesn't ask to confirm before overwrite files")
-    args = argParser.parse_args()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-o", "--output_file_root", default=output_file_root, help="root name for files to be created")
+    parser.add_argument("-c", "--config_file_name", help="Path and name of optional G2Module.ini file to use.")
+    parser.add_argument("-s", "--sample_size", type=int, default=sample_size, help="the number of samples to log")
+    parser.add_argument("-d", "--dsrc_filter", help="optional data source code to analayze")
+    help = "filter options 1=No Relationships, 2=Include possible matches, 3=Include possibly related and disclosed"
+    parser.add_argument("-f", "--relationship_filter", type=int, default=relationship_filter, help=help)
+    parser.add_argument("-a", "--for_audit", action="store_true", default=False, help="export csv file for audit")
+    parser.add_argument("-k", "--chunk_size", type=int, default=chunk_size, help="records per batch")
+    parser.add_argument("-t", "--thread_count", type=int, default=thread_count, help="number of threads to start")
+    #    parser.add_argument(
+    #        "-u", "--use_api", action="store_true", default=False, help="use export api instead of sql to perform snapshot"
+    #    )
+    parser.add_argument(
+        "-q", "--quiet", action="store_true", default=False, help="doesn't ask to confirm before overwrite files"
+    )
+    parser.add_argument("-D", "--debug", dest="debug", action="store_true", default=False, help="run in debug mode")
+    args = parser.parse_args()
     print()
-    
+    loggingLevel = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", datefmt="%m/%d %I:%M", level=loggingLevel)
+
     if not args.output_file_root:
         print("Please use -o to select an output path and root file name such as /project/audit/snap1")
         sys.exit(1)
 
     try:
-        sz_api_config = get_engine_config(args.config_file_name)
-        sz_db_uri = json.loads(sz_api_config)["SQL"]["CONNECTION"]
-        sz_engine = SzEngine("sz_snapshot", sz_api_config, False)
-        sz_product = SzProduct()
-        api_version = json.loads(sz_product.get_version())
-        api_version_major = int(api_version["VERSION"][0:1])       
-        sz_config_mgr = SzConfigManager("sz_explorer_c", sz_api_config, False)
-        sz_config_data = json.loads(sz_config_mgr.get_config(sz_config_mgr.get_default_config_id()))
-    except SzError as err:
+        engine_config = get_engine_config(args.config_file_name)
+        sz_factory = SzAbstractFactory(MODULE_NAME, engine_config)
+        sz_configmgr = sz_factory.create_configmanager()
+        # sz_engine = sz_factory.create_engine()
+        sz_product = sz_factory.create_product()
+        sdk_version = json.loads(sz_product.get_version())
+        sz_config_data = json.loads(sz_configmgr.get_config(sz_configmgr.get_default_config_id()))
+        sz_db_uri = json.loads(engine_config)["SQL"]["CONNECTION"]
+    except SzError:
         print_exception_info
         sys.exit(1)
 
@@ -568,14 +622,14 @@ if __name__ == "__main__":
     except Exception as err:
         print(f"\n{err}")
         sz_dbo = None
-        print('Gonna have to make it use the api one day')
+        print("Gonna have to make it use the api one day")
         sys.exit(0)
 
     dsrc_id_filter = None
     if args.dsrc_filter:
         dsrc_code_lookup = {item["DSRC_CODE"]: item for item in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
         if not dsrc_code_lookup.get(args.dsrc_filter):
-            print(f"Data source code {args.dsrc_filter} is not valid\n")
+            logging.error("Data source code %s is not valid", args.dsrc_filter)
             sys.exit(1)
         else:
             dsrc_id_filter = dsrc_code_lookup[args.dsrc_filter]["DSRC_ID"]
@@ -593,77 +647,86 @@ if __name__ == "__main__":
 
     entity_sql, min_entity_id, max_entity_id = get_entity_sql(sz_dbo, dsrc_id_filter)
     if not max_entity_id:
-        print("No entities found for data source filter!\n")
+        logging.error("No entities found for data source filter!")
         sys.exit(1)
     entity_sql = sz_dbo.sqlPrep(entity_sql)
 
     kwargs = {
         "sz_db_uri": sz_db_uri,
-        "api_version": api_version,
+        "sdk_version": sdk_version,
         "sz_config_data": sz_config_data,
         "dsrc_id_filter": dsrc_id_filter,
         "sample_size": args.sample_size,
         "relationship_filter": args.relationship_filter,
-        "export_csv": args.for_audit,
+        "for_audit": args.for_audit,
         "chunk_size": args.chunk_size,
-        "thread_count":  args.thread_count,
+        "thread_count": args.thread_count,
         "output_file_root": args.output_file_root,
         "stats_file_name": stats_file_name,
         "csv_file_name": csv_file_name,
-        "stat_pack": stat_pack
+        "stat_pack": stat_pack,
     }
 
     proc_start_time = time.time()
     queue_processor = IOQueueProcessor(reader, writer, **kwargs)
-    print(f"starting {queue_processor.process_count} processes")
+    logging.info("starting %s processes" % queue_processor.process_count)
     queue_processor.start_up()
 
     entity_count = 0
-    beg_entity_id = min_entity_id
+    beg_entity_id = stat_pack.get("PROCESS", {}).get("LAST_ENTITY_ID", min_entity_id)
     end_entity_id = beg_entity_id + args.chunk_size
     while True:
-        print(f"Getting entities from {beg_entity_id} to {end_entity_id}...")
+        logging.info("Getting entities from %s to %s ..." % (beg_entity_id, end_entity_id))
         batch = sz_dbo.fetchAllRows(sz_dbo.sqlExec(entity_sql, (beg_entity_id, end_entity_id)))
         if batch:
             last_row_entity_id = batch[-1][0]
             for row in batch:
-                queue_processor.process(row[0])
+                queue_processor.process(("RESUME", row[0]))
                 entity_count += 1
-                if (entity_count % PROGRESS_INTERVAL == 0 or row[0] == last_row_entity_id):
-                    now = datetime.now().strftime("%I:%M%p").lower()
+                if entity_count % PROGRESS_INTERVAL == 0 or row[0] == last_row_entity_id:
                     elapsed_seconds = round((time.time() - proc_start_time))
-                    elapsed_minutes = round(elapsed_seconds/60,1)
-                    eps = entity_count/float(elapsed_seconds) if elapsed_seconds else 0
-                    print(f"{entity_count} entities processed at {now} after {elapsed_minutes} minutes at {eps} per second")
+                    elapsed_minutes = round(elapsed_seconds / 60, 1)
+                    eps = entity_count / float(elapsed_seconds) if elapsed_seconds else 0
+                    parms = (entity_count, elapsed_minutes, eps)
+                    logging.info("%s entities processed after %s minutes at %s per second" % parms)
                 if shut_down:
                     break
 
             queue_processor.wait_for_queues()
-            queue_processor.signal_writer( {"STATUS": "Interim", "LAST_ENTITY_ID": end_entity_id})
-            queue_processor.wait_for_queues()
+            queue_processor.signal_writer(("DUMP_STATS", {"STATUS": "Interim", "LAST_ENTITY_ID": end_entity_id}))
 
         if shut_down:
             break
         if end_entity_id >= max_entity_id:
             break
-        
+
         beg_entity_id += args.chunk_size
         end_entity_id += args.chunk_size
 
-    final_update = {
-        "STATUS": "Complete",
-        "LAST_ENTITY_ID": end_entity_id,
-        "END_TIME": datetime.now().strftime("%m/%d/%Y %H:%M:%S"),
-    }
-    queue_processor.signal_writer(final_update)
-    queue_processor.finish_up()
+    if shut_down == 0:
+        queue_processor.wait_for_queues()
+        logging.info("Reviewing entities ...")
+        stat_pack = json.load(open(stats_file_name))
+        for entity_size in stat_pack["ENTITY_SIZES"]:
+            for i in range(len(stat_pack["ENTITY_SIZES"][entity_size]["SAMPLE"])):
+                entity_id = stat_pack["ENTITY_SIZES"][entity_size]["SAMPLE"][i]
+                queue_processor.process(("REVIEW", entity_id, int(entity_size)))
+        queue_processor.wait_for_queues()
+
+        final_update = {
+            "STATUS": "Complete",
+            "LAST_ENTITY_ID": end_entity_id,
+            "END_TIME": datetime.now().strftime("%m/%d/%Y %H:%M:%S"),
+        }
+        queue_processor.signal_writer(("DUMP_STATS", final_update))
+        queue_processor.finish_up()
 
     elapsed_mins = round((time.time() - proc_start_time) / 60, 1)
-    run_status = ('completed in' if not shut_down else 'aborted after') + f' {elapsed_mins:,} minutes'
+    run_status = ("completed in" if not shut_down else "aborted after") + f" {elapsed_mins:,} minutes"
     if shut_down == 0:
-        print(f"Process completed successfully in {elapsed_mins} minutes\n")
+        logging.info(f"Process completed successfully in {elapsed_mins} minutes")
     else:
-        print(f"Process aborted after {elapsed_mins} minutes!\n")
+        logging.info(f"Process aborted after {elapsed_mins} minutes!")
+    print()
 
     sys.exit(shut_down)
-
