@@ -1195,13 +1195,10 @@ def main() -> None:
     startup_info(sz_engine, sz_diag, sz_configmgr, sz_product, cli_args["skip_ds_perf"])
     prime_sz_engine(sz_engine)
 
-    print(f"\n{cli_args['ingest_files'] = }")
-
     with open(with_info_file, "w", encoding="utf-8") as with_info_out:
         # Process file(s) if specified
         if cli_args["ingest_files"]:
             for idx, ingest_file in enumerate(cli_args["ingest_files"], start=1):
-                print(f"\n{ingest_file = }")
                 ingest_file = pathlib.Path(ingest_file)
                 ingest_file_shuff = None
                 ingest_file_size = ingest_file.stat().st_size

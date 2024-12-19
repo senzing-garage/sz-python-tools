@@ -1,32 +1,7 @@
 {
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "cSpell.words": [
-        "configmgr",
-        "CONFIGPATH",
-        "DISQUAL",
-        "dsrcs",
-        "dunder",
-        "EFCALL",
-        "engineflags",
-        "libg",
-        "literalinclude",
-        "longlong",
-        "psutil",
-        "pytest",
-        "reclass",
-        "reinit",
-        "RESOURCEPATH",
-        "retruned",
-        "RODO",
-        "senzprojs",
-        "SUPPORTPATH",
-        "szerror",
-        "testdata",
-        "ulonglong"
-    ],
     "terminal.integrated.env.linux": {
-
         // "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python/src:/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing_abstract",
         // "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python-core/src:/home/ant/Work/Senzing/git/sz-sdk-python-core/src/senzing:./sz_tools",
         "PYTHONPATH": "./sz_tools",
@@ -39,21 +14,20 @@
     "python.autoComplete.extraPaths": [
         "/home/ant/Work/Senzing/git/sz-sdk-python-core/src",
         "/home/ant/Work/Senzing/git/sz-sdk-python-core/src/senzing",
-        "./sz_tools"
-        // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src",
-        // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing_abstract"
-
+        "./sz_tools",
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src",
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
     ],
     "python.analysis.extraPaths": [
         "/home/ant/Work/Senzing/git/sz-sdk-python-core/src",
         "/home/ant/Work/Senzing/git/sz-sdk-python-core/src/senzing",
-        "./sz_tools"
-        // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src",
-        // "/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing_abstract"
+        "./sz_tools",
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src",
+        "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
     ],
     // "pylint.args": [
-        // " \"--init-hook='import sys; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src\\\")'; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing\\\")'\""
-        // " \"--init-hook='import sys; sys.path.append(\\\"${workspaceFolder}/src\\\")'\""    ],
+    // " \"--init-hook='import sys; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src\\\")'; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing\\\")'\""
+    // " \"--init-hook='import sys; sys.path.append(\\\"${workspaceFolder}/src\\\")'\""    ],
     // "python.testing.pytestArgs": [
     //     "tests"
     // ],

@@ -877,13 +877,12 @@ class SzCmdShell(cmd.Cmd):
             print_message(err, "error")
             return
 
-        # TODO - G2Snapshot?
         if "SOURCE" in json_data and json_data["SOURCE"] in ("sz_snapshot"):  # 'pocSnapshot',
             self.current_settings["snapshotFile"] = statpack_file_name
             self.snapshot_file = statpack_file_name
             self.snapshot_data = json_data
             print_message(f"successfully loaded {statpack_file_name}", "info")
-        elif "SOURCE" in json_data and json_data["SOURCE"] in ("g2_audit"):  # 'pocAudit',
+        elif "SOURCE" in json_data and json_data["SOURCE"] in ("sz_audit"):  # 'pocAudit',
             self.current_settings["auditFile"] = statpack_file_name
             self.audit_file = statpack_file_name
             self.audit_data = json_data

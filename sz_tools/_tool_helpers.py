@@ -58,6 +58,7 @@ if TYPE_CHECKING:
 # TODO Change to sz when changed in builds
 CONFIG_FILE = "G2Module.ini"
 
+
 # -------------------------------------------------------------------------
 # Helper classes
 # -------------------------------------------------------------------------
@@ -525,13 +526,13 @@ def colorize_output(
     return f"{Colors.apply(output, output_type)}"
 
 
-def colorize_cmd_prompt(prompt: str, color_or_type: str, color_disabled: bool = False) -> str:
+def colorize_cmd_prompt(prompt: str, color_or_type: str, color_prompt: bool = True) -> str:
     """
     For the Cmd module prompt to be coloured need to add \001 and \002 otherwise readline prints spurious
     characters when using functions such as reverse search (ctrl-r) and navigating through history doesn't
     display correctly
     """
-    if color_disabled:
+    if not color_prompt:
         return f"({prompt}) "
 
     prompt_step1 = f"\002{prompt}\001"
@@ -567,7 +568,6 @@ def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_colo
 
 def print_response(
     response: Union[int, str],
-    color_json: bool,
     format_json: bool,
     scroll_output: bool,
     color_output: bool,
@@ -590,29 +590,25 @@ def print_response(
             output = colorize_output(response, color, color_output)
             strip_colors = False
         else:
-            # TODO Is this check still needed?
             if type(response) not in [dict, list]:
                 response = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
 
-            # Format JSON if global config or single command formatter specifies
-            # if (format_json and not cmd_format) or (cmd_format and format_json_cmd):
+            # Format JSON
             if format_json:
                 json_ = (
                     orjson.dumps(response, option=orjson.OPT_INDENT_2)
                     if ORJSON_AVAIL
-                    else json.dumps(response, indent=2)
+                    else json.dumps(response, indent=2, ensure_ascii=False)
                 )
             else:
                 json_: Union[bytes, str] = (  # type: ignore
-                    orjson.dumps(response) if ORJSON_AVAIL else json.dumps(response)
+                    orjson.dumps(response) if ORJSON_AVAIL else json.dumps(response, ensure_ascii=False)
                 )
 
             json_str: str = json_.decode() if ORJSON_AVAIL else json_  # type: ignore
-
-            # Color JSON if global config or single command formatter specifies
-            # if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
             output = json_str
-            if color_json:
+
+            if color_output:
                 output = colorize_json(json_str)
 
     if scroll_output:
@@ -782,7 +778,7 @@ def response_reformat_json(last_response: str, color_json: bool) -> str:
         return ""
 
     json_format = False if "\n" in last_response else True
-    return print_response(last_response, color_json, json_format, False, False)
+    return print_response(last_response, json_format, False, color_json)
 
 
 # -------------------------------------------------------------------------
