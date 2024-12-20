@@ -21,7 +21,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from signal import SIGALRM, alarm, signal
-from typing import TYPE_CHECKING, Any, Dict, List, TextIO, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Union
 
 from senzing_core import SzEngineFlags
 
