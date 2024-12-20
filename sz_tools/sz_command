@@ -14,7 +14,7 @@ import shlex
 import sys
 import textwrap
 import time
-from typing import Any, Callable, List, TypeVar, Union, cast
+from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
 from _tool_helpers import (
     Colors,
@@ -27,6 +27,7 @@ from _tool_helpers import (
     get_engine_config,
     get_engine_flag_names,
     get_engine_flags_as_int,
+    history_disabled,
     history_setup,
     print_debug,
     print_error,
@@ -55,6 +56,7 @@ DEFAULT_CONFIG = {
     "page_output": False,
     "debug_sdk_call": False,
     "debug_sz_engine": False,
+    "history_file": True,
 }
 
 
@@ -86,11 +88,11 @@ CONFIG_SETTINGS = {
     },
     "color_output": {
         "values": ["off", "on"],
-        "description": "Color non JSON output",
+        "description": "Color output",
     },
     "timer": {
         "values": ["off", "on"],
-        "description": "Show approximate timings for command execution",
+        "description": "Display approximate timings for command execution",
     },
     "theme": {
         "values": [c.lower() for c in Colors.AVAILABLE_THEMES],
@@ -102,11 +104,15 @@ CONFIG_SETTINGS = {
     },
     "debug_sdk_call": {
         "values": ["off", "on"],
-        "description": "Show the call sent to the Python Senzing SDK",
+        "description": "Display the call sent to the Senzing SDK",
     },
     "debug_sz_engine": {
         "values": ["off", "on"],
-        "description": "Turn on debug tracing in the Senzing engine",
+        "description": "Display debug tracing from the Senzing engine",
+    },
+    "history_file": {
+        "values": ["off", "on"],
+        "description": "Use a history file",
     },
 }
 
@@ -133,6 +139,9 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
     def wrapper(self, *args, **kwargs) -> Any:
         # Remove do_ from wrapped method
         sdk_method_name = do_method.__name__[3:]
+
+        # Set the pre command config to handle jsonl, nocolor. etc
+        self.set_pre_cmd_settings(args[0])
 
         # Remove any per cmd line settings such as jsonl, nocolor, etc
         cmd_args = self.remove_per_cmd_settings(args[0])
@@ -267,36 +276,59 @@ class SzCmdShell(cmd.Cmd):
     def __init__(
         self,
         engine_settings: str,
-        cli_args: argparse.Namespace,
+        # cli_args: argparse.Namespace,
+        debug_reinit: Dict[str, bool],
     ):
         super().__init__()
 
-        self.cli_args = cli_args
         self.engine_settings = engine_settings
+        self.debug_reinit = debug_reinit
 
-        # Acquire Senzing engines
+        # Configuration file for this tool
+        self.config = DEFAULT_CONFIG.copy()
+        self.per_cmd_config = DEFAULT_CONFIG.copy()
+        self.config_file = pathlib.Path(f"~/.{MODULE_NAME}{'.json'}").expanduser()
+        self.config_file_exists = pathlib.Path(self.config_file).exists()
+
+        # Display the can't read/write config message once, not at all in container
+        self.config_error = False
+        docker_launched = os.getenv("SENZING_DOCKER_LAUNCHED")
+        self.docker_launched = True if docker_launched in ("y", "yes", "t", "true", "on", "1") else False
+
+        # Check if there is a config file and read it, if not create one
+        if not self.docker_launched and self.config_file_exists:
+            self.read_config()
+        else:
+            self.write_config()
+
+        # Acquire Senzing engines and information
+        # NOTE Don't change the ordering of the create_*() calls to the factory, for verbose_logging
+        verbose_logging = 1 if any([self.debug_reinit["verbose_logging"], self.config["debug_sz_engine"]]) else 0
+
         try:
             self.sz_factory = SzAbstractFactory(
-                MODULE_NAME, self.engine_settings, verbose_logging=self.cli_args.debug_trace
+                MODULE_NAME,
+                self.engine_settings,
+                verbose_logging=verbose_logging,
             )
 
+            self.sz_engine = self.sz_factory.create_engine()
+            self.sz_diagnostic = self.sz_factory.create_diagnostic()
             self.sz_config = self.sz_factory.create_config()
             self.sz_configmgr = self.sz_factory.create_configmanager()
-            self.sz_diagnostic = self.sz_factory.create_diagnostic()
-            self.sz_engine = self.sz_factory.create_engine()
             self.sz_product = self.sz_factory.create_product()
+
+            # Collect attributes from configuration
+            self.attrs = self.get_config_attr_codes()
+
+            # Get Senzing engine flag names for use in auto completion
+            self.engine_flags_list = get_engine_flag_names()
         except SzError as err:
             print_error(err)
             sys.exit(1)
 
-        # Get Senzing engine flag names for use in auto completion
-        self.engine_flags_list = get_engine_flag_names()
-
         # If default config ID changes reinitialize
         self.reinitialize = False
-
-        # Collect attributes from configuration
-        self.attrs = self.get_config_attr_codes()
 
         # Could be deprecated, undocumented, not supported, experimental or not relevant
         self.__hidden_cmds = (
@@ -310,28 +342,9 @@ class SzCmdShell(cmd.Cmd):
             "do_shell",
         )
 
-        # Themes - set early, used for setting cmd prompt, use the default colors set by the terminal
+        # Used to change the theme and for setting cmd prompt, use the default colors set by the terminal
         self.themes = Colors.AVAILABLE_THEMES
         Colors.set_theme("TERMINAL")
-
-        # Display the can't read/write config message once, not at all in container
-        self.config_error = False
-        docker_launched = os.getenv("SENZING_DOCKER_LAUNCHED")
-        self.docker_launched = True if docker_launched in ("y", "yes", "t", "true", "on", "1") else False
-
-        # Configuration file for this tool, read early to use settings in init
-        self.config = DEFAULT_CONFIG.copy()
-        self.per_cmd_config = DEFAULT_CONFIG.copy()
-        config_file_str = f"~/.{MODULE_NAME}{'.json'}"
-        self.config_file = pathlib.Path(config_file_str).expanduser()
-        self.config_file_exists = pathlib.Path(self.config_file).exists()
-
-        # Check if there is a config file and read it, if not create one
-        if not self.docker_launched:
-            if self.config_file_exists:
-                self.read_config()
-        else:
-            self.write_config()
 
         # Cmd module settings
         self.intro = ""
@@ -339,14 +352,12 @@ class SzCmdShell(cmd.Cmd):
         self.prompt_color = "info"
         self.prompt = colorize_cmd_prompt(self.prompt_str, self.prompt_color, self.config["color_output"])  # type: ignore[arg-type]
 
-        # Readline and history
-        self.history_avail = False
-        self.history_disable = self.cli_args.hist_disable
-        self.history_msg = ""
-
         # Prior response and command for post command functions
         self.last_response = ""
         self.last_command = ""
+
+        # History file
+        self.history_file = pathlib.Path()
 
         # -------------------------------------------------------------------------
         # do_* method parsers
@@ -625,6 +636,11 @@ class SzCmdShell(cmd.Cmd):
         return list(dir(self.__class__))
 
     def postcmd(self, stop: bool, line: str) -> bool:
+        # If do_set() turned on engine verbose logging, exit and reinitialize everything
+        if self.debug_reinit["reinitialize"]:
+            del self.sz_factory
+            return True
+
         # Update last_command
         if line and not line.startswith("!") and line.split()[0] not in CMDS_NOT_TO_SET_LAST_COMMAND:
             self.last_command = self.remove_per_cmd_settings(line)
@@ -646,30 +662,15 @@ class SzCmdShell(cmd.Cmd):
 
         return cmd.Cmd.postcmd(self, stop, line)
 
-    def precmd(self, line: str) -> str:
-
-        # Before running each command check if there are per cmd settings such as json, jsonl, timer, etc
-        # If there are, modify the per_cmd_config dictionary to those values just for the run of the command
-        cmd_line_settings = self.get_per_cmd_settings(line)
-        self.per_cmd_config = self.config.copy()
-        if cmd_line_settings:
-            for cmd_setting in cmd_line_settings:
-                config_key = SETTINGS_TO_CONFIG_MAP[cmd_setting][0]
-                config_setting = SETTINGS_TO_CONFIG_MAP[cmd_setting][1]
-                # Per command settings are always bools
-                if isinstance(config_setting, bool):
-                    self.per_cmd_config[config_key] = config_setting  # type: ignore
-
-        return line
-
     def preloop(self) -> None:
-        if not self.history_disable:
-            history_check = history_setup()
-            # Non-empty string means error and msg was returned
-            if history_check:
-                print_warning(history_check)
+        # Setup history file use if settings are enabled
+        if self.config["history_file"]:
+            self.enable_history()
 
-        print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help")
+        if self.debug_reinit["prior_instance_reinitialized"]:
+            print_response("Senzing engines were reinitialized due to a configuration change", color="success")
+        else:
+            print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help")
 
     # -------------------------------------------------------------------------
     # Non-interactive input methods
@@ -712,7 +713,6 @@ class SzCmdShell(cmd.Cmd):
             with open(file_name, encoding="utf-8") as cmds_file:
                 for each_cmd in cmds_file:
                     each_cmd = each_cmd.strip()
-
                     # Skip blank lines and comment prefixes
                     if not each_cmd or each_cmd[0:1] in ("#", "-", "/"):
                         continue
@@ -1873,7 +1873,7 @@ class SzCmdShell(cmd.Cmd):
 
     def do_hidden(self, line: str) -> None:  # pylint: disable=unused-argument
         print()
-        print("\n".join(map(str, self.__hidden_cmds)))
+        print("\n\n".join(map(str, self.__hidden_cmds)))
         print()
 
     def do_history(self, line: str) -> None:  # pylint: disable=unused-argument
@@ -2001,22 +2001,50 @@ class SzCmdShell(cmd.Cmd):
                 self.help_set()
                 return
 
+        # Update config dictionary and write new settings to config file
         self.config[setting] = value
         self.write_config()
 
+        # Update theme and command prompt if theme is changed
         if setting == "theme" or setting == "color_output":
             self.prompt = colorize_cmd_prompt(self.prompt_str, self.prompt_color, self.config["color_output"])  # type: ignore[arg-type]
             if setting == "theme":
                 Colors.set_theme(value)
 
+        # Reinitialize the Cmd module object and Senzing objects if engine logging is requested, checked in postcmd
         if setting == "debug_sz_engine":
-            self.reinitialize = True
-            # TODO - Ant -
-            self.sz_factory._destroy()
+            self.debug_reinit["reinitialize"] = True
+            self.debug_reinit["debug_trace"] = True if value else False
+
+        if isinstance(self.config[setting], bool):
+            print_response(f"{setting} is now {'enabled' if value or value == 'on' else 'disabled'}", color="success")
+        else:
+            print_response(f"{setting} set to {value}", color="success")
+
+        # Enable or disable use of history file
+        if setting == "history_file":
+            if not value or value == "off":
+                print_warning("History file has been erased and won't be used unless re-enabled with the set command")
+                history_disabled(self.history_file)
+            if value or value == "on":
+                self.enable_history()
 
     # -----------------------------------------------------------------------------
     # Helper methods
     # -----------------------------------------------------------------------------
+
+    def set_pre_cmd_settings(self, input_line: str) -> None:
+        """Before running each command check if there are per cmd settings such as json, jsonl, timer, etc
+        If there are, modify the per_cmd_config dictionary to those values just for the run of the command"""
+        cmd_line_settings = self.get_per_cmd_settings(input_line)
+        self.per_cmd_config = self.config.copy()
+        if cmd_line_settings:
+            for cmd_setting in cmd_line_settings:
+                config_key = SETTINGS_TO_CONFIG_MAP[cmd_setting][0]
+                config_setting = SETTINGS_TO_CONFIG_MAP[cmd_setting][1]
+                # Per command settings are always bools
+                if isinstance(config_setting, bool):
+                    self.per_cmd_config[config_key] = config_setting  # type: ignore
 
     def get_per_cmd_settings(self, cmd_line: str) -> List[str]:
         """Get the settings from a command"""
@@ -2059,6 +2087,13 @@ class SzCmdShell(cmd.Cmd):
                     f"Error saving configuration to {self.config_file}: {err}",
                 )
                 self.config_error = not self.config_error
+
+    def enable_history(self):
+        """Attempt to create or use a history file for an interactive session"""
+        error_str, self.history_file = history_setup(MODULE_NAME)
+        # Non-empty string means error and msg was returned
+        if error_str:
+            print_warning(error_str)
 
     # -------------------------------------------------------------------------
     # Auto completers
@@ -2251,22 +2286,6 @@ def parse_cli_args() -> argparse.Namespace:
         help="path and file name of file with commands to run",
         nargs="?",
     )
-    # TODO - Ant - Change to say engine debug or add this to engine_settings when debug turned on in sz_command and re_init to start getting output?
-    arg_parser.add_argument(
-        "-t",
-        "--debug_trace",
-        action="store_true",
-        default=False,
-        help="output debug information",
-    )
-    # TODO - Ant - Move to settings file
-    arg_parser.add_argument(
-        "-H",
-        "--hist_disable",
-        action="store_true",
-        default=False,
-        help="disable use of history file",
-    )
 
     return arg_parser.parse_args()
 
@@ -2279,22 +2298,35 @@ def main() -> None:
     # Check an engine configuration can be located
     engine_config = get_engine_config(cli_args.ini_file)
 
-    cmd_obj = SzCmdShell(engine_config, cli_args)
+    # Dictionary passed to SzCmdShell for determining if a reinitialization is expected or exit
+    debug_reinitialize = {"verbose_logging": False, "reinitialize": False, "prior_instance_reinitialized": False}
 
-    # Execute commands and catch ctrl-c
+    # Execute SzCmdShell and catch ctrl-c
     try:
         # Execute command(s) non-interactively from the command line
         if cli_args.command:
+            cmd_obj = SzCmdShell(engine_config, debug_reinitialize)
             cmd_obj.commands_from_cli(cli_args.command)
             return
 
         # Execute a file of commands
         if cli_args.file_to_process:
+            cmd_obj = SzCmdShell(engine_config, debug_reinitialize)
             cmd_obj.commands_from_file(cli_args.file_to_process)
             return
 
         # Interactive session
-        cmd_obj.cmdloop()
+        while 1:
+            cmd_obj = SzCmdShell(engine_config, debug_reinitialize)
+            cmd_obj.cmdloop()
+            # Reinitialize or exit? Set to true when engine verbose logging is turned on
+            if not debug_reinitialize["reinitialize"]:
+                break
+
+            debug_reinitialize["reinitialize"] = False
+            debug_reinitialize["prior_instance_reinitialized"] = True
+
+            del cmd_obj
     except KeyboardInterrupt:
         return
 

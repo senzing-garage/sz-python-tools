@@ -580,47 +580,6 @@ class SzCfgShell(cmd.Cmd):
                 self.histFileError = None
                 self.histAvail = True
 
-    def do_histDedupe(self, arg):
-        """
-        Deduplicates the command history
-
-        Syntax:
-            histDedupe
-        """
-        if self.histAvail:
-            if input("\nAre you sure you want to de-duplicate the session history? (y/n) ").upper().startswith("Y"):
-
-                with open(self.histFileName) as hf:
-                    linesIn = (line.rstrip() for line in hf)
-                    uniqLines = OrderedDict.fromkeys(line for line in linesIn if line)
-
-                    readline.clear_history()
-                    for ul in uniqLines:
-                        readline.add_history(ul)
-
-                colorize_msg("Session history and history file both deduplicated", "success")
-            else:
-                print()
-        else:
-            colorize_msg("History is not available in this session", "warning")
-
-    def do_histClear(self, arg):
-        """
-        Clears the command history
-
-        Syntax:
-            histClear
-        """
-        if self.histAvail:
-            if input("\nAre you sure you want to clear the session history? (y/n) ").upper().startswith("Y"):
-                readline.clear_history()
-                readline.write_history_file(self.histFileName)
-                colorize_msg("Session history and history file both cleared", "success")
-            else:
-                print()
-        else:
-            colorize_msg("History is not available in this session", "warning")
-
     def do_history(self, arg):
         """
         Displays the command history
@@ -5689,8 +5648,6 @@ class SzCfgShell(cmd.Cmd):
             print(f"\nfilter: {filter_str}\n")
 
         if self.config_data["G2_CONFIG"].get(section_name):
-            # TODO - Ant -
-            print(f"\n{self.config_data['G2_CONFIG'][section_name] = }", flush=True)
             if not filter_str:
                 self.print_json_lines(self.config_data["G2_CONFIG"][section_name])
             else:
@@ -5991,9 +5948,6 @@ class SzCfgShell(cmd.Cmd):
         else:
             json_doc = "["
             for line in json_lines:
-                # TODO - Ant -
-                print(f"\n{line = }", flush=True)
-                print(f"\n{type(line) = }", flush=True)
                 json_doc += json.dumps(line) + ", "
             json_doc = json_doc[0:-2] + "]"
             render_string = colorize_json(json.dumps(json.loads(json_doc), indent=4))
