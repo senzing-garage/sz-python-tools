@@ -11,28 +11,10 @@ import textwrap
 import time
 from datetime import datetime
 
-from _tool_helpers import get_engine_config, print_warning
+from _tool_helpers import get_engine_config, print_error, print_warning
 from senzing_core import SzAbstractFactory, SzEngineFlags, SzError
 
 MODULE_NAME = pathlib.Path(__file__).stem
-
-
-def print_error_msg(msg, error1, error2="", exit_=False):
-    """Display error msg and optionally exit"""
-
-    print(
-        textwrap.dedent(
-            f"""\
-
-                          ERROR: {msg}
-                                 {error1}
-                                 {error2}
-                          """
-        ),
-    )
-
-    if exit_:
-        sys.exit(1)
 
 
 def csv_fetch_next(handle, csv_header=None):
@@ -41,7 +23,7 @@ def csv_fetch_next(handle, csv_header=None):
     try:
         export_record = sz_engine.fetch_next(handle)
     except SzError as err:
-        print_error_msg("Could not fetch next export record", err, exit_=True)
+        print_error(err, exit_=True)
 
     # If no csv_header is sent we fetched the header row initially
     if not csv_header:
@@ -64,7 +46,7 @@ def json_fetch_next(handle):
     try:
         export_record = sz_engine.fetch_next(handle)
     except SzError as err:
-        print_error_msg("Could not fetch next export record", err, exit_=True)
+        print_error(err, exit_=True)
 
     return export_record
 
@@ -114,7 +96,7 @@ def csv_export():
         )
         writer.writeheader()
     except csv.Error as err:
-        print_error_msg("Could not create CSV writer for output or write CSF header", err, exit_=True)
+        print_error(f"Could not create CSV writer for output or write CSF header: {err}", exit_=True)
 
     start_time = time.time()
 
@@ -129,11 +111,7 @@ def csv_export():
 
         # Bypass bad rows
         if "RESOLVED_ENTITY_ID" not in export_record_dict:
-            print_error_msg(
-                f"RESOLVED_ENTITY_ID is missing at line: {fetched_rec_count}):",
-                export_record.strip(),
-                export_record_dict,
-            )
+            print_error(f"RESOLVED_ENTITY_ID is missing at line: {fetched_rec_count}: - {export_record.strip()}")
             (export_record, export_record_dict) = csv_fetch_next(export_handle, csv_header)
             bad_count_outer += 1
             fetched_rec_count += 1
@@ -146,11 +124,7 @@ def csv_export():
 
             # Bypass bad rows
             if "RECORD_ID" not in export_record_dict:
-                print_error_msg(
-                    f"RECORD_ID is missing at line: {fetched_rec_count}):",
-                    export_record.strip(),
-                    export_record_dict,
-                )
+                print_error(f"RECORD_ID is missing at line: {fetched_rec_count} - {export_record.strip()}")
                 (export_record, export_record_dict) = csv_fetch_next(export_handle, csv_header)
                 bad_count_inner += 1
                 fetched_rec_count += 1
@@ -175,8 +149,8 @@ def csv_export():
         # Write the rows for the entity
         try:
             writer.writerows(row_list)
-        except Exception as ex:
-            print_error_msg("Writing to CSV file", ex)
+        except Exception as err:
+            print_error(f"Writing to CSV file: {err}")
             return total_row_count, (bad_count_outer + bad_count_inner), 1
         total_row_count += len(row_list)
 
@@ -200,8 +174,8 @@ def json_export():
 
         try:
             output_file.write(export_record)
-        except IOError as ex:
-            print_error_msg("Writing to JSON file", ex)
+        except IOError as err:
+            print_error(f"Writing to JSON file: {err}")
             return row_count, 0, 1
 
         start_time, batch_row_count = do_stats_output(row_count, start_time, batch_row_count)
@@ -430,31 +404,31 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if args.extendCSVRelates:
-        print(
+        print_warning(
             textwrap.dedent(
                 f"""
 
-                ********** Warning **********
+                ***************************************************** WARNING ****************************************************
 
-                Using the --extendCSVRelates (-xcr) argument with CSV output format will result in excessive and
-                repeated data for related entities. Very rarely, if ever, is this option required!
+                Using the --extendCSVRelates (-xcr) argument with CSV output format will result in excessive and repeated data for
+                related entities. Very rarely, if ever, is this option required!
 
                 Hit CTRL-C to exit or wait 10 seconds to continue.
 
                 Review the help with {MODULE_NAME} --help
 
-                *****************************
+                ******************************************************************************************************************
                 """
             ),
         )
 
         time.sleep(10)
 
-    print(
+    print_warning(
         textwrap.dedent(
             f"""
 
-                ********** Warning **********
+                ******************************************************** WARNING *******************************************************
 
                 {MODULE_NAME} isn't intended for exporting large numbers of entities and associated data source record information.
                 Beyond 100M+ data source records isn't suggested. For exporting overview entity and relationship data for
@@ -462,7 +436,7 @@ if __name__ == "__main__":
 
                 https://senzing.zendesk.com/hc/en-us/articles/360010716274--Advanced-Replicating-the-Senzing-results-to-a-Data-Warehouse
 
-                *****************************
+                ************************************************************************************************************************
                 """
         ),
     )
@@ -493,7 +467,7 @@ if __name__ == "__main__":
         sz_factory = SzAbstractFactory(MODULE_NAME, engine_config)
         sz_engine = sz_factory.create_engine()
     except SzError as err:
-        print_error_msg("Error: ", err, exit_=True)
+        print_error(err, exit_=True)
         sys.exit(1)
 
     # Convert strings to upper and if integers supplied convert from string to int
@@ -525,7 +499,7 @@ if __name__ == "__main__":
             else:
                 export_handle = sz_engine.export_json_entity_report(final_flags)
         except SzError as err:
-            print_error_msg("Could not initialize export", err, exit_=True)
+            print_error(f"Could not initialize export: {err}", exit_=True)
 
         export_start = time.time()
 

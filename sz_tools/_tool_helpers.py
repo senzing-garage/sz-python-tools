@@ -472,6 +472,7 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
 # -------------------------------------------------------------------------
 
 
+# TODO - This can be merged into colorize_output
 def colorize_str(string: str, colors_list: str = "", color_disabled: bool = False) -> str:
     """# TODO"""
 
@@ -497,19 +498,20 @@ def colorize_json(json_str: str, color_disabled: bool = False) -> str:
     return json_color
 
 
+# TODO - Move into Colors and add the missing values?
 def colorize_output(
     output: Union[Exception, int, str],
     color_or_type: str,
     output_color: bool = True,
 ) -> str:
     """# TODO"""
-    output = str(output) if isinstance(output, int) else output
-
     if not output:
         return ""
 
     if not output_color:
         return output
+
+    output = str(output) if isinstance(output, int) else output
 
     color_or_type = color_or_type.upper()
 
@@ -552,9 +554,13 @@ def print_debug(msg: str, end_str: str = "\n\n", output_color: bool = True) -> N
     print(f"\n{colorize_output('DEBUG:', 'debug', output_color)} {msg}", end=end_str)
 
 
-def print_error(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
+def print_error(
+    msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True, exit_: bool = False
+) -> None:
     """# TODO"""
     print(f"\n{colorize_output('ERROR:', 'error', output_color)} {msg}", end=end_str)
+    if exit_:
+        sys.exit(1)
 
 
 def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
@@ -564,7 +570,11 @@ def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: 
 
 def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('WARNING:', 'warning', output_color)} {msg}", end=end_str)
+    # Warnings may be multiline strings, if they are don't add WARNING: before the msg to color
+    if isinstance(msg, str) and "\n" in msg:
+        print(f"\n{colorize_output(msg, 'warning', output_color)}", end=end_str)
+    else:
+        print(f"\n{colorize_output('WARNING:', 'warning', output_color)} {msg}", end=end_str)
 
 
 def print_response(

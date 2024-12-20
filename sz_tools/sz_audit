@@ -34,7 +34,7 @@ def pause(question="PRESS ENTER TO CONTINUE..."):
 
 # ----------------------------------------
 def signal_handler(signal, frame):
-    print("USER INTERUPT! Shutting down ... (please wait)")
+    print("USER INTERRUPT! Shutting down ... (please wait)")
     global shut_down
     shut_down = True
     return

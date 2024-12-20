@@ -4,32 +4,44 @@ import argparse
 import csv
 import io
 import json
-import os
 import pathlib
 import signal
 import subprocess
 import sys
 import time
+from contextlib import suppress
 from typing import Any, Dict, List, Union
 
-from _tool_helpers import get_engine_config
+from _tool_helpers import get_engine_config, print_error
 from senzing_core import SzAbstractFactory, SzError
 
-try:
+PTABLE_AVAILABLE = False
+with suppress(ImportError):
     import prettytable
-except ImportError as err:
-    # TODO What is this input for?
-    input(err)
-    prettytable = None
+
+    PTABLE_AVAILABLE = True
 
 MODULE_NAME = pathlib.Path(__file__).stem
+
+
+class JsonlReader:
+    """#TODO"""
+
+    def __init__(self, file_handle):
+        self.file_handle = file_handle
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):  # Python 2: def next(self)
+        return json.loads(next(self.file_handle))
 
 
 def get_environment_config(settings: str) -> Dict[str, Any]:
     """# TODO"""
     try:
-        sz_abstract_factory = SzAbstractFactory(MODULE_NAME, settings)
-        sz_configmgr = sz_abstract_factory.create_configmanager()
+        sz_factory = SzAbstractFactory(MODULE_NAME, settings)
+        sz_configmgr = sz_factory.create_configmanager()
         config_id = sz_configmgr.get_default_config_id()
         config_str = sz_configmgr.get_config(config_id)
         config_json: Dict[str, Any] = json.loads(config_str)
@@ -47,7 +59,7 @@ def get_file_config(file: str) -> Dict[str, Any]:
             config_json: Dict[str, Any] = json.loads(config_file.read())
             return config_json
     except (OSError, json.JSONDecodeError) as err:
-        print(f"\nERROR: {err}")
+        print_error(err)
         sys.exit(1)
 
 
@@ -383,9 +395,6 @@ class SzJsonAnalyzer:
         for message in message_list:
             self.update_message_stats(message[0], message[1], input_row_num)
 
-        # print(json.dumps(self.feature_stats, indent=4))
-        # input('wait')
-
     def get_report(self) -> List[List[Union[int, str]]]:
         """#TODO"""
         table_headers = [
@@ -546,19 +555,6 @@ class SzJsonAnalyzer:
         return table_rows
 
 
-class JsonlReader:
-    """#TODO"""
-
-    def __init__(self, file_handle):
-        self.file_handle = file_handle
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):  # Python 2: def next(self)
-        return json.loads(next(self.file_handle))
-
-
 # ----------------------------------------
 def format_pretty_table(table_rows):
     """#TODO"""
@@ -641,7 +637,7 @@ def format_csv_table(table_rows):
     return output.getvalue()
 
 
-def print_report(report_string):
+def print_report(report_string: str):
     """#TODO"""
     less = subprocess.Popen(["less", "-FMXSR"], stdin=subprocess.PIPE)
     try:
@@ -650,18 +646,18 @@ def print_report(report_string):
         pass
     less.stdin.close()
     less.wait()
+
     print()
 
 
 def signal_handler(signal, frame):
-    print("USER INTERUPT! Shutting down ... (please wait)")
+    print("USER INTERRUPT! Shutting down ... (please wait)")
     global shut_down
     shut_down = True
     return
 
 
 if __name__ == "__main__":
-    # TODO - Ant - event instead?
     shut_down = False
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -677,39 +673,30 @@ if __name__ == "__main__":
         "--iniFile",
         help="optional path and file name of G2Module.ini to use",
     )
-    parser.add_argument(
-        "-j",
-        "--json_config",
-        help="optional name of a Senzing JSON configuration file",
-    )
+
     args = parser.parse_args()
 
     # Check an engine configuration can be located
-    if not args.json_config:
-        print("Reading Senzing configuration from Senzing instance database\n")
-        engine_settings = get_engine_config(args.iniFile)
-        config = get_environment_config(engine_settings)
-    else:
-        print(f"Reading Senzing configuration from file: {args.json_config}\n")
-        config = get_file_config(args.json_config)
+    engine_settings = get_engine_config(args.iniFile)
+    config = get_environment_config(engine_settings)
 
     analyzer = SzJsonAnalyzer(config)
 
     input_file_handle = open(args.input_file, "r", encoding="utf-8")
-    input_file_ext = os.path.splitext(args.input_file)[1].upper()
+    input_file_ext = pathlib.Path(args.input_file).suffix.upper()
 
     if input_file_ext == ".CSV":
-        sniffer = csv.Sniffer().sniff(input_file_handle.readline(), delimiters="|,\t")
+        SNIFFER = csv.Sniffer().sniff(input_file_handle.readline(), delimiters="|,\t")
         input_file_handle.seek(0)
-        delimiter = sniffer.delimiter
-        if sniffer.delimiter == "\t":
-            dialect = "excel-tab"
-        elif sniffer.delimiter == "|":
+        delimiter = SNIFFER.delimiter
+        if SNIFFER.delimiter == "\t":
+            DIALECT = "excel-tab"
+        elif SNIFFER.delimiter == "|":
             csv.register_dialect("pipe", delimiter="|", quotechar='"')
-            dialect = "pipe"
+            DIALECT = "pipe"
         else:
-            dialect = "excel"
-        reader = csv.DictReader(input_file_handle, dialect=dialect)
+            DIALECT = "excel"
+        reader = csv.DictReader(input_file_handle, dialect=DIALECT)
     else:
         reader = JsonlReader(input_file_handle)
 
@@ -729,13 +716,13 @@ if __name__ == "__main__":
 
     elapsed_mins = round((time.time() - proc_start_time) / 60, 1)
     run_status = ("completed in" if not shut_down else "aborted after") + " %s minutes" % elapsed_mins
-    print(f"{input_row_count:,} rows processed, {run_status}\n")
+    print(f"\n{input_row_count:,} rows processed, {run_status}")
     input_file_handle.close()
 
-    print("\ncreating report ...\n")
+    print("\nCreating report...\n")
     report_table = analyzer.get_report()
 
-    if prettytable:
+    if PTABLE_AVAILABLE:
         print_report(format_pretty_table(report_table))
 
     # --write statistics file
@@ -743,7 +730,7 @@ if __name__ == "__main__":
         with open(args.output_file, "w", encoding="utf-8") as outfile:
             outfile.write(format_csv_table(report_table))
         print(f"Report written to {args.output_file}\n")
-    elif not prettytable:
+    elif not PTABLE_AVAILABLE:
         print(report_table)
         print()
 
