@@ -1,7 +1,9 @@
 #! /usr/bin/env python3
 
 import argparse
+import concurrent.futures
 import csv
+import itertools
 import json
 import os
 import pathlib
@@ -11,6 +13,10 @@ import sys
 import textwrap
 import time
 from datetime import datetime
+
+# concurrency
+from multiprocessing import Process, Queue, Value
+from queue import Empty, Full
 
 from _sz_database import SzDatabase
 from _tool_helpers import get_engine_config, get_max_futures_workers
@@ -22,13 +28,6 @@ try:
     USE_ORJSON = True
 except ImportError:
     USE_ORJSON = False
-
-import concurrent.futures
-import itertools
-
-# concurrency
-from multiprocessing import Process, Queue, Value
-from queue import Empty, Full
 
 MODULE_NAME = pathlib.Path(__file__).stem
 

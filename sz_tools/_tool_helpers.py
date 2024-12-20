@@ -21,7 +21,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from signal import SIGALRM, alarm, signal
-from typing import TYPE_CHECKING, Any, Dict, List, TextIO, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Union
 
 from senzing_core import SzEngineFlags
 
@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 
 # TODO Change to sz when changed in builds
 CONFIG_FILE = "G2Module.ini"
+
 
 # -------------------------------------------------------------------------
 # Helper classes
@@ -300,7 +301,8 @@ def check_environment() -> None:
                     """\n\
             ERROR: SENZING_ROOT or SENZING_ENGINE_CONFIGURATION_JSON environment variable is not set:
 
-                - If using a Senzing project on a bare metal install, source the setupEnv file in the project root path.
+                - If using a Senzing project on a bare metal install, source the setupEnv file in the project root path
+                - or set the SENZING_ENGINE_CONFIGURATION_JSON environment variable
 
                         https://senzing.zendesk.com/hc/en-us/articles/115002408867-Introduction-G2-Quickstart
 
@@ -470,6 +472,7 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
 # -------------------------------------------------------------------------
 
 
+# TODO - This can be merged into colorize_output
 def colorize_str(string: str, colors_list: str = "", color_disabled: bool = False) -> str:
     """# TODO"""
 
@@ -495,19 +498,20 @@ def colorize_json(json_str: str, color_disabled: bool = False) -> str:
     return json_color
 
 
+# TODO - Move into Colors and add the missing values?
 def colorize_output(
     output: Union[Exception, int, str],
     color_or_type: str,
     output_color: bool = True,
 ) -> str:
     """# TODO"""
-    output = str(output) if isinstance(output, int) else output
-
     if not output:
         return ""
 
     if not output_color:
         return output
+
+    output = str(output) if isinstance(output, int) else output
 
     color_or_type = color_or_type.upper()
 
@@ -525,13 +529,13 @@ def colorize_output(
     return f"{Colors.apply(output, output_type)}"
 
 
-def colorize_cmd_prompt(prompt: str, color_or_type: str, color_disabled: bool = False) -> str:
+def colorize_cmd_prompt(prompt: str, color_or_type: str, color_prompt: bool = True) -> str:
     """
     For the Cmd module prompt to be coloured need to add \001 and \002 otherwise readline prints spurious
     characters when using functions such as reverse search (ctrl-r) and navigating through history doesn't
     display correctly
     """
-    if color_disabled:
+    if not color_prompt:
         return f"({prompt}) "
 
     prompt_step1 = f"\002{prompt}\001"
@@ -550,9 +554,13 @@ def print_debug(msg: str, end_str: str = "\n\n", output_color: bool = True) -> N
     print(f"\n{colorize_output('DEBUG:', 'debug', output_color)} {msg}", end=end_str)
 
 
-def print_error(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
+def print_error(
+    msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True, exit_: bool = False
+) -> None:
     """# TODO"""
     print(f"\n{colorize_output('ERROR:', 'error', output_color)} {msg}", end=end_str)
+    if exit_:
+        sys.exit(1)
 
 
 def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
@@ -562,15 +570,18 @@ def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: 
 
 def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
     """# TODO"""
-    print(f"\n{colorize_output('WARNING:', 'warning', output_color)} {msg}", end=end_str)
+    # Warnings may be multiline strings, if they are don't add WARNING: before the msg to color
+    if isinstance(msg, str) and "\n" in msg:
+        print(f"\n{colorize_output(msg, 'warning', output_color)}", end=end_str)
+    else:
+        print(f"\n{colorize_output('WARNING:', 'warning', output_color)} {msg}", end=end_str)
 
 
 def print_response(
     response: Union[int, str],
-    color_json: bool,
-    format_json: bool,
-    scroll_output: bool,
-    color_output: bool,
+    format_json: bool = False,
+    scroll_output: bool = False,
+    color_output: bool = True,
     color: str = "",
 ) -> str:
     """# TODO"""
@@ -590,29 +601,25 @@ def print_response(
             output = colorize_output(response, color, color_output)
             strip_colors = False
         else:
-            # TODO Is this check still needed?
             if type(response) not in [dict, list]:
                 response = orjson.loads(response) if ORJSON_AVAIL else json.loads(response)
 
-            # Format JSON if global config or single command formatter specifies
-            # if (format_json and not cmd_format) or (cmd_format and format_json_cmd):
+            # Format JSON
             if format_json:
                 json_ = (
                     orjson.dumps(response, option=orjson.OPT_INDENT_2)
                     if ORJSON_AVAIL
-                    else json.dumps(response, indent=2)
+                    else json.dumps(response, indent=2, ensure_ascii=False)
                 )
             else:
                 json_: Union[bytes, str] = (  # type: ignore
-                    orjson.dumps(response) if ORJSON_AVAIL else json.dumps(response)
+                    orjson.dumps(response) if ORJSON_AVAIL else json.dumps(response, ensure_ascii=False)
                 )
 
             json_str: str = json_.decode() if ORJSON_AVAIL else json_  # type: ignore
-
-            # Color JSON if global config or single command formatter specifies
-            # if not color_disabled and ((color_json and not cmd_color) or (cmd_color and color_json_cmd)):
             output = json_str
-            if color_json:
+
+            if color_output:
                 output = colorize_json(json_str)
 
     if scroll_output:
@@ -708,32 +715,51 @@ def do_history() -> None:
     print()
 
 
-def history_setup() -> str:
+def history_setup(module_name: str) -> Tuple[str, Path]:
     """Attempt to setup history file"""
-    hist_error = ""
-    hist_size = 2000
+    history_error = ""
+    history_file = Path(f"~/.{module_name}_history").expanduser()
 
     if not READLINE_AVAIL:
-        hist_error = "History file won't be used, python readline or atexit module isn't available"
-        return hist_error
+        history_error = "History file won't be used, python readline or atexit module isn't available"
 
-    base_name = "." + Path(sys.argv[0]).stem + "_history"
-    hist_file = Path.home().joinpath(base_name)
+    # Try and open history file, also create it if it doesn't exist
+    if not history_error:
+        try:
+            with open(history_file, "a", encoding="utf-8"):
+                pass
+        except OSError as err:
+            history_error = f"History file won't be used for this session: {err}"
 
-    # Try and open history in users home
-    try:
-        with open(hist_file, "a", encoding="utf-8"):
-            pass
-    except IOError as err:
-        hist_error = f"History file won't be used for this session: {err}"
-        return hist_error
+        # Read the history file and setup exit handlers to write on exit
+        readline.read_history_file(history_file)
+        atexit.register(history_write_file, history_file)
 
-    readline.read_history_file(hist_file)
-    readline.set_history_length(hist_size)
-    atexit.register(readline.set_history_length, hist_size)
-    atexit.register(readline.write_history_file, hist_file)
+    return (history_error, history_file)
 
-    return hist_error
+
+def history_write_file(file: Path) -> None:
+    """# TODO"""
+    readline.write_history_file(file)
+
+
+def history_disabled(file: Path) -> None:
+    """# TODO"""
+    # Save current session history
+    history_now = [readline.get_history_item(i) for i in range(1, readline.get_current_history_length() + 1)]
+
+    # Erase the current history in the file
+    with open(file, "w", encoding="utf-8"):
+        pass
+
+    # Restore the session history
+    readline.clear_history()
+    for entry in history_now:
+        if entry:
+            readline.add_history(entry)
+
+    # Don't write to the history file on exit
+    atexit.unregister(history_write_file)
 
 
 def response_to_clipboard(last_response: str) -> None:
@@ -782,7 +808,7 @@ def response_reformat_json(last_response: str, color_json: bool) -> str:
         return ""
 
     json_format = False if "\n" in last_response else True
-    return print_response(last_response, color_json, json_format, False, False)
+    return print_response(last_response, json_format, False, color_json)
 
 
 # -------------------------------------------------------------------------

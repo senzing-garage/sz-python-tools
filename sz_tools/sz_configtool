@@ -11,7 +11,6 @@ import subprocess
 import sys
 import textwrap
 import traceback
-from collections import OrderedDict
 
 from _tool_helpers import Colors, get_engine_config
 
@@ -579,47 +578,6 @@ class SzCfgShell(cmd.Cmd):
                 self.histFileName = self.histFileName
                 self.histFileError = None
                 self.histAvail = True
-
-    def do_histDedupe(self, arg):
-        """
-        Deduplicates the command history
-
-        Syntax:
-            histDedupe
-        """
-        if self.histAvail:
-            if input("\nAre you sure you want to de-duplicate the session history? (y/n) ").upper().startswith("Y"):
-
-                with open(self.histFileName) as hf:
-                    linesIn = (line.rstrip() for line in hf)
-                    uniqLines = OrderedDict.fromkeys(line for line in linesIn if line)
-
-                    readline.clear_history()
-                    for ul in uniqLines:
-                        readline.add_history(ul)
-
-                colorize_msg("Session history and history file both deduplicated", "success")
-            else:
-                print()
-        else:
-            colorize_msg("History is not available in this session", "warning")
-
-    def do_histClear(self, arg):
-        """
-        Clears the command history
-
-        Syntax:
-            histClear
-        """
-        if self.histAvail:
-            if input("\nAre you sure you want to clear the session history? (y/n) ").upper().startswith("Y"):
-                readline.clear_history()
-                readline.write_history_file(self.histFileName)
-                colorize_msg("Session history and history file both cleared", "success")
-            else:
-                print()
-        else:
-            colorize_msg("History is not available in this session", "warning")
 
     def do_history(self, arg):
         """
