@@ -1,33 +1,41 @@
 #! /usr/bin/env python3
 
 import argparse
+import concurrent.futures
 import csv
+import itertools
 import json
 import logging
 import multiprocessing
 import os
 import pathlib
 import random
-import signal
 import sys
+import textwrap
 import time
 import traceback
 from datetime import datetime
 from queue import Empty, Full
 
-from senzing_core import SzAbstractFactory, SzEngine, SzEngineFlags, SzError
+try:
+    import orjson
+except ImportError:
+    orjson = False
+
+from senzing_core import SzAbstractFactory, SzEngineFlags, SzError
 
 from _sz_database import SzDatabase
 from _tool_helpers import get_engine_config
 
 MODULE_NAME = pathlib.Path(__file__).stem
+PROGRESS_INTERVAL = 10000
 
 
 class IOQueueProcessor:
 
     def __init__(self, input_class, output_class, **kwargs):
 
-        self.process_count = kwargs.get("process_count", multiprocessing.cpu_count())
+        self.process_count = kwargs.get("process_count", multiprocessing.cpu_count() * 2)
         self.all_stop = multiprocessing.Value("i", 0)
 
         self.input_class = input_class
@@ -61,7 +69,7 @@ class IOQueueProcessor:
             size1 = self.input_queue.qsize()
             size2 = self.output_queue.qsize()
             if waits > 1:
-                logging.info(f"waiting for %s input and %s output queue records" % (size1, size2))
+                logging.info("waiting for %s input and %s output queue records" % (size1, size2))
             time.sleep(1)
             waits += 1
             if max_wait and waits > max_wait:
@@ -167,7 +175,7 @@ class reader:
             "join DSRC_RECORD c on c.ENT_SRC_KEY = b.ENT_SRC_KEY and c.DSRC_ID = b.DSRC_ID "
             "where a.RES_ENT_ID = ?"
         )
-        self.sql_entities = sz_dbo.sqlPrep(sql_entities)
+        self.sql_entities = self.sz_dbo.sqlPrep(sql_entities)
         sql_relations = (
             "select "
             " a.RES_ENT_ID as RESOLVED_ENTITY_ID, "
@@ -183,7 +191,8 @@ class reader:
             "join OBS_ENT d on d.OBS_ENT_ID = c.OBS_ENT_ID "
             "where a.RES_ENT_ID = ?"
         )
-        self.sql_relations = sz_dbo.sqlPrep(sql_relations)
+        self.sql_relations = self.sz_dbo.sqlPrep(sql_relations)
+        # below not currently used in favor of sdk as does a better job identifying unique features
         sql_features = (
             "select "
             " FTYPE_ID "
@@ -192,7 +201,7 @@ class reader:
             "and FTYPE_ID in (" + ",".join(str(x) for x in self.esb_ftype_ids) + ")"
             "and SUPPRESSED = 'N'"
         )
-        self.sql_features = sz_dbo.sqlPrep(sql_features)
+        self.sql_features = self.sz_dbo.sqlPrep(sql_features)
 
     def close(self):
         self.sz_dbo.close()
@@ -213,6 +222,7 @@ class reader:
             return (queue_data[0], resume_rows)
 
         elif queue_data[0] == "REVIEW":
+            # not currently used in favor of sdk as does a better job identifying unique features
             entity_size, entity_id, review_features = self.review_features(queue_data)
             return ("REVIEW", entity_size, entity_id, review_features)
         return None
@@ -300,7 +310,7 @@ class writer:
                 ]
                 self.csv_writer.writerows(csv_rows)
 
-        elif queue_data[0] == "REVIEW":
+        elif queue_data[0] == "REVIEW":  # not currently used as sdk used to gather stats
             entity_size = queue_data[1]
             sample = {queue_data[2]: queue_data[3]}
             if entity_size not in self.esb_features:
@@ -457,11 +467,11 @@ class writer:
                                 principle_matchkey = "indeterminate||indeterminate"
                             stat_keys.extend(["PRINCIPLES", principle_matchkey])
                             self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [entity_id]})
-                if len(entity0_sources) > 1:
-                    multi_source_key = "||".join(sorted(entity0_sources.keys()))
-                    self.update_stat_pack(
-                        ["MULTI_SOURCES", multi_source_key], {"ENTITY_COUNT": 1, "SAMPLE": [entity_id]}
-                    )
+
+                # if len(entity0_sources) > 1:
+                # include single source so can find non-matches, ie customers not on watch list or in reference file
+                multi_source_key = "||".join(sorted(entity0_sources.keys()))
+                self.update_stat_pack(["MULTI_SOURCES", multi_source_key], {"ENTITY_COUNT": 1, "SAMPLE": [entity_id]})
             elif related_id > entity_id:
                 sample = f"{entity_id} {related_id}"
                 principle_matchkey = list(resume_data[related_id]["PRINCIPLES"].keys())[0]
@@ -485,7 +495,7 @@ class writer:
                         self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [sample]})
 
 
-def check_stat_pack(stats_file_name, csv_file_name, quiet):
+def check_stat_pack(stats_file_name, csv_file_name, args):
     abort = False
     stat_pack = json.load(open(stats_file_name))
     prior_status = "unknown"
@@ -494,20 +504,28 @@ def check_stat_pack(stats_file_name, csv_file_name, quiet):
         prior_status = stat_pack["PROCESS"]["STATUS"]
         entity_count = stat_pack["TOTALS"]["ENTITY_COUNT"]
     print(f"\n{prior_status} snapshot file exists with {entity_count} entities processed!")
-    if quiet:
+    if args.quiet:
         print("PRIOR FILES WILL BE OVERWRITTEN")
         stat_pack = {}
     else:
         if prior_status == "Interim":
-            ans = input("\nDo you want to pick up where it left off? (y/n) ")
-            if not ans.upper().startswith("Y"):
-                stat_pack = {}
-        elif prior_status != "Complete":
-            stat_pack = {}
-        if stat_pack:
+            if args.force_sdk:
+                ans = input("\nDo you want to overwrite it? (y/n) ")
+                if ans.upper().startswith("Y"):
+                    stat_pack = {}
+                else:
+                    abort = True
+            else:
+                ans = input("\nDo you want to pick up where it left off? (y/n) ")
+                if not ans.upper().startswith("Y"):
+                    stat_pack = {}
+        elif prior_status == "Complete":
             ans = input("\nAre you sure you want to overwrite it? (y/n) ")
-            if not ans.upper().startswith("Y"):
+            if ans.upper().startswith("Y"):
+                stat_pack = {}
+            else:
                 abort = True
+        else:
             stat_pack = {}
         print()
     if not stat_pack and os.path.exists(csv_file_name):
@@ -515,9 +533,22 @@ def check_stat_pack(stats_file_name, csv_file_name, quiet):
     return stat_pack, abort
 
 
-def get_entity_sql(sz_dbo, dsrc_id_filter):
+def progress_display(started, cntr):
+    elapsed_seconds = round((time.time() - started))
+    elapsed_minutes = round(elapsed_seconds / 60, 1)
+    eps = cntr / float(elapsed_seconds) if elapsed_seconds else 0
+    parms = (cntr, elapsed_minutes, eps)
+    logging.info("%s entities processed after %s minutes at %s per second" % parms)
+
+
+def database_snapshot(sz_dbo, kwargs):
     logging.info("Determining entity range ...")
-    if not datasource_filter:
+    proc_start_time = kwargs.get("proc_start_time")
+    dsrc_id_filter = kwargs.get("dsrc_id_filter")
+    stat_pack = kwargs.get("stat_pack")
+    chunk_size = kwargs.get("chunk_size")
+
+    if not dsrc_id_filter:
         max_sql = "select max(RES_ENT_ID) from RES_ENT"
         min_entity_id = 0
         max_entity_id = sz_dbo.fetchRow(sz_dbo.sqlExec(max_sql))[0]
@@ -537,9 +568,164 @@ def get_entity_sql(sz_dbo, dsrc_id_filter):
             " a.RES_ENT_ID "
             "from RES_ENT_OKEY a "
             "join OBS_ENT b on b.OBS_ENT_ID = a.OBS_ENT_ID "
-            "where a.RES_ENT_ID between ? and ? and b.DSRC_ID = " + str(data_source_filter)
+            "where a.RES_ENT_ID between ? and ? and b.DSRC_ID = " + str(dsrc_id_filter)
         )
-    return entity_sql, min_entity_id, max_entity_id
+
+    if not max_entity_id:
+        logging.error("No entities found for data source filter!")
+        sys.exit(1)
+    entity_sql = sz_dbo.sqlPrep(entity_sql)
+
+    queue_processor = IOQueueProcessor(reader, writer, **kwargs)
+    logging.info("starting %s processes" % queue_processor.process_count)
+    queue_processor.start_up()
+
+    entity_count = 0
+    beg_entity_id = stat_pack.get("PROCESS", {}).get("LAST_ENTITY_ID", min_entity_id)
+    end_entity_id = beg_entity_id + chunk_size
+    while True:
+        logging.info("Getting entities from %s to %s ..." % (beg_entity_id, end_entity_id))
+        batch = sz_dbo.fetchAllRows(sz_dbo.sqlExec(entity_sql, (beg_entity_id, end_entity_id)))
+        if batch:
+            last_row_entity_id = batch[-1][0]
+            for row in batch:
+                queue_processor.process(("RESUME", row[0]))
+                entity_count += 1
+                if entity_count % PROGRESS_INTERVAL == 0 or row[0] == last_row_entity_id:
+                    progress_display(proc_start_time, entity_count)
+
+            queue_processor.wait_for_queues()
+            queue_processor.signal_writer(("DUMP_STATS", {"STATUS": "Interim", "LAST_ENTITY_ID": end_entity_id}))
+
+        if end_entity_id >= max_entity_id:
+            break
+        beg_entity_id += chunk_size
+        end_entity_id += chunk_size
+    queue_processor.finish_up()
+
+
+def next_sdk_record(sz_engine, export_handle, errule_code_lookup, export_headers=None):
+    row_string = sz_engine.fetch_next(export_handle)
+    if not row_string:
+        return None
+    csv_row = next(csv.reader([row_string]))
+    if not export_headers:
+        return csv_row
+    row_data = dict(zip(export_headers, csv_row))
+    row_data["RESOLVED_ENTITY_ID"] = int(row_data["RESOLVED_ENTITY_ID"])
+    row_data["RELATED_ENTITY_ID"] = int(row_data["RELATED_ENTITY_ID"])
+    row_data["IS_DISCLOSED"] = int(row_data["IS_DISCLOSED"])
+    row_data["IS_AMBIGUOUS"] = int(row_data["IS_AMBIGUOUS"])
+    row_data["MATCH_LEVEL"] = int(row_data["MATCH_LEVEL"])
+    if row_data["IS_DISCLOSED"] != 0:
+        row_data["MATCH_LEVEL"] = 11
+    if row_data["ERRULE_CODE"]:
+        row_data["ERRULE_ID"] = errule_code_lookup[row_data["ERRULE_CODE"]]["ERRULE_ID"]
+    else:
+        row_data["ERRULE_ID"] = 0
+    return row_data
+
+
+def sdk_snapshot(sz_engine, kwargs):
+    logging.info("Starting sdk export ...")
+    proc_start_time = kwargs.get("proc_start_time")
+    stat_writer = writer(**kwargs)
+    sz_config_data = kwargs.get("sz_config_data")
+    relationship_filter = kwargs.get("relationship_filter")
+    errule_code_lookup = {x["ERRULE_CODE"]: x for x in sz_config_data["G2_CONFIG"]["CFG_ERRULE"]}
+    errule_code_lookup["DISCLOSED"] = {"ERRULE_ID": 0}
+    export_flags = SzEngineFlags.SZ_EXPORT_INCLUDE_ALL_ENTITIES
+    if relationship_filter == 1:
+        pass  # --don't include any relationships
+    elif relationship_filter == 2:
+        export_flags = export_flags | SzEngineFlags.SZ_ENTITY_INCLUDE_POSSIBLY_SAME_RELATIONS
+    else:
+        export_flags = export_flags | SzEngineFlags.SZ_ENTITY_INCLUDE_ALL_RELATIONS
+    export_fields = [
+        "RESOLVED_ENTITY_ID",
+        "RELATED_ENTITY_ID",
+        "MATCH_LEVEL",
+        "MATCH_KEY",
+        "IS_DISCLOSED",
+        "IS_AMBIGUOUS",
+        "ERRULE_CODE",
+        "DATA_SOURCE",
+        "RECORD_ID",
+    ]
+    try:
+        export_handle = sz_engine.export_csv_entity_report(",".join(export_fields), export_flags)
+        export_headers = next_sdk_record(sz_engine, export_handle, None)
+    except SzError as err:
+        raise err
+
+    last_entity_id = -1
+    entity_count = 0
+    record = next_sdk_record(sz_engine, export_handle, errule_code_lookup, export_headers)
+    while record:
+        resume_rows = []
+        last_entity_id = record["RESOLVED_ENTITY_ID"]
+        while record and record["RESOLVED_ENTITY_ID"] == last_entity_id:
+            resume_rows.append(record)
+            record = next_sdk_record(sz_engine, export_handle, errule_code_lookup, export_headers)
+        stat_writer.run(("RESUME", resume_rows))
+
+        entity_count += 1
+        if entity_count % PROGRESS_INTERVAL == 0:
+            progress_display(proc_start_time, entity_count)
+
+    progress_display(proc_start_time, entity_count)
+    stat_writer.run(("DUMP_STATS", {"STATUS": "Interim", "LAST_ENTITY_ID": last_entity_id}))
+
+
+def lookup_esb_features(sz_engine, record):
+    entity_size, entity_id = record
+    try:
+        response = sz_engine.get_entity_by_entity_id(
+            int(entity_id), SzEngineFlags.SZ_ENTITY_INCLUDE_REPRESENTATIVE_FEATURES
+        )
+    except SzError as err:
+        logging.warning(err)
+        return entity_size, entity_id, {}
+    json_data = orjson.loads(response) if orjson else json.loads(response)
+    features = {}
+    for ftype_code in json_data["RESOLVED_ENTITY"]["FEATURES"]:
+        features[ftype_code] = len(json_data["RESOLVED_ENTITY"]["FEATURES"][ftype_code])
+    return entity_size, entity_id, features
+
+
+def compute_esb_stats(stat_pack, sz_engine):
+
+    entity_list = []
+    entity_sizes = {}
+    for entity_size in stat_pack["ENTITY_SIZES"]:
+        count = stat_pack["ENTITY_SIZES"][entity_size]["COUNT"]
+        if entity_size not in entity_sizes:
+            entity_sizes[entity_size] = {"COUNT": count, "SAMPLE": []}
+        for entity_id in stat_pack["ENTITY_SIZES"][entity_size]["SAMPLE"]:
+            entity_list.append([entity_size, entity_id])
+
+    logging.info("Reviewing %s entities" % len(entity_list))
+    entity_list_iterator = iter(entity_list)
+    cnt = 0
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {
+            executor.submit(lookup_esb_features, sz_engine, record): record
+            for record in itertools.islice(entity_list_iterator, executor._max_workers)
+        }
+        while futures:
+            done, _ = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
+            for f in done:
+                entity_size, entity_id, features = f.result()
+                entity_sizes[entity_size]["SAMPLE"].append({entity_id: features})
+                del futures[f]
+                cnt += 1
+                if cnt % 1000 == 0:
+                    logging.info("%s entities processed" % cnt)
+                record = next(entity_list_iterator, None)
+                if record:
+                    futures[executor.submit(lookup_esb_features, sz_engine, record)] = record
+    logging.info("%s entities processed, complete!" % cnt)
+    return entity_sizes
 
 
 def debug_print(_value, _desc="some variable"):
@@ -556,16 +742,7 @@ def print_exception_info():
     print(traceback.format_exc())
 
 
-def signal_handler(signal, frame):
-    global shut_down
-    shut_down = 9
-
-
 if __name__ == "__main__":
-    shut_down = 0
-    signal.signal(signal.SIGINT, signal_handler)
-
-    PROGRESS_INTERVAL = 10000
 
     output_file_root = os.getenv("SENZING_OUTPUT_FILE_ROOT", None)
     env_size = os.getenv("SENZING_SAMPLE_SIZE", "")
@@ -585,18 +762,13 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--dsrc_filter", help="optional data source code to analayze")
     help = "filter options 1=No Relationships, 2=Include possible matches, 3=Include possibly related and disclosed"
     parser.add_argument("-f", "--relationship_filter", type=int, default=relationship_filter, help=help)
-    parser.add_argument("-a", "--for_audit", action="store_true", default=False, help="export csv file for audit")
     parser.add_argument("-k", "--chunk_size", type=int, default=chunk_size, help="records per batch")
     parser.add_argument("-t", "--thread_count", type=int, default=thread_count, help="number of threads to start")
-    #    parser.add_argument(
-    #        "-u", "--use_api", action="store_true", default=False, help="use export api instead of sql to perform snapshot"
-    #    )
-    parser.add_argument(
-        "-q", "--quiet", action="store_true", default=False, help="doesn't ask to confirm before overwrite files"
-    )
+    parser.add_argument("-F", "--force_sdk", action="store_true", default=False, help="force sdk export")
+    parser.add_argument("-A", "--for_audit", action="store_true", default=False, help="export csv file for audit")
+    parser.add_argument("-Q", "--quiet", action="store_true", default=False, help="overwrite withpout warning")
     parser.add_argument("-D", "--debug", dest="debug", action="store_true", default=False, help="run in debug mode")
     args = parser.parse_args()
-    print()
     loggingLevel = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(format="%(asctime)s %(levelname)s: %(message)s", datefmt="%m/%d %I:%M", level=loggingLevel)
 
@@ -608,7 +780,7 @@ if __name__ == "__main__":
         engine_config = get_engine_config(args.config_file_name)
         sz_factory = SzAbstractFactory(MODULE_NAME, engine_config)
         sz_configmgr = sz_factory.create_configmanager()
-        # sz_engine = sz_factory.create_engine()
+        sz_engine = sz_factory.create_engine()
         sz_product = sz_factory.create_product()
         sdk_version = json.loads(sz_product.get_version())
         sz_config_data = json.loads(sz_configmgr.get_config(sz_configmgr.get_default_config_id()))
@@ -621,9 +793,21 @@ if __name__ == "__main__":
         sz_dbo = SzDatabase(sz_db_uri)
     except Exception as err:
         print(f"\n{err}")
-        sz_dbo = None
-        print("Gonna have to make it use the api one day")
-        sys.exit(0)
+        print(
+            textwrap.dedent(
+                """\
+                    
+            Direct database access not available, performing an SDK only snapshot at this time. Installing direct database access
+            drivers can significantly reduce the time it takes to snapshot on very large databases.
+
+            """
+            )
+        )
+
+        if not args.quiet:
+            if input("Continue? (y/n) ").lower() not in ("y", "yes"):
+                sys.exit(1)
+        args.force_sdk = True
 
     dsrc_id_filter = None
     if args.dsrc_filter:
@@ -641,16 +825,11 @@ if __name__ == "__main__":
     csv_file_name = args.output_file_root + ".csv"
     stat_pack = {}
     if os.path.exists(stats_file_name):
-        stat_pack, abort = check_stat_pack(stats_file_name, csv_file_name, args.quiet)
+        stat_pack, abort = check_stat_pack(stats_file_name, csv_file_name, args)
         if abort:
             sys.exit(1)
 
-    entity_sql, min_entity_id, max_entity_id = get_entity_sql(sz_dbo, dsrc_id_filter)
-    if not max_entity_id:
-        logging.error("No entities found for data source filter!")
-        sys.exit(1)
-    entity_sql = sz_dbo.sqlPrep(entity_sql)
-
+    proc_start_time = time.time()
     kwargs = {
         "sz_db_uri": sz_db_uri,
         "sdk_version": sdk_version,
@@ -665,68 +844,23 @@ if __name__ == "__main__":
         "stats_file_name": stats_file_name,
         "csv_file_name": csv_file_name,
         "stat_pack": stat_pack,
+        "proc_start_time": proc_start_time,
     }
+    if args.force_sdk:
+        sdk_snapshot(sz_engine, kwargs)
+    else:
+        database_snapshot(sz_dbo, kwargs)
 
-    proc_start_time = time.time()
-    queue_processor = IOQueueProcessor(reader, writer, **kwargs)
-    logging.info("starting %s processes" % queue_processor.process_count)
-    queue_processor.start_up()
+    with open(stats_file_name, "r") as f:
+        stat_pack = json.load(f)
+        stat_pack["ENTITY_SIZES"] = compute_esb_stats(stat_pack, sz_engine)
+        stat_pack["PROCESS"]["STATUS"] = "Complete"
+        stat_pack["PROCESS"]["END_DATE"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    entity_count = 0
-    beg_entity_id = stat_pack.get("PROCESS", {}).get("LAST_ENTITY_ID", min_entity_id)
-    end_entity_id = beg_entity_id + args.chunk_size
-    while True:
-        logging.info("Getting entities from %s to %s ..." % (beg_entity_id, end_entity_id))
-        batch = sz_dbo.fetchAllRows(sz_dbo.sqlExec(entity_sql, (beg_entity_id, end_entity_id)))
-        if batch:
-            last_row_entity_id = batch[-1][0]
-            for row in batch:
-                queue_processor.process(("RESUME", row[0]))
-                entity_count += 1
-                if entity_count % PROGRESS_INTERVAL == 0 or row[0] == last_row_entity_id:
-                    elapsed_seconds = round((time.time() - proc_start_time))
-                    elapsed_minutes = round(elapsed_seconds / 60, 1)
-                    eps = entity_count / float(elapsed_seconds) if elapsed_seconds else 0
-                    parms = (entity_count, elapsed_minutes, eps)
-                    logging.info("%s entities processed after %s minutes at %s per second" % parms)
-                if shut_down:
-                    break
-
-            queue_processor.wait_for_queues()
-            queue_processor.signal_writer(("DUMP_STATS", {"STATUS": "Interim", "LAST_ENTITY_ID": end_entity_id}))
-
-        if shut_down:
-            break
-        if end_entity_id >= max_entity_id:
-            break
-
-        beg_entity_id += args.chunk_size
-        end_entity_id += args.chunk_size
-
-    if shut_down == 0:
-        queue_processor.wait_for_queues()
-        logging.info("Reviewing entities ...")
-        stat_pack = json.load(open(stats_file_name))
-        for entity_size in stat_pack["ENTITY_SIZES"]:
-            for i in range(len(stat_pack["ENTITY_SIZES"][entity_size]["SAMPLE"])):
-                entity_id = stat_pack["ENTITY_SIZES"][entity_size]["SAMPLE"][i]
-                queue_processor.process(("REVIEW", entity_id, int(entity_size)))
-        queue_processor.wait_for_queues()
-
-        final_update = {
-            "STATUS": "Complete",
-            "LAST_ENTITY_ID": end_entity_id,
-            "END_TIME": datetime.now().strftime("%m/%d/%Y %H:%M:%S"),
-        }
-        queue_processor.signal_writer(("DUMP_STATS", final_update))
-        queue_processor.finish_up()
+    with open(stats_file_name, "w") as f:
+        json.dump(stat_pack, f, indent=4)
 
     elapsed_mins = round((time.time() - proc_start_time) / 60, 1)
-    run_status = ("completed in" if not shut_down else "aborted after") + f" {elapsed_mins:,} minutes"
-    if shut_down == 0:
-        logging.info(f"Process completed successfully in {elapsed_mins} minutes")
-    else:
-        logging.info(f"Process aborted after {elapsed_mins} minutes!")
+    logging.info(f"Process completed successfully in {elapsed_mins} minutes")
     print()
-
-    sys.exit(shut_down)
+    sys.exit(0)
