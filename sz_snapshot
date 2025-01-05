@@ -219,6 +219,8 @@ class reader:
                 for row_data in self.sz_dbo.fetchAllDicts(cursor):
                     row_data = self.complete_resume_db(row_data)
                     resume_rows.append(row_data)
+            if len(resume_rows) == 0:
+                return ("ORPHAN", entity_id)
             return (queue_data[0], resume_rows)
 
         elif queue_data[0] == "REVIEW":
@@ -319,6 +321,10 @@ class writer:
                 self.esb_features[entity_size]["COUNT"] += 1
                 self.esb_features[entity_size]["SAMPLE"].append(sample)
 
+        elif queue_data[0] == "ORPHAN":  # not currently used as sdk used to gather stats
+            entity_id = queue_data[1]
+            self.update_stat_pack(["ORPHANS"], {"COUNT": 1, "SAMPLE": [entity_id]})
+
         elif queue_data[0] == "DUMP_STATS":
             self.stat_pack["PROCESS"].update(queue_data[1])
             if self.stat_pack["PROCESS"]["STATUS"] == "Complete":
@@ -344,8 +350,12 @@ class writer:
         for k, v in stats.items():
             if k not in d:
                 d[k] = v
-            else:
+            elif k != "SAMPLE":
                 d[k] += v
+            elif len(d[k]) < self.sample_size:
+                d[k] += v
+            elif self.random_index != 0:
+                d[k][self.random_index] = v[0]
 
     def initialize_stat_pack(self):
         self.stat_pack = {
