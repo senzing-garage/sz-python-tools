@@ -74,7 +74,6 @@ def show_debug(call: str, output: str = "") -> None:
         print(f"cannot write to {args.debug_output}: {err}")
 
 
-# --------------------------------------
 def fmt_statistic(amt):
     amt = int(amt)
     if amt > 1000000:
@@ -85,7 +84,6 @@ def fmt_statistic(amt):
 # -------------------
 # colorizers
 # -------------------
-
 
 def colorize(in_string, color_list="None"):
     return Colors.apply(in_string, color_list) if color_list else in_string
@@ -104,17 +102,14 @@ def colorize_dsrc(dsrc_str):
         return colorize_attr(dsrc_str, "dsrc_color")
     return colorize(dsrc_str, "dsrc_color")
 
-
 def colorize_entity(entity_str, added_color=None):
     entity_color = "entity_color" + ("," + added_color if added_color else "")
     if ":" in str(entity_str):
         return colorize_attr(entity_str, entity_color)
     return colorize(entity_str, entity_color)
 
-
 def colorize_dsrc1(dsrc_str):
     return colorize(dsrc_str, "dsrc_color")
-
 
 def colorize_match_key(match_key):
     if " (Ambiguous)" in match_key:
@@ -147,49 +142,6 @@ def colorize_match_key(match_key):
         colored_key += colorize("+" + "+".join(rel_keys), "disclosed")
 
     return colored_key + ambiguous_tag
-
-
-def colorize_match_dataxxx(matchDict):
-    if not matchDict["matchKey"]:
-        if matchDict.get("anyCandidates", False):
-            if matchDict.get("ruleCode"):
-                matchStr = colorize(matchDict.get("ruleCode"), "dim")
-            else:
-                matchStr = colorize("scored too low!", "bad")
-        else:
-            match_str = colorize("no matching keys", "bad")
-    else:
-        good_segments = []
-        bad_segments = []
-        prior_key = ""
-        key_color = "fg_green"
-        for key in re.split(r"(\+|\-)", matchDict["matchKey"]):
-            if key in ("+", ""):
-                prior_key = "+"
-            elif key == "-":
-                prior_key = "-"
-            elif prior_key == "-":
-                bad_segments.append(key)
-            else:
-                good_segments.append(key)
-        if good_segments:
-            match_str = colorize("+".join(good_segments), "good")
-        else:
-            match_str = ""
-        if bad_segments:
-            match_str += colorize("-" + "-".join(bad_segments), "bad")
-
-        if matchDict.get("ruleCode"):
-            match_str += f"\n {colorize(matchDict['ruleCode'], 'dim')}"
-        # else:
-        #    matchStr += f"\n {colorize('no principles satisfied!', 'bad')}"
-
-    if "entityId" in matchDict and "entityName" in matchDict:
-        match_str += f"\n to {colorize_entity(matchDict['entityId'])} {matchDict['entityName']}"
-    elif "entityId" in matchDict:
-        match_str += f" to {colorize_entity(matchDict['entityId'])}"
-
-    return match_str
 
 
 def wrap_text(_str, _width, _color=None):
@@ -242,7 +194,6 @@ def view_report(report, **kwargs):
     print()
 
 
-# -----------------------------
 def scroll(report, **kwargs):
     print()
     # if arg == "auto":
@@ -331,6 +282,10 @@ class sz_pretty_table:
         self.columns = []
         self.rows = []
 
+    def hide_last_char(self, field_name):
+        # INVISIBLE = "\033[08m"
+        return field_name[0:-1] + "\033[08m" + field_name[-1] + "\033[0m"
+    
     def render_table(self, **kwargs):
 
         title_color = kwargs.get("titleColor", "table_title")
@@ -413,12 +368,10 @@ class EDAReports:
             "POSSIBLE_RELATION": "Possibly related",
             "DISCLOSED_RELATION": "Disclosed relation",
         }
-
         self.audit_colors = {
             "MERGE": "good",
             "SPLIT": "bad",
-            "SPLIT+MERGE": "fg_red,bg_green",
-            "unknown": "bg_red,fg_white",
+            "SPLIT+MERGE": "fg_red,bg_green"
         }
         self.snapshot_data = None
         self.audit_data = None
@@ -469,13 +422,10 @@ class EDAReports:
                 review_features.append(ftype_code)
         return review_features       
 
-    # ---------------------------
     def show_audit_sample(self, audit_records, use_color=True):
-        #entity_list = list(set([x["newer_id"] for x in audit_records]))
         get_flag_list = ["SZ_ENTITY_INCLUDE_ALL_FEATURES", "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS"]
-        ftypes_used = []
-        record_list = []
-        entity_list = set([x["newer_id"] for x in audit_records])
+        features_by_record = {}
+        entity_list = set([x["NEWER_ID"] for x in audit_records])
         for entity_id in entity_list:
             if entity_id == "unknown":  # bypass missing
                 continue
@@ -486,13 +436,27 @@ class EDAReports:
                 continue
             entity_features = sz_pretty.get_entity_features(json_data["RESOLVED_ENTITY"]["FEATURES"])["BY_ID"]
             for record in json_data["RESOLVED_ENTITY"]["RECORDS"]:
-                record["FEATURES_BY_TYPE"] = sz_pretty.get_record_features(entity_features, record["FEATURES"])["BY_TYPE"]
-                record_list.append(record)
-                ftypes_used.extend(list(record["FEATURES_BY_TYPE"].keys()))
-        ftypes_used = sorted(set(ftypes_used))
+                record_key = record["RECORD_ID"] + "||" + record["DATA_SOURCE"]
+                features = sz_pretty.get_record_features(entity_features, record["FEATURES"])["BY_TYPE"]
+                features_by_record[record_key] = features
+ 
+        ftypes_used = []
+        for i in range(len(audit_records)):
+            record_key = audit_records[i]["RECORD_ID"] + "||" + audit_records[i].get("DATA_SOURCE","")
+            if record_key in features_by_record:
+                features = features_by_record[record_key]
+            else: # try to find by record_id alone (truthset key does not require data source)
+                features = {}
+                for record_key in features_by_record:
+                    if record_key.startswith(audit_records[i]["RECORD_ID"] + "||"):
+                        features = features_by_record[record_key]
+                        break
+            audit_records[i]["FEATURES"] = features
+            ftypes_used.extend(list(features.keys()))
+        ftypes_used = sorted(set(ftypes_used), key=lambda k: sz_pretty.ftype_code_order[k])
 
         tbl = sz_pretty_table()
-        tbl.title = f'Audit Result ID {audit_records[0]["audit_id"]} {audit_records[0]["audit_category"]}'
+        tbl.title = f'Audit Result ID {audit_records[0]["AUDIT_ID"]} {audit_records[0]["AUDIT_CATEGORY"]}'
         tbl.columns = [
             {"name": "DataSource", "width": 30, "align": "left"},
             {"name": "Record ID", "width": 30, "align": "left"},
@@ -512,48 +476,32 @@ class EDAReports:
             "ENTITY_COLOR": "entity_color" if use_color else None,
             "NEW POSITIVE": self.audit_colors["MERGE"] if use_color else None,
             "NEW NEGATIVE": self.audit_colors["SPLIT"] if use_color else None,
-            "MISSING": self.audit_colors["unknown"] if use_color else None,
+            "MISSING": "CAUTION" if use_color else None,
         }
 
         tbl.rows = []
         for audit_record in sorted(
-            audit_records, key=lambda k: [sort_order[k["audit_result"]], str(k["prior_id"]), k["newer_id"]]
+            audit_records, key=lambda k: [sort_order[k["AUDIT_RESULT"]], str(k["PRIOR_ID"]), k["NEWER_ID"]]
         ):
-            result_color = local_colors.get(audit_record["audit_result"].upper(), "bold") if use_color else None
+            result_color = local_colors.get(audit_record["AUDIT_RESULT"].upper(), "bold") if use_color else None
             row = [
-                colorize(audit_record.get("data_source", ""), local_colors["DSRC_COLOR"]),
-                audit_record["record_id"],
-                audit_record["prior_id"],
-                audit_record["prior_score"],
-                colorize(audit_record["newer_id"], local_colors["ENTITY_COLOR"]),
-                audit_record["newer_score"],
-                colorize(audit_record["audit_result"], result_color),
+                colorize(audit_record.get("DATA_SOURCE", ""), local_colors["DSRC_COLOR"]),
+                audit_record["RECORD_ID"],
+                audit_record["PRIOR_ID"],
+                audit_record["PRIOR_SCORE"],
+                colorize(audit_record["NEWER_ID"], local_colors["ENTITY_COLOR"]),
+                audit_record["NEWER_SCORE"],
+                colorize(audit_record["AUDIT_RESULT"], result_color),
             ]
-
-            if audit_record.get("DATA_SOURCE"):
-                matching_records = [
-                    x
-                    for x in record_list
-                    if x["RECORD_ID"] == audit_record["record_id"] and x["DATA_SOURCE"] == audit_record["data_source"]
-                ]
-            else:
-                matching_records = [x for x in record_list if x["RECORD_ID"] == audit_record["record_id"]]
-            matching_features = matching_records[0]["FEATURES_BY_TYPE"] if len(matching_records) == 1 else {}
-
-            for ftype_id in ftypes_used:
-                if matching_features.get(ftype_id):
-                    row.append("\n".join([x["FEAT_DESC"] for x in matching_features[ftype_id]]))
-                else:
-                    row.append("")
+            for ftype_code in ftypes_used:
+                row.append("\n".join([x["FEAT_DESC"] for x in audit_record["FEATURES"].get(ftype_code, [])]))
             tbl.rows.append(row)
 
         if not use_color:  # if exporting report
             return tbl.columns, tbl.rows
         return tbl.render_table()
 
-
     def audit_summary(self, arg):
-
         if not self.audit_data:
             print_message("Please load a json file created with sz_audit to view this report", "warning")
             return
@@ -561,12 +509,12 @@ class EDAReports:
         tbl = sz_pretty_table()
         tbl.title = f"Audit Summary from {self.audit_file}"
         tbl.columns = [
-            {"name": "Statistic1", "width": 25, "align": "left"},
+            {"name": tbl.hide_last_char("Statistic1"), "width": 25, "align": "left"},
             {"name": "Entities", "width": 25, "align": "right"},
-            {"name": "Pairs1", "width": 25, "align": "right"},
-            {"name": "Statistic2", "width": 25, "align": "left"},
-            {"name": "Pairs2", "width": 25, "align": "right"},
-            {"name": "Statistic3", "width": 25, "align": "left"},
+            {"name": tbl.hide_last_char("Pairs1"), "width": 25, "align": "right"},
+            {"name": tbl.hide_last_char("Statistic2"), "width": 25, "align": "left"},
+            {"name": tbl.hide_last_char("Pairs2"), "width": 25, "align": "right"},
+            {"name": tbl.hide_last_char("Statistic3"), "width": 25, "align": "left"},
             {"name": "Accuracy", "width": 25, "align": "right"},
         ]
         tbl.rows = []
@@ -605,7 +553,13 @@ class EDAReports:
         )
         report_table = tbl.render_table()
 
-        report_data = self.audit_data["AUDIT"]
+        report_data = {}
+        for category in self.audit_data["AUDIT"]:
+            report_data[category] = {
+                "COUNT": self.audit_data["AUDIT"][category]["COUNT"],
+                "MATCH_KEY": self.audit_data["AUDIT"][category]["SUB_CATEGORY"]
+            }    
+
         tbl = sz_pretty_table()
         tbl.title = f"Review categories ..."
         tbl.columns = [
@@ -621,16 +575,15 @@ class EDAReports:
             tbl.rows.append(
                 [
                     row_num,
-                    colorize(category, "highlight2"),
+                    colorize(category, self.audit_colors.get(category, "caution")),
                     fmt_statistic(count),
-                ]
-            )
+                ])
         report_table += "\n" + tbl.render_table()
         
-        select_levels = ["CATEGORY", "SUB_CATEGORY"]
+        select_levels = ["CATEGORY", "MATCH_KEY"]
         self.drill_into(report_table, report_data, select_levels)
 
-    def generate_esb(self):
+    def entity_size_breakdown(self):
         self.check_for_snapshot()
         report_data = {}
         for str_entity_size in sorted(self.snapshot_data["ENTITY_SIZES"].keys(), key=lambda k: int(k)):
@@ -690,7 +643,7 @@ class EDAReports:
         select_levels = ["ENTITY_SIZE_GROUP"]
         self.drill_into(report_table, report_data, select_levels)
 
-    def generate_dss(self):
+    def data_source_summary(self):
         self.check_for_snapshot()
         report_data = {}
         tbl = sz_pretty_table()
@@ -742,7 +695,7 @@ class EDAReports:
         select_levels = ["DATA_SOURCE", "MATCH_LEVEL", "MATCH_KEY"]
         self.drill_into(report_table, report_data, select_levels)
 
-    def generate_css(self, data_source_filter=None):
+    def cros_source_summary(self, data_source_filter=None):
         self.check_for_snapshot()
         report_data = {}
         tbl = sz_pretty_table()
@@ -793,7 +746,7 @@ class EDAReports:
         select_levels = ["DATA_SOURCES", "MATCH_LEVEL", "MATCH_KEY"]
         self.drill_into(report_table, report_data, select_levels)
 
-    def generate_mss(self, data_source_filter=None):
+    def multi_source_summary(self, data_source_filter=None):
         self.check_for_snapshot()
         report_data = {}
         tbl = sz_pretty_table()
@@ -824,7 +777,7 @@ class EDAReports:
         select_levels = ["DATA_SOURCES"]
         self.drill_into(report_table, report_data, select_levels)
 
-    def generate_pur(self):
+    def principles_used_report(self):
         self.check_for_snapshot()
         report_data = {}
         report_segment = self.snapshot_data["TOTALS"]
@@ -866,11 +819,16 @@ class EDAReports:
         select_levels = ["MATCH_LEVEL", "PRINCIPLE", "MATCH_KEY"]
         self.drill_into(report_table, report_data, select_levels)
 
-    def fmt_match_key_category(self, key):
-        errule_code, match_key = key.split("||")
+    def fmt_match_key_category(self, key, **kwargs):
+        sep = kwargs.get("no_rule", "\n ")
+        if "||" in key:
+            errule_code, match_key = key.split("||")
+        else:
+            errule_code = ""
+            match_key = key
         if not errule_code:
-            return match_key
-        return f"{colorize_match_key(match_key)}\n  {colorize(errule_code, 'dim')}"
+            return colorize_match_key(match_key) if '+' in match_key else match_key
+        return f"{colorize_match_key(match_key)}{sep}{colorize(errule_code, 'dim')}"
 
     def drill_into(self, report_table, report_data, select_levels):
         report_levels = [[report_table, report_data, select_levels[0], ""]]
@@ -886,7 +844,7 @@ class EDAReports:
                     {"name": "count", "width": 10, "align": "right"},
                 ]
                 row_num = 0
-                if select_level == "MATCH_KEY":
+                if select_level in ("MATCH_KEY"):
                     keys = sorted(select_data.keys(), key=lambda k: select_data[k]["COUNT"], reverse=True)
                     summarized_match_key = 1
                     summarized_data = {}
@@ -954,7 +912,7 @@ class EDAReports:
                 if select_level.startswith("DATA_SOURCE"):
                     prior_key = colorize_dsrc(selected_key)
                 elif select_level == "MATCH_KEY":
-                    prior_key = self.fmt_match_key_category(selected_key)
+                    prior_key = self.fmt_match_key_category(selected_key, sep=" ")
                 elif isinstance(selected_key, int):
                     prior_key = f"{select_level} {selected_key}"
                 else:
@@ -1008,7 +966,7 @@ class EDAReports:
             item_header = colorize(f"Sample {current_index + 1} of {list_count} in {list_header}", "bold")
             #debug_print(list_records[current_index])
             if isinstance(list_records[current_index], list): # from audit_summary
-                entity_list = set([x["newer_id"] for x in list_records[current_index]])
+                entity_list = list(set([x["NEWER_ID"] for x in list_records[current_index]]))
                 report = self.show_audit_sample(list_records[current_index])
             else:
                 if isinstance(list_records[current_index], dict): # from entity_size breakdown
@@ -1031,102 +989,83 @@ class EDAReports:
                     report = sz_pretty.compare_entities(entity_list)
             view_report(report, no_scroll=True, extra_header=item_header)
 
-            # if return_code != 0:
-            #    print_message("This entity no longer exists", "error")
-
-            while True:
-                if len(entity_list) == 1:
-                    prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                    special_actions = "DHWE"
-                else:
-                    prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                    special_actions = "WE"
-                reply = input(colorize_prompt(prompt))
-                if reply:
-                    remove_from_history()
-                    if reply.isdigit():
-                        reply = "G" + reply
-                else:
-                    reply = "N"
-
-                if reply.upper().startswith("Q"):
-                    break
-                elif reply.upper() == "S":
-                    scroll(report)
-                elif reply.upper()[0] in "PNG":  # previous, next, goto
-                    current_index = self.move_pointer(reply, current_index, list_count)
-                    break
-                elif reply.upper().startswith("W") and "W" in special_actions:
-                    if len(entity_list) == 1:
-                        report = sz_pretty.why_how(entity_list[0])
-                    elif len(entity_list) == 2:
-                        report = sz_pretty.why_not(entity_list)
-                    else:
-                        report = sz_pretty.why_not_many(entity_list)
-                    view_report(report)
-
-                # elif reply.upper().startswith("H"):
-                #     self.do_how(",".join(current_records))
-                #     break
-                # elif reply.upper().startswith("E"):
-                #     self.export_report_sample(
-                #         reply,
-                #         current_records,
-                #         f"{'-'.join(current_records)}.json",
-                #     )
+            if len(entity_list) == 1:
+                prompt = "Select (P)revious, (N)ext, (G)oto, (H)ow, (E)xport, (S)croll, (Q)uit ..."
+                special_actions = "DHE"
+            else:
+                prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
+                special_actions = "WE"
+            for char in "PNGDHWEQCFSO":
+                prompt = prompt.replace(f"({char})", f"({Colors.apply(char, 'bold')})")
+            reply = input(prompt)
+            if reply:
+                remove_from_history()
+                if reply.isdigit():
+                    reply = "G" + reply
+            else:
+                reply = "N"
 
             if reply.upper().startswith("Q"):
                 break
-
-    def move_pointer(self, reply, current_item, max_items):
-        """moves the sample record pointer for all reports"""
-        if reply.upper().startswith("P"):  # previous
-            if current_item == 0:
-                input("\nNo prior records, press enter to continue")
-            else:
-                return current_item - 1
-        elif reply.upper().startswith("N"):  # next
-            if current_item == max_items - 1:
-                input("\nno more records, press enter to continue")
-            else:
-                return current_item + 1
-        elif reply.upper().startswith("G"):  # goto
-            reply = reply[1:]
-            if not reply:
-                reply = input("\nSample item number to go to? ")
-                if reply:
-                    remove_from_history()
-            if reply:
-                if reply.isnumeric() and int(reply) > 0 and int(reply) <= max_items:
-                    return int(reply) - 1
+            elif reply.upper() == "S":
+                scroll(report)
+            elif reply.upper().startswith("P"):
+                if current_index == 0:
+                    input("\nNo prior records, press enter to continue\n")
                 else:
-                    print_message("Invalid sample item number for this sample set!", "warning")
-        return current_item
+                    current_index = current_index - 1
+            elif reply.upper().startswith("N"):
+                if current_index == list_count - 1:
+                    input("\nNo more records, press enter to continue\n")
+                else:
+                    current_index =  current_index + 1
+            elif reply.upper().startswith("G"):
+                reply = reply[1:]
+                if not reply:
+                    reply = input("\nSample item number to go to? ")
+                    if reply:
+                        remove_from_history()
+                if reply:
+                    if reply.isnumeric() and int(reply) > 0 and int(reply) <= list_count:
+                        current_index = int(reply) - 1
+                    else:
+                        input("\nInvalid item number, press enter to continue\n")
+            elif reply.upper().startswith("W") and "W" in special_actions:
+                if len(entity_list) == 1:
+                    report = sz_pretty.why_how(entity_list[0]) # should not hit this
+                elif len(entity_list) == 2:
+                    report = sz_pretty.why_not(entity_list)
+                else:
+                    report = sz_pretty.why_how(entity_list[0])
+                view_report(report)
+            elif reply.upper().startswith("H") and "H" in special_actions:
+                view_report(sz_pretty.why_how(entity_list[0]))
+            elif reply.upper().startswith("E"):
+                additive = False
+                file_name = f"{'-'.join(entity_list)}.jsonl"
+                token_list = reply.split()
+                for i in range(len(token_list)):
+                    if token_list[i].lower() == "additive":
+                        additive = True
+                    elif token_list[i].lower() == "to" and i < len(token_list)-1:
+                        file_name = token_list[i+1]
+                json_lines = sz_pretty.export_records(entity_list, degree=0)
+                if json_lines:
+                    with open(file_name, 'a' if additive else 'w') as f:
+                        f.write('\n'.join(json_lines))
+                    input(f"\n{len(json_lines)} records written to {file_name}, press enter to continue\n")
 
 
 class sz_pretty_sdk:
-    def __init__(self, engine_config, debug_trace, debug_api):
-        self.debug_api = debug_api
+    def __init__(self, engine_config, debug_trace):
         try:
             self.sz_factory = SzAbstractFactory(MODULE_NAME, engine_config, verbose_logging=debug_trace)
-
-            # self.sz_factory = SzAbstractFactory(MODULE_NAME, engine_config, verbose_logging=debug_trace)
-            # self.sz_configmgr = self.sz_factory.create_configmanager()
-            # self.sz_diagnostic = self.sz_factory.create_diagnostic()
-            # self.sz_engine = self.sz_factory.create_engine()
-            # self.sz_product = self.sz_factory.create_product()
-            # default_config_id = self.sz_configmgr.get_default_config_id()
-            # default_config_doc = self.sz_configmgr.get_config(default_config_id)
-            # self.sdk_version = json.loads(self.sz_product.get_version())
-            # sz_config_data = json.loads(default_config_doc)
-
             self.sz_engine = self.sz_factory.create_engine()
             self.sz_diagnostic = self.sz_factory.create_diagnostic()
             sz_product = self.sz_factory.create_product()
             self.sdk_version = json.loads(sz_product.get_version())
             sz_configmgr = self.sz_factory.create_configmanager()
             sz_config_data = json.loads(sz_configmgr.get_config(sz_configmgr.get_default_config_id()))
-
         except SzError as err:
             raise Exception(err)
 
@@ -1187,17 +1126,36 @@ class sz_pretty_sdk:
             "POSSIBLY_RELATED": "Possibly related",
             "DISCLOSED_RELATION": "Disclosed relation",
         }
+        self.last_command = None
+        self.last_call_cache = []
 
-    def call_sdk(
-        self,
-        api_name: str,
-        flags: List[str],
-        parms: Union[List[Union[str, int]], int, str],
-    ) -> Dict[str, Any]:
-        """# TODO"""
+    def begin_call_cache(self, cmd):
+        self.last_command = cmd
+        self.last_call_cache = []
+        
+    def export_call_cache(self):
+        report = ""
+        for caller, api_name, flags, parms, response_data in self.last_call_cache:
+            report = f"\nCOMMAND RUN: {self.last_command}\n\n"
+            parm_list = []
+            for parm in parms:
+                if str(parm).startswith("{"):
+                    parm_list.append(f"\n{json.dumps(json.loads(parm), indent=4)}")
+                else:
+                    parm_list.append(str(parm))
+            report += f"call: {api_name}({", ".join(parm_list)})\n"
+            if flags:
+                report += "flags:\n"
+                for flag in flags:
+                    report += f"\t{flag}\n"
+            report += "response:\n"
+            report += json.dumps(response_data, indent=4)
+
+        return report
+        
+    def call_sdk(self, api_name: str, flags: List[str], parms: Union[List[Union[str, int]], int, str]) -> Dict[str, Any]:
         parms = parms if isinstance(parms, list) else [parms]
         caller = inspect.stack()[1].function
-
         try:
             flags_int = SzEngineFlags.combine_flags(flags)
             parms.append(flags_int)
@@ -1207,8 +1165,8 @@ class sz_pretty_sdk:
         except SzError as err:
             raise SzError(f"Called by {caller}: Sz sdk method {api_name} - {err}") from None
 
-        if self.debug_api:
-            print(f"{caller}\n{api_name}\n\t{'/n/t'.join(flags)}\n{json.dumps(response_data, indent=4)}")
+        if self.last_command:
+            self.last_call_cache.append([caller, api_name, flags, parms, response_data])
 
         return response_data
 
@@ -1333,7 +1291,6 @@ class sz_pretty_sdk:
         return entities
 
     def get_why_key(self, match_info):
-        #debug_print(match_info)
         if "MATCH_KEY" in match_info:
             return match_info
         why_key = {
@@ -1393,7 +1350,6 @@ class sz_pretty_sdk:
 
         return search_json
 
-    # ---------------------------
     def get_how_data(self, how_data, entity_data):
         entity_features = self.get_entity_features(entity_data["RESOLVED_ENTITY"]["FEATURES"])["BY_ID"]
         entity_records = entity_data["RESOLVED_ENTITY"]["RECORDS"]
@@ -1666,12 +1622,10 @@ class sz_pretty_sdk:
         return "\n".join(display_list)
 
     def fmt_match_key(self, match_data, **kwargs):
-        debug_print(match_data)
         sep = kwargs.get("sep", "\n")
         colored_key = ""
         if match_data.get("MATCH_KEY"):
             colored_key = colorize_match_key(match_data["MATCH_KEY"])
-        #colored_rule = ""
         if match_data.get("ERRULE_CODE"):
             if ":" in match_data["ERRULE_CODE"]:
                 colored_rule = colorize(f'Principle {match_data["ERRULE_CODE"]}', "dim")
@@ -1684,7 +1638,7 @@ class sz_pretty_sdk:
                 colored_key = colored_rule
             else:
                 colored_key += f"{sep} {colored_rule}"
-        if not colored_key:
+        if not colored_key and "ANY_CANDIDATES" in match_data:
             if match_data.get("ANY_CANDIDATES", 0) == 0:
                 colored_key = colorize("No candidates", "bad")
             else:
@@ -1692,7 +1646,6 @@ class sz_pretty_sdk:
                 
         return colored_key
 
-    # ---------------------------
     def fmt_match_group(self, match_category, match_key, **kwargs):
         match_key = match_key.replace(" (Ambiguous)", "")
         rel_keys = []
@@ -2261,7 +2214,6 @@ class sz_pretty_sdk:
 
         return tbl.render_table()
 
-    # ---------------------------
     def why_records(self, entity_list):
         whyFlagList = [
             "SZ_WHY_ENTITIES_DEFAULT_FLAGS",
@@ -2318,7 +2270,6 @@ class sz_pretty_sdk:
         row1_title = "INTERNAL_ID"
         return self.why_display(entity_data, row1_title, tbl_title)
 
-    # ---------------------------
     def why_not(self, entity_list):
         entity_list = [int(x) for x in entity_list]
         why_flag_list = ["SZ_WHY_ENTITIES_DEFAULT_FLAGS"]
@@ -2454,20 +2405,43 @@ class sz_pretty_sdk:
 
         return self.why_display(entities, row1_title, tbl_title)
 
-
-# -----------------------
-# colorizers
-# -----------------------
-
-
-def colorize_prompt(prompt_str, auto_scroll="off"):
-    # this is effectively off until the auto scroll parameter gets passed
-    #  otherwise colorized tags causes word wrapping
-    # example prompt: (P)revious, (N)ext, (G)oto, (D)etail, (H)ow, (W)hy, (E)xport, (Q)uit
-    if auto_scroll == "on":
-        for str1 in "PNGDHWEQCFSO":
-            prompt_str = prompt_str.replace(f"({str1})", f"({Colors.apply(str1, 'bold')})")
-    return prompt_str
+    # -------------------
+    # other
+    # -------------------
+    
+    def export_records(self, entity_list, **kwargs):
+        max_degree = kwargs.get("degree", 0)
+        get_flag_list = [
+            "SZ_ENTITY_INCLUDE_RECORD_DATA",
+            "SZ_ENTITY_INCLUDE_RECORD_JSON_DATA",
+        ]
+        if max_degree > 0:
+            get_flag_list.append("SZ_ENTITY_INCLUDE_ALL_RELATIONS")
+        current_degree = 0
+        current_entity_list = entity_list
+        exported_entity_list = []
+        record_list = []
+        while current_degree <= max_degree:
+            next_entity_list = []
+            for entity_id in current_entity_list:
+                exported_entity_list.append(entity_id)
+                try:
+                    json_data = self.call_sdk("get_entity_by_entity_id", get_flag_list, int(entity_id))
+                except SzError as err:
+                    print_message(err, "error")
+                    continue
+                record_list.extend([json.dumps(x["JSON_DATA"]) for x in json_data["RESOLVED_ENTITY"]["RECORDS"]])
+                if "RELATED_ENTITIES" in json_data:
+                    for related_data in json_data["RELATED_ENTITIES"]:
+                        related_id = related_data["ENTITY_ID"]
+                        if related_id not in exported_entity_list + next_entity_list:
+                            next_entity_list.append(related_id)
+            current_degree += 1
+            if next_entity_list:
+                current_entity_list = next_entity_list
+            else:
+                break
+        return record_list
 
 
 class G2CmdShell(cmd.Cmd):
@@ -2649,19 +2623,16 @@ class G2CmdShell(cmd.Cmd):
         else:
             cmd.Cmd.do_help(self, help_topic)
 
-    # ---------------------------
     def help_knowledgeCenter(self):
         print(
             f"\nSenzing Knowledge Center: {colorize('https://senzing.zendesk.com/hc/en-us', 'highlight2, underline')}\n"
         )
 
-    # ---------------------------
     def help_support(self):
         print(
             f"\nSenzing Support Request: {colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight2, underline')}\n"
         )
 
-    # ---------------------------
     # TODO - Ant - Use from helpers
     def histCheck(self):
 
@@ -2701,7 +2672,6 @@ class G2CmdShell(cmd.Cmd):
                 self.histFileError = None
                 self.histAvail = True
 
-    # ---------------------------
     # TODO - Ant - Use from helpers
     def do_history(self, arg):
 
@@ -2713,7 +2683,6 @@ class G2CmdShell(cmd.Cmd):
         else:
             print_message("History isn't available in this session", "warning")
 
-    # ---------------------------
     # TODO - Ant - Use from helpers
     def do_shell(self, line):
         """\nRun OS shell commands: !<command>\n"""
@@ -2721,7 +2690,6 @@ class G2CmdShell(cmd.Cmd):
             output = os.popen(line).read()
             print(f"\n{output}\n")
 
-    # ---------------------------
     def help_set(self):
         print(
             textwrap.dedent(
@@ -2743,7 +2711,6 @@ class G2CmdShell(cmd.Cmd):
             )
         print()
 
-    # ---------------------------
     def complete_set(self, text, line, begidx, endidx):
         before_arg = line.rfind(" ", 0, begidx)
         arg = line[before_arg + 1 : endidx]
@@ -2758,7 +2725,6 @@ class G2CmdShell(cmd.Cmd):
                     possibles = setting_data["values"]
         return [i for i in possibles if i.lower().startswith(arg.lower())]
 
-    # ---------------------------
     def do_set(self, arg):
         if not arg:
             self.help_set()
@@ -2782,11 +2748,9 @@ class G2CmdShell(cmd.Cmd):
         if arg_list[0] == "color_scheme":
             Colors.set_theme(arg_list[1])
 
-    # ---------------------------
     def do_version(self, arg):
         print(f"\nSenzing api version is: {sz_pretty.sdk_version['BUILD_VERSION']}\n")
 
-    # ---------------------------
     def help_load(self):
         print(
             textwrap.dedent(
@@ -2800,7 +2764,6 @@ class G2CmdShell(cmd.Cmd):
             )
         )
 
-    # ---------------------------
     def do_load(self, arg):
         try:
             self.eda_reports.load_file(arg)
@@ -2814,7 +2777,6 @@ class G2CmdShell(cmd.Cmd):
                 self.current_settings["audit_json_file"] = arg
             print_message(f"successfully loaded {arg}", "info")
 
-    # ---------------------------
     def complete_load(self, text, line, begidx, endidx):
         before_arg = line.rfind(" ", 0, begidx)
         if before_arg == -1:
@@ -2824,15 +2786,13 @@ class G2CmdShell(cmd.Cmd):
         pattern = arg + "*"
         completions = []
         for path in glob.glob(pattern):
-            path = _append_slash_if_dir(path)
+            #path = _append_slash_if_dir(path)
             completions.append(path.replace(fixed, "", 1))
         return completions
 
-    # ---------------------------
     def help_quickLook(self):
         print("\nDisplays current data source stats without a snapshot\n")
 
-    # ---------------------------
     def do_quickLook(self, arg):
         if not sz_dbo:
             print_message(f"Direct database access is required, database drivers must be installed", "error")
@@ -2876,40 +2836,9 @@ class G2CmdShell(cmd.Cmd):
             )
         view_report(tbl.render_table())
 
-    # ---------------------------
-    # support for reports
-    # ---------------------------
-
-    def move_pointer(self, reply, current_item, max_items):
-        """moves the sample record pointer for all reports"""
-        if reply.upper().startswith("P"):  # previous
-            if current_item == 0:
-                input("\nNo prior records, press enter to continue")
-            else:
-                return current_item - 1
-        elif reply.upper().startswith("N"):  # next
-            if current_item == max_items - 1:
-                input("\nno more records, press enter to continue")
-            else:
-                return current_item + 1
-        elif reply.upper().startswith("G"):  # goto
-            reply = reply[1:]
-            if not reply:
-                reply = input("\nSample item number to go to? ")
-                if reply:
-                    remove_from_history()
-            if reply:
-                if reply.isnumeric() and int(reply) > 0 and int(reply) <= max_items:
-                    return int(reply) - 1
-                else:
-                    print_message("Invalid sample item number for this sample set!", "warning")
-        return current_item
-
-    def export_report_sample(self, reply, currentRecords, fileName):
-        if "TO " in reply.upper():
-            fileName = reply[reply.upper().find("TO") + 2 :].strip()
-        if fileName:
-            self.do_export(",".join(currentRecords) + " to " + fileName)
+    def lastCall(self, arg):
+        view_report(sz_pretty.export_call_cache())
+        return
 
     # ---------------------------
     # audit summary report
@@ -2923,30 +2852,11 @@ class G2CmdShell(cmd.Cmd):
         Displays audit statistics and examples.
 
         {colorize('Syntax:', 'highlight2')}
-            auditSummary                        {colorize('with no parameters displays the overall stats', 'dim')}
-            auditSummary merge                  {colorize('shows a list of merge sub-categories', 'dim')}
-            auditSummary merge 1                {colorize('shows examples of merges in sub-category 1', 'dim')}
-            auditSummary split                  {colorize('shows a list of split sub-categories', 'dim')}
-            auditSummary split 1                {colorize('shows examples of splits in sub-category 1', 'dim')}
-            auditSummary save to <filename.csv> {colorize('saves the entire audit report to a csv file', 'dim')}
-
+            auditSummary
         """
             )
         )
 
-    # ---------------------------
-    def complete_auditSummary(self, text, line, begidx, endidx):
-        before_arg = line.rfind(" ", 0, begidx)
-        arg = line[before_arg + 1 : endidx]
-        spaces = line.count(" ")
-        if spaces <= 1:
-            possibles = []
-            if self.audit_data:
-                for category in self.audit_data["AUDIT"]:
-                    possibles.append(category)
-        else:
-            possibles = []
-        return [i for i in possibles if i.lower().startswith(arg.lower())]
 
     # ---------------------------
     def do_auditSummary(self, arg):
@@ -2956,365 +2866,6 @@ class G2CmdShell(cmd.Cmd):
             print_exception_info()
         return
             
-        if not self.audit_data:
-            print_message("Please load a json file created with sz_audit to view this report", "warning")
-            return
-        elif not self.audit_data["ENTITY"].get("PRIOR_COUNT"):
-            print_message(
-                "Prior version audit file detected.  Please review with the prior version or re-create for this one.",
-                "warning",
-            )
-            return
-        if not arg:
-            self.audit_summary_stats()
-        elif arg.upper().startswith("SAVE"):
-            self.audit_summary_save(arg)
-        else:
-            self.audit_summary_category(arg)
-
-    def audit_summary_stats(self):
-        audit_categories = []
-        category_order = {"MERGE": 0, "SPLIT": 1, "SPLIT+MERGE": 2}
-        for category in sorted(
-            self.audit_data["AUDIT"].keys(), key=lambda x: category_order[x] if x in category_order else 9
-        ):
-            category_color = self.audit_colors.get(category, self.audit_colors.get("unknown"))
-            category_data = [
-                colorize(category, category_color),
-                colorize(fmt_statistic(self.audit_data["AUDIT"][category]["COUNT"]), "bold"),
-            ]
-            audit_categories.append(category_data)
-        while len(audit_categories) < 3:
-            audit_categories.append(["", 0])
-
-        # show records or pairs
-        if self.current_settings["audit_measure"] == "pairwise":
-            audit_measure = "PAIRS"
-            audit_header = "Pairs"
-        else:
-            audit_measure = "RECORDS"
-            audit_header = "Matches"
-
-        tbl.title = f"Audit Summary from {self.audit_file}"
-        tbl.columns = [
-            {"name": "Statistic1", "width": 25, "align": "left"},
-            {"name": "Entities", "width": 25, "align": "right"},
-            {"name": audit_header, "width": 25, "align": "right"},
-            {"name": colorize("-", "invisible"), "width": 5, "align": "center"},
-            {"name": "Statistic2", "width": 25, "align": "left"},
-            {"name": "Accuracy", "width": 25, "align": "right"},
-        ]
-        tbl.rows = []
-        tbl.rows.append(
-            [
-                colorize("Prior Count", "highlight2"),
-                fmt_statistic(self.audit_data["ENTITY"].get("PRIOR_COUNT", -1)),
-                fmt_statistic(self.audit_data[audit_measure].get("PRIOR_COUNT", -1)),
-                "",
-                colorize("Same Positives", "highlight2"),
-                colorize(fmt_statistic(self.audit_data[audit_measure]["SAME_POSITIVE"]), None),
-            ]
-        )
-        tbl.rows.append(
-            [
-                colorize("Newer Count", "highlight2"),
-                fmt_statistic(self.audit_data["ENTITY"].get("NEWER_COUNT", -1)),
-                fmt_statistic(self.audit_data[audit_measure].get("NEWER_COUNT", -1)),
-                "",
-                colorize("New Positives", self.audit_colors["MERGE"]),
-                colorize(fmt_statistic(self.audit_data[audit_measure]["NEW_POSITIVE"]), None),
-            ]
-        )
-        tbl.rows.append(
-            [
-                colorize("Common Count", "highlight2"),
-                fmt_statistic(self.audit_data["ENTITY"].get("COMMON_COUNT", -1)),
-                fmt_statistic(self.audit_data[audit_measure].get("COMMON_COUNT", -1)),
-                "",
-                colorize("New Negatives", self.audit_colors["SPLIT"]),
-                colorize(fmt_statistic(self.audit_data[audit_measure]["NEW_NEGATIVE"]), None),
-            ]
-        )
-        tbl.rows.append(
-            [
-                audit_categories[0][0],
-                audit_categories[0][1],
-                "",
-                "",
-                colorize("Precision", "highlight2"),
-                colorize(self.audit_data[audit_measure]["PRECISION"], None),
-            ]
-        )
-        tbl.rows.append(
-            [
-                audit_categories[1][0],
-                audit_categories[1][1],
-                "",
-                "",
-                colorize("Recall", "highlight2"),
-                colorize(self.audit_data[audit_measure]["RECALL"], None),
-            ]
-        )
-        tbl.rows.append(
-            [
-                audit_categories[2][0],
-                audit_categories[2][1],
-                "",
-                "",
-                colorize("F1 Score", "highlight2"),
-                colorize(self.audit_data[audit_measure]["F1-SCORE"], None),
-            ]
-        )
-        # add any extra categories (which will occur if there were missing records)
-        if len(audit_categories) > 3:
-            i = 3
-            while i < len(audit_categories):
-                tbl.rows.append([audit_categories[i][0], audit_categories[i][1], "", "", "", ""])
-                i += 1
-        tbl.render_table()
-
-    def audit_summary_save(self, arg):
-        if not " " in arg:
-            print_message("Please specify a file name and path", "error")
-            return
-        file_name = arg.split()[-1]
-
-        file_headers = ["category", "sub_category", "audit_id"]
-        file_rows = []
-        row_cnt = 0
-        for category in self.audit_data["AUDIT"]:
-            for sub_category in self.audit_data["AUDIT"][category]["SUB_CATEGORY"]:
-                for sample_records in self.audit_data["AUDIT"][category]["SUB_CATEGORY"][sub_category]["SAMPLE"]:
-                    table_columns, table_data = self.showAuditSample(sample_records, False)
-                    record_headers = []
-                    for column_dict in table_columns:
-                        column_name = column_dict["name"].lower()
-                        if column_name not in record_headers:
-                            record_headers.append(column_name)
-                        if column_name not in file_headers:
-                            file_headers.append(column_name)
-                    for record_data in table_data:
-                        row_data = dict(zip(record_headers, record_data))
-                        row_data["category"] = category
-                        row_data["sub_category"] = sub_category
-                        row_data["audit_id"] = sample_records[0]["audit_id"]
-                        file_rows.append(row_data)
-                        row_cnt += 1
-                        if row_cnt % 1000 == 0:
-                            print(f"{row_cnt} records processed")
-
-        with open(file_name, "w", encoding="utf-8") as f:
-            w = csv.DictWriter(f, file_headers, dialect=csv.excel, quoting=csv.QUOTE_ALL)
-            w.writeheader()
-            w.writerows(file_rows)
-        print_message(f"{row_cnt} records written to {file_name}!", "success")
-
-    def audit_summary_category(self, arg):
-        arg_list = arg.upper().split()
-        if arg_list[0] not in self.audit_data["AUDIT"]:
-            print_message(f"{arg} not found, please choose a valid split or merge category", "error")
-            return
-
-        category = arg_list[0]
-        category_color = self.audit_colors.get(category, self.audit_colors.get("unknown"))
-        i = 0
-        sub_category_list = []
-        for sub_category in sorted(
-            self.audit_data["AUDIT"][category]["SUB_CATEGORY"],
-            key=lambda x: self.audit_data["AUDIT"][category]["SUB_CATEGORY"][x]["COUNT"],
-            reverse=True,
-        ):
-
-            i += 1
-            if i <= 10:
-                sub_category_list.append(
-                    {
-                        "INDEX": i,
-                        "NAME": sub_category,
-                        "LIST": [sub_category],
-                        "COUNT": self.audit_data["AUDIT"][category]["SUB_CATEGORY"][sub_category]["COUNT"],
-                    }
-                )
-            elif i == 11:
-                sub_category_list.append(
-                    {
-                        "INDEX": i,
-                        "NAME": "OTHERS",
-                        "LIST": [sub_category],
-                        "COUNT": self.audit_data["AUDIT"][category]["SUB_CATEGORY"][sub_category]["COUNT"],
-                    }
-                )
-            else:
-                sub_category_list[10]["LIST"].append(sub_category)
-                sub_category_list[10]["COUNT"] += self.audit_data["AUDIT"][category]["SUB_CATEGORY"][sub_category][
-                    "COUNT"
-                ]
-
-        if len(arg_list) == 1:
-            tbl.title = category + " Categories"
-            tbl.columns = [
-                {"name": "Index", "width": 10, "align": "center"},
-                {"name": "Category", "width": 25, "align": "left"},
-                {"name": "Sub-category", "width": 75, "align": "left"},
-                {"name": "Count", "width": 25, "align": "right"},
-            ]
-            tbl.rows = []
-            for sub_category_row in sub_category_list:
-                tbl.rows.append(
-                    [
-                        colorize(sub_category_row["INDEX"], "row_title"),
-                        colorize(category, category_color),
-                        sub_category_row["NAME"],
-                        fmt_statistic(sub_category_row["COUNT"]),
-                    ]
-                )
-            tbl.render_table()
-            return
-
-        # find the detail records to display
-        index_categories = []
-        if arg_list[1].isdigit():
-            for sub_category_row in sub_category_list:
-                if sub_category_row["INDEX"] == int(arg_list[1]):
-                    index_categories = sub_category_row["LIST"]
-                    break
-        if not index_categories:
-            print_message(f"Invalid subcategory for {arg_list[0].lower()}", "error")
-            return
-
-        sample_records = []
-        for sub_category in self.audit_data["AUDIT"][category]["SUB_CATEGORY"]:
-            if sub_category in index_categories:
-                sample_records += self.audit_data["AUDIT"][category]["SUB_CATEGORY"][sub_category]["SAMPLE"]
-
-        current_sample = 0
-        while True:
-            current_records = list(set([x["newer_id"] for x in sample_records[current_sample]]))
-            self.current_review_list = f"Item {current_sample + 1} of {len(sample_records)} for {arg_list[0]} category {arg_list[1]} - {sub_category_row['NAME']}"
-            self.showAuditSample(sample_records[current_sample], self.audit_colors)
-            while True:
-                if len(current_records) == 1:
-                    reply = input(
-                        colorize_prompt(
-                            "Select (P)revious, (N)ext, (G)oto, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ... "
-                        )
-                    )
-                    special_actions = "HWE"
-                else:
-                    reply = input(
-                        colorize_prompt("Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ... ")
-                    )
-                    special_actions = "WE"
-                if reply:
-                    remove_from_history()
-                else:
-                    reply = "N"
-                if reply.upper().startswith("Q"):
-                    break
-                elif reply.upper() == ("S"):
-                    self.do_scroll("")
-                elif reply.upper()[0] in "PNG":  # previous, next, goto
-                    current_sample = self.move_pointer(reply, current_sample, len(sample_records))
-                    break
-                elif reply.upper()[0] in special_actions:
-                    if reply.upper().startswith("W2"):
-                        self.do_why(",".join(current_records) + " old")
-                    elif reply.upper().startswith("W"):
-                        self.do_why(",".join(current_records))
-                    elif reply.upper().startswith("H"):
-                        self.do_how(",".join(current_records))
-                        break
-                    elif reply.upper().startswith("E"):
-                        self.export_report_sample(
-                            reply, current_records, f"auditSample-{sample_records[current_sample][0]['audit_id']}.json"
-                        )
-            if reply.upper().startswith("Q"):
-                break
-        self.current_review_list = None
-
-    # ---------------------------
-    def showAuditSample(self, arg, use_color=True):
-        audit_records = arg
-        entity_list = list(set([x["newer_id"] for x in audit_records]))
-        get_flag_list = ["SZ_ENTITY_INCLUDE_ALL_FEATURES", "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS"]
-        ftypes_used = []
-        record_list = []
-        entity_list = set([x["newer_id"] for x in audit_records])
-        for entity_id in entity_list:
-            if entity_id == "unknown":  # bypass missing
-                continue
-            try:
-                json_data = self.call_sdk("get_entity_by_entity_id", get_flag_list, int(entity_id))
-            except SzError as err:
-                print_message(err, "error")
-                continue
-
-            entity_features = self.get_entity_features(json_data["RESOLVED_ENTITY"]["FEATURES"])["BY_ID"]
-            for record in json_data["RESOLVED_ENTITY"]["RECORDS"]:
-                record["FEATURES_BY_TYPE"] = self.get_record_features(entity_features, record["FEATURES"])["BY_TYPE"]
-                record_list.append(record)
-                ftypes_used.extend(list(record["FEATURES_BY_TYPE"].keys()))
-        ftypes_used = sorted(set(ftypes_used))
-
-        tbl.title = f'Audit Result ID {audit_records[0]["audit_id"]} {audit_records[0]["audit_category"]}'
-        tbl.columns = [
-            {"name": "DataSource", "width": 30, "align": "left"},
-            {"name": "Record ID", "width": 30, "align": "left"},
-            {"name": "Prior ID", "width": 20, "align": "left"},
-            {"name": "Prior Score", "width": 75, "align": "left"},
-            {"name": "Newer ID", "width": 20, "align": "left"},
-            {"name": "Newer Score", "width": 75, "align": "left"},
-            {"name": "Audit result", "width": 10, "align": "left"},
-        ]
-        for ftype_id in ftypes_used:
-            ftype_code = self.ftype_lookup[ftype_id]["FTYPE_CODE"]
-            tbl.columns.append({"name": ftype_code, "width": 50, "align": "left"})
-
-        sort_order = {"same": 1, "new negative": 3, "new positive": 2, "missing": 4}
-        local_colors = {
-            "DSRC_COLOR": "dsrc_color" if use_color else None,
-            "ENTITY_COLOR": "entity_color" if use_color else None,
-            "NEW POSITIVE": self.audit_colors["MERGE"] if use_color else None,
-            "NEW NEGATIVE": self.audit_colors["SPLIT"] if use_color else None,
-            "MISSING": self.audit_colors["unknown"] if use_color else None,
-        }
-
-        tbl.rows = []
-        for audit_record in sorted(
-            audit_records, key=lambda k: [sort_order[k["audit_result"]], str(k["prior_id"]), k["newer_id"]]
-        ):
-            result_color = local_colors.get(audit_record["audit_result"].upper(), "bold") if use_color else None
-            row = [
-                colorize(audit_record.get("data_source", ""), local_colors["DSRC_COLOR"]),
-                audit_record["record_id"],
-                audit_record["prior_id"],
-                audit_record["prior_score"],
-                colorize(audit_record["newer_id"], local_colors["ENTITY_COLOR"]),
-                audit_record["newer_score"],
-                colorize(audit_record["audit_result"], result_color),
-            ]
-
-            if audit_record.get("DATA_SOURCE"):
-                matching_records = [
-                    x
-                    for x in record_list
-                    if x["RECORD_ID"] == audit_record["record_id"] and x["DATA_SOURCE"] == audit_record["data_source"]
-                ]
-            else:
-                matching_records = [x for x in record_list if x["RECORD_ID"] == audit_record["record_id"]]
-            matching_features = matching_records[0]["FEATURES_BY_TYPE"] if len(matching_records) == 1 else {}
-
-            for ftype_id in ftypes_used:
-                if matching_features.get(ftype_id):
-                    row.append("\n".join([x["FEAT_DESC"] for x in matching_features[ftype_id]]))
-                else:
-                    row.append("")
-            tbl.rows.append(row)
-
-        if not use_color:  # if exporting report
-            return tbl.columns, tbl.rows
-        tbl.render_table()
-
     # ---------------------------
     def help_entitySizeBreakdown(self):
         print(
@@ -3324,11 +2875,8 @@ class G2CmdShell(cmd.Cmd):
         Displays the number of entities by how many records they contain.
 
         {colorize('Syntax:', 'highlight2')}
-            entitySizeBreakdown                    {colorize('with no parameters displays the overall stats', 'dim')}
-            entitySizeBreakdown = 3                {colorize('use =, > or < # to select examples of entities of a certain size', 'dim')}
-            entitySizeBreakdown > 10 review        {colorize('to just browse the review items of entities greater than size 10', 'dim')}
-            entitySizeBreakdown = review name+addr {colorize('to just browse the name+addr review items of any size', 'dim')}
-
+            entitySizeBreakdown
+            
         {colorize('review items:', 'highlight2')}
             Review items are suggestions of records to look at because they contain multiple names, addresses, dobs, etc.
             They may be overmatches or they may just be large entities with lots of values.
@@ -3340,218 +2888,11 @@ class G2CmdShell(cmd.Cmd):
     # ---------------------------
     def do_entitySizeBreakdown(self, arg):
         try:
-            self.eda_reports.generate_esb()
+            self.eda_reports.entity_size_breakdown()
         except Exception as err:
             print_message(err, "error")
             #print_exception_info()
         return
-
-        if not self.snapshot_data:
-            print_message("Please load a json file created with sz_snaphot to access this report", "warning")
-            return
-        if not self.snapshot_data.get("ENTITY_SIZE_BREAKDOWN"):
-            self.compute_entitySizeBreakdown()
-
-        if not arg:
-            tbl.title = "Entity Size Breakdown from %s" % self.snapshot_file
-            tbl.columns = []
-            tbl.columns.append({"name": "Entity Size", "width": 10, "align": "center"})
-            tbl.columns.append({"name": "Entity Count", "width": 10, "align": "center"})
-            tbl.columns.append({"name": "Review Count", "width": 10, "align": "center"})
-            tbl.columns.append({"name": "Review Features", "width": 75, "align": "left"})
-            tbl.rows = []
-            for entity_size_data in sorted(
-                self.snapshot_data["ENTITY_SIZE_BREAKDOWN"], key=lambda k: k["ENTITY_SIZE"], reverse=True
-            ):
-                row = []
-                row.append(colorize(entity_size_data["ENTITY_SIZE_GROUP"], "row_title"))
-                row.append(fmt_statistic(entity_size_data["ENTITY_COUNT"]))
-                row.append(fmt_statistic(entity_size_data["REVIEW_COUNT"]))
-                row.append(" | ".join(colorize(x, "caution") for x in sorted(entity_size_data["REVIEW_FEATURES"])))
-                tbl.rows.append(row)
-            tbl.render_table()
-
-        else:
-            sign = "="
-            size = 0
-            review_tag = False
-            review_features = []
-            arg_list = arg.split()
-            for token in arg_list:
-                if token[0:2] in (">=", "<="):
-                    sign = token[0:2]
-                    if len(token) > 2 and token[2:].isnumeric():
-                        size = int(token[2:])
-                elif token[0:1] in (">", "<", "="):
-                    sign = token[0:1]
-                    if len(token) > 1 and token[1:].isnumeric():
-                        size = int(token[1:])
-                elif token.isnumeric():
-                    size = int(token)
-                elif token.upper() == "REVIEW":
-                    review_tag = True
-                else:
-                    review_features.append(token.upper())
-            if not size:
-                size = 1
-                sign = ">"
-
-            sample_records = []
-            for entity_size_data in self.snapshot_data["ENTITY_SIZE_BREAKDOWN"]:
-                if sign in ("=", ">=", "<=") and entity_size_data["ENTITY_SIZE"] == size:
-                    these_records = entity_size_data["SAMPLE_ENTITIES"]
-                elif sign in ("<", "<=") and entity_size_data["ENTITY_SIZE"] <= size:
-                    these_records = entity_size_data["SAMPLE_ENTITIES"]
-                elif sign in (">", ">=") and entity_size_data["ENTITY_SIZE"] >= size:
-                    these_records = entity_size_data["SAMPLE_ENTITIES"]
-                else:
-                    continue
-
-                if review_tag or review_features:
-                    review_records = []
-                    for entity_info in these_records:
-                        if "REVIEW_FEATURES" not in entity_info:
-                            continue
-                        if review_features:
-                            review_criteria_not_met = False
-                            for ftype_code in review_features:
-                                if ftype_code not in entity_info["REVIEW_FEATURES"]:
-                                    review_criteria_not_met = True
-                                    break
-                            if review_criteria_not_met:
-                                continue
-                        review_records.append(entity_info)
-                    these_records = review_records
-
-                sample_records.extend(these_records)
-
-            if len(sample_records) == 0:
-                print_message("No records found", "warning")
-            else:
-
-                current_sample = 0
-                while True:
-                    self.current_review_list = f"Item {current_sample + 1} of {len(sample_records)} for Entity Size {sample_records[current_sample]['ENTITY_SIZE']}"
-                    if "REVIEW_FEATURES" in sample_records[current_sample]:
-                        review_items = []
-                        for ftype_code in sample_records[current_sample]["REVIEW_FEATURES"]:
-                            review_items.append(f"{ftype_code} ({sample_records[current_sample][ftype_code]})")
-                        self.current_review_list += ", review for: " + ", ".join(review_items)
-
-                    current_records = [str(sample_records[current_sample]["ENTITY_ID"])]
-                    return_code = self.do_get(current_records[0])
-                    if return_code != 0:
-                        print_message("This entity no longer exists", "error")
-                    while True:
-                        reply = input(
-                            colorize_prompt(
-                                "Select (P)revious, (N)ext, (G)oto, (D)etail, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                            )
-                        )
-                        if reply:
-                            remove_from_history()
-                        else:
-                            reply = "N"
-
-                        if reply.upper().startswith("Q"):
-                            break
-                        elif reply.upper() == ("S"):
-                            self.do_scroll("")
-                        elif reply.upper()[0] in "PNG":  # previous, next, goto
-                            current_sample = self.move_pointer(reply, current_sample, len(sample_records))
-                            break
-                        elif reply.upper()[0] in "DHWE":
-                            if reply.upper().startswith("D"):
-                                self.do_get("detail " + ",".join(current_records))
-                            elif reply.upper().startswith("W"):
-                                self.do_why(",".join(current_records))
-                            elif reply.upper().startswith("H"):
-                                self.do_how(",".join(current_records))
-                                break
-                            elif reply.upper().startswith("E"):
-                                self.export_report_sample(reply, current_records, f"{'-'.join(current_records)}.json")
-                    if reply.upper().startswith("Q"):
-                        break
-                self.current_review_list = None
-
-    # ---------------------------
-    def compute_entitySizeBreakdown(self):
-        print_message("Reviewing examples ...", "info")
-        esb_data = {}
-        for str_entity_size in sorted(self.snapshot_data["TEMP_ESB_STATS"].keys()):
-            entity_size = int(str_entity_size)
-            if entity_size <= 3:  # super small
-                max_exclusive_cnt = 1
-                max_name_cnt = 2
-                max_addr_cnt = 2
-            elif entity_size <= 10:  # small
-                max_exclusive_cnt = 1
-                max_name_cnt = 3
-                max_addr_cnt = 3
-            elif entity_size <= 50:  # medium
-                max_exclusive_cnt = 1
-                max_name_cnt = 10
-                max_addr_cnt = 10
-            else:  # large
-                max_exclusive_cnt = 1  # large
-                max_name_cnt = 25
-                max_addr_cnt = 25
-
-            # setup for the entity size
-            if entity_size < 10:
-                entity_size_level = entity_size
-            elif entity_size < 100:
-                entity_size_level = int(entity_size / 10) * 10
-            else:
-                entity_size_level = int(entity_size / 100) * 100
-            if entity_size_level not in esb_data:
-                esb_data[entity_size_level] = {
-                    "ENTITY_COUNT": 0,
-                    "SAMPLE_ENTITIES": [],
-                    "REVIEW_COUNT": 0,
-                    "REVIEW_FEATURES": [],
-                }
-            esb_data[entity_size_level]["ENTITY_COUNT"] += self.snapshot_data["TEMP_ESB_STATS"][str_entity_size][
-                "COUNT"
-            ]
-
-            # review each entity
-            for sample_record in self.snapshot_data["TEMP_ESB_STATS"][str_entity_size]["SAMPLE"]:
-                review_features = []
-                for raw_attr in sample_record.keys():
-                    if raw_attr in ("ENTITY_ID", "ENTITY_SIZE"):
-                        continue
-                    ftype_code = raw_attr
-                    ftype_excl = self.ftype_code_lookup[ftype_code]["FTYPE_EXCL"]
-                    distinct_feature_count = sample_record[ftype_code]
-                    if ftype_code == "NAME" and distinct_feature_count > max_name_cnt:
-                        review_features.append(ftype_code)
-                    elif ftype_code == "ADDRESS" and distinct_feature_count > max_addr_cnt:
-                        review_features.append(ftype_code)
-                    elif ftype_excl == "Yes" and distinct_feature_count > max_exclusive_cnt:
-                        review_features.append(ftype_code)
-                if review_features:
-                    sample_record["REVIEW_FEATURES"] = review_features
-                    esb_data[entity_size_level]["REVIEW_FEATURES"] = list(
-                        set(esb_data[entity_size_level]["REVIEW_FEATURES"] + review_features)
-                    )
-                    esb_data[entity_size_level]["REVIEW_COUNT"] += 1
-                esb_data[entity_size_level]["SAMPLE_ENTITIES"].append(sample_record)
-
-        self.snapshot_data["ENTITY_SIZE_BREAKDOWN"] = []
-        for entity_size_level in sorted(esb_data.keys()):
-            entity_size_record = esb_data[entity_size_level]
-            entity_size_record["ENTITY_SIZE"] = entity_size_level
-            entity_size_record["ENTITY_SIZE_GROUP"] = str(entity_size_level) + (
-                "+" if int(entity_size_level) >= 10 else ""
-            )
-            self.snapshot_data["ENTITY_SIZE_BREAKDOWN"].append(entity_size_record)
-
-        try:
-            with open(self.snapshot_file, "w", encoding="utf-8") as f:
-                json.dump(self.snapshot_data, f)
-        except IOError as err:
-            print_message(f"{err} writing to {self.snapshot_file}", "error")
 
     # ---------------------------
     def help_multiSourceSummary(self):
@@ -3590,7 +2931,7 @@ class G2CmdShell(cmd.Cmd):
     # TODO - Ant - Auto complete doesn't work for data source
     def do_multiSourceSummary(self, arg):
         try:
-            self.eda_reports.generate_mss()
+            self.eda_reports.multi_source_summary()
         except Exception as ex:
             print_exception_info()
 
@@ -3631,243 +2972,10 @@ class G2CmdShell(cmd.Cmd):
     # ---------------------------
     def do_principlesUsed(self, arg: str) -> None:
         try:
-            self.eda_reports.generate_pur()
+            self.eda_reports.principles_used_report()
         except Exception as ex:
             print_exception_info()
         return
-
-        arg_upper = arg.upper().strip() if arg else arg
-
-        if not self.snapshot_data or not self.snapshot_data.get("PRINCIPLES_USED"):
-            # TODO - Ant - sz_snapshot for V4
-            print_message(
-                "Please create a new snapshot with the latest G2Snapshot.py to access this report",
-                "error",
-            )
-            return
-
-        self.audit_colors = {
-            "MATCH": "MATCH",
-            "POSSIBLE_MATCH": "POSSIBLE",
-            "AMBIGUOUS_MATCH": "AMBIGUOUS",
-            "POSSIBLY_RELATED": "RELATED",
-            "DISCLOSED_RELATION": "DISCLOSED",
-        }
-
-        principles_by_id = {}
-        principles_by_name = {}
-        stats_by_category = {}
-        stats_by_principle = {}
-
-        # , key=lambda k: self.categorySortOrder[k]):
-        # TODO - Ant - Why doing this happen every time called?
-        for category in self.snapshot_data["PRINCIPLES_USED"].keys():
-            if category not in stats_by_category:
-                stats_by_category[category] = {"COUNT": 0}
-
-            for principle in self.snapshot_data["PRINCIPLES_USED"][category].keys():
-                stats_by_principle[principle] = {"COUNT": 0, "CATEGORY": category}
-                ppart = principle.partition(":")
-                # Build lookup dicts to enable using either a principle ID or name
-                # principle can contain just 'DISCLOSURE with no ID, usually:
-                # '120: SF1_PNAME_CSTAB'
-                # If there is no : to split on, DISCLOSE is in ppart[0]
-                if not ppart[1] and not ppart[2]:
-                    principles_by_name[ppart[0]] = -1
-                    principles_by_id[-1] = ppart[0]
-                else:
-                    principles_by_name[ppart[2].strip()] = ppart[0]
-                    principles_by_id[ppart[0]] = ppart[2].strip()
-
-                for matchkey in self.snapshot_data["PRINCIPLES_USED"][category][principle].keys():
-                    stats_by_category[category]["COUNT"] += self.snapshot_data["PRINCIPLES_USED"][category][principle][
-                        matchkey
-                    ]["COUNT"]
-                    stats_by_principle[principle]["COUNT"] += self.snapshot_data["PRINCIPLES_USED"][category][
-                        principle
-                    ][matchkey]["COUNT"]
-
-        report_data = ""
-        if not arg:
-            tbl.columns = []
-            tbl.rows = []
-            tbl.title = f"Principles Used Report from {self.snapshot_file}"
-            tbl.columns.append({"name": "Category", "width": 25, "align": "left"})
-            tbl.columns.append({"name": "Count", "width": 25, "align": "right"})
-            for category in sorted(stats_by_category.keys(), key=lambda k: self.match_category_sort[k]):
-                tbl.rows.append(
-                    [
-                        colorize(category, self.audit_colors[category]),
-                        fmt_statistic(stats_by_category[category]["COUNT"]),
-                    ]
-                )
-            tbl.render_table()
-
-        elif arg_upper.startswith("PRIN"):
-            tbl.columns = []
-            tbl.rows = []
-            tbl.title = f"Principles Used Report from {self.snapshot_file}"
-            tbl.columns.append({"name": "Principle", "width": 50, "align": "left"})
-            tbl.columns.append({"name": "Category", "width": 25, "align": "left"})
-            tbl.columns.append({"name": "Count", "width": 25, "align": "right"})
-            for principle in sorted(stats_by_principle.keys()):
-                category = stats_by_principle[principle]["CATEGORY"]
-                tbl.rows.append(
-                    [
-                        colorize(principle, self.audit_colors[category]),
-                        colorize(category, self.audit_colors[category]),
-                        fmt_statistic(stats_by_principle[principle]["COUNT"]),
-                    ]
-                )
-            tbl.render_table()
-
-        # TODO - Ant - Autocomplete categories?
-        elif arg_upper in stats_by_category:
-            category = arg_upper
-            header = f"Principles used for {category} across all data sources"
-            report_data = self.snapshot_data["PRINCIPLES_USED"][category]
-
-        elif (
-            # Stats principle or principle ID or name
-            arg_upper in stats_by_principle  # '120: SF1_PNAME_CSTAB'
-            or ":" in arg_upper  # '120:SF1_PNAME_CSTAB'
-            or arg_upper in principles_by_id  # '120'
-            or arg_upper in principles_by_name  # 'SF1_PNAME_CSTAB'
-        ):
-            if arg_upper in stats_by_principle:
-                principle = arg_upper
-            elif ":" in arg_upper:
-                argpart = arg_upper.partition(":")
-                principle = f"{argpart[0]}: {argpart[2].strip()}"
-            elif arg_upper.isdigit():
-                principle = f"{arg_upper}: {principles_by_id[arg_upper]}"
-            else:
-                principle = f"{principles_by_name[arg_upper]}: {arg_upper}"
-
-            try:
-                category = stats_by_principle[principle]["CATEGORY"]
-                header = f"Principles used for {principle} across all data sources"
-                report_data = {principle: self.snapshot_data["PRINCIPLES_USED"][category][principle]}
-            except KeyError:
-                print_message(f"Invalid parameter: {arg}", "error")
-                self.help_principlesUsed()
-                return
-
-        else:
-            print_message(f"Invalid parameter: {arg}", "error")
-            self.help_principlesUsed()
-            return
-
-        # clean up the disclosure match keys
-        if report_data and category == "DISCLOSED_RELATION":
-            principle = "DISCLOSURE"
-            new_report_data = {principle: {}}
-            for matchkey in report_data[principle]:
-                count = report_data[principle][matchkey]["COUNT"]
-                sample = report_data[principle][matchkey]["SAMPLE"]
-                disclosures, plus_keys, minus_keys = self.fmt_match_group(matchkey, from_database=True)
-                for disclosure in disclosures:
-                    if disclosure not in new_report_data[principle]:
-                        new_report_data[principle][disclosure] = {
-                            "COUNT": count,
-                            "SAMPLE": sample,
-                        }
-                    else:
-                        new_report_data[principle][disclosure]["COUNT"] += count
-                        new_report_data[principle][disclosure]["SAMPLE"].extend(sample)
-            report_data = new_report_data
-
-        if report_data:
-            matchlevel_code = category + "_SAMPLE"
-            while True:
-                report_row = self.select_matching_category(report_data, header)
-                if not report_row:
-                    break
-
-                current_sample = 0
-                sample_records = report_row[4]
-                color_matchkey = colorize_match_data({"matchKey": report_row[2]})
-                while True:
-                    self.current_review_list = (
-                        f"Sample {current_sample + 1} of {len(sample_records)} for {category} on {color_matchkey}"
-                    )
-                    current_records = str(sample_records[current_sample]).split()
-                    if matchlevel_code == "MATCH_SAMPLE":
-                        return_code = self.do_get("detail " + current_records[0])
-                    else:
-                        if matchlevel_code == "AMBIGUOUS_MATCH_SAMPLE":
-                            for this_entity_id in current_records:
-                                ambiguous_list = self.get_ambiguous_entity_set(
-                                    this_entity_id
-                                )  # returns all the relationships for the truly ambiguous entity
-                                if ambiguous_list:
-                                    current_records = ambiguous_list
-                                    break
-                            return_code = self.do_compare(",".join(current_records))
-                        else:
-                            if len(current_records) > 2:
-                                self.current_review_list += colorize(
-                                    f"\n(showing 1 of {len(current_records)} qualifying relationships for entity {current_records[0]})",
-                                    "reset,dim,italics",
-                                )
-                                current_records = current_records[:2]
-                            return_code = self.do_compare(",".join(current_records))
-
-                    if return_code != 0:
-                        # TODO - Ant - Which entity?
-                        print_message("This entity no longer exists", "error")
-
-                    while True:
-                        if matchlevel_code in ("SINGLE_SAMPLE", "DUPLICATE_SAMPLE"):
-                            # TODO - Ant - Doesn't get color?
-                            reply = input(
-                                colorize_prompt(
-                                    "Select (P)revious, (N)ext, (G)oto, (D)etail, (H)ow, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                                )
-                            )
-                            special_actions = "DHWE"
-                        else:
-                            reply = input(
-                                colorize_prompt(
-                                    "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit ..."
-                                )
-                            )
-                            special_actions = "WE"
-
-                        if reply:
-                            reply_upper = reply.upper()
-                            remove_from_history()
-                        else:
-                            reply = "N"
-
-                        if reply_upper.startswith("Q"):
-                            break
-                        elif reply_upper == "S":
-                            self.do_scroll("")
-                        # TODO - Ant - Does this work?!
-                        elif reply_upper[0] in "PNG":  # previous, next, goto
-                            current_sample = self.move_pointer(reply, current_sample, len(sample_records))
-                            break
-                        # TODO - Ant - Does this work?!
-                        elif reply_upper[0] in special_actions:
-                            if reply_upper.startswith("D"):
-                                self.do_get("detail " + ",".join(current_records))
-                            elif reply_upper.startswith("W"):
-                                self.do_why(",".join(current_records))
-                            elif reply_upper.startswith("H"):
-                                self.do_how(",".join(current_records))
-                                break
-                            elif reply_upper.startswith("E"):
-                                self.export_report_sample(
-                                    reply,
-                                    current_records,
-                                    f"{'-'.join(current_records)}.json",
-                                )
-
-                    if reply_upper.startswith("Q"):
-                        break
-
-            self.current_review_list = None
 
     # ---------------------------
     def help_dataSourceSummary(self):
@@ -3878,9 +2986,8 @@ class G2CmdShell(cmd.Cmd):
         Displays the statistics for the different match levels within each data source.
 
         {colorize('Syntax:', 'highlight2')}
-            dataSourceSummary                               {colorize('with no parameters displays the overall stats', 'dim')}
-            dataSourceSummary <dataSourceCode> <matchLevel> {colorize('where 0=Singletons, 1=Matches, 2=Ambiguous, 3=Possibles, 4=Relationships', 'dim')}
-        """
+            dataSourceSummary
+            """
             )
         )
 
@@ -3915,7 +3022,7 @@ class G2CmdShell(cmd.Cmd):
     # ---------------------------
     def do_dataSourceSummary(self, arg):
         try:
-            self.eda_reports.generate_dss()
+            self.eda_reports.data_source_summary()
         except Exception:
             print_exception_info()
 
@@ -3972,7 +3079,7 @@ class G2CmdShell(cmd.Cmd):
     # TODO - Ant - Auto complete doesn't work for data source
     def do_crossSourceSummary(self, arg):
         try:
-            self.eda_reports.generate_css()
+            self.eda_reports.cros_source_summary()
         except Exception:
             print_exception_info()
         return
@@ -4004,18 +3111,22 @@ class G2CmdShell(cmd.Cmd):
         if not arg:
             self.help_search()
             return
+        sz_pretty.begin_call_cache(inspect.stack()[0].function)
         try:
             if arg.startswith("{"):
                 parm_data = dict_keys_upper(json.loads(arg))
             else:
                 parm_data = {"FEATURES": []}
                 for search_str in arg.split("|"):
-                    if ":" not in search_str:
-                        parm_data["FEATURES"].append({"NAME_FULL": search_str})
-                        parm_data["FEATURES"].append({"NAME_ORG": search_str})
-                    else:
+                    if ":" in search_str:
                         str_split = [x.strip() for x in search_str.split(":")]
                         parm_data["FEATURES"].append({str_split[0].upper(): str_split[1]})
+                    elif "=" in search_str:
+                        str_split = [x.strip() for x in search_str.split("=")]
+                        parm_data["FEATURES"].append({str_split[0].upper(): str_split[1]})
+                    else:
+                        parm_data["FEATURES"].append({"NAME_FULL": search_str})
+                        parm_data["FEATURES"].append({"NAME_ORG": search_str})
         except (ValueError, KeyError) as err:
             print_message(f"Invalid json parameter: {err}", "error")
             return
@@ -4033,11 +3144,12 @@ class G2CmdShell(cmd.Cmd):
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
         ]
         try:
-            json_data = self.call_sdk("search_by_attributes", search_flag_list, json.dumps(search_json))
+            json_data = sz_pretty.call_sdk("search_by_attributes", search_flag_list, json.dumps(search_json))
         except SzError as err:
             print_message(err, "error")
             return
 
+        tbl = sz_pretty_table()
         tbl.title = "Search Results"
         tbl.columns = [
             {"name": "Index", "width": 5, "align": "center"},
@@ -4072,7 +3184,7 @@ class G2CmdShell(cmd.Cmd):
                     "RECORDS": entity_data["RECORDS"],
                     "MATCH_SCORE": match_score,
                     "MATCH_INFO": matched_entity["MATCH_INFO"],
-                    "REL_COUNTS": {"DERIVED": derived_count, "DISCLOSED": disclosed_count},
+                    "REL_COUNTS": {"derived": derived_count, "disclosed": disclosed_count},
                 }
             )
 
@@ -4081,44 +3193,53 @@ class G2CmdShell(cmd.Cmd):
         self.last_search_result = []
         for matched_entity in sorted(matched_list, key=lambda k: k["MATCH_SCORE"], reverse=True):
             search_index += 1
+            rels = "\n".join([f"{v} {colorize(k, 'dim')}" for k, v in matched_entity["REL_COUNTS"].items() if v > 0])
             tbl.rows.append(
                 [
                     colorize(search_index, "dim"),
                     colorize_entity(matched_entity["ENTITY_ID"]),
                     matched_entity["ENTITY_NAME"],
-                    self.fmt_record_list(matched_entity["RECORDS"], 1, 75),
-                    self.fmt_match_key(matched_entity["MATCH_INFO"]),
+                    sz_pretty.fmt_record_list(matched_entity["RECORDS"], 1, 75),
+                    sz_pretty.fmt_match_key(matched_entity["MATCH_INFO"]),
                     matched_entity["MATCH_SCORE"],
-                    "\n".join(
-                        [f"{v} {colorize(k.lower(), 'dim')}" for k, v in matched_entity["REL_COUNTS"].items() if v > 0]
-                    ),
+                    rels
                 ]
             )
             self.last_search_result.append(str(matched_entity["ENTITY_ID"]))
 
         if len(matched_list) > 0:
             tbl.title = f"{len(matched_list)} entities found ..."
-            self.show_report2(self.render_table2(tbl.title, tbl.columns, tbl.rows))
+            view_report(tbl.render_table())
             return
 
         if json_data.get("SEARCH_STATISTICS"):
             candidate_stats = json_data["SEARCH_STATISTICS"][0]["CANDIDATE_KEYS"]["SUMMARY"]
             if candidate_stats["FOUND"] > 0:
-                msg = "\tOne or more entities were found but did not score high enough to be returned"
-                msg += "\n\tPlease include additional or more complete attributes in your search"
+                msg = (
+                    "One or more entities were found but did not score high enough to be returned ..."
+                    "\nPlease include additional or more complete attributes in your search"
+                )
             elif candidate_stats["GENERIC"] > 0:
-                msg = "\tToo many entities would be returned"
-                msg += "\n\tPlease include additional attributes to narrow the search results"
+                msg = (
+                    "Too many entities would be returned ..."
+                    "\nPlease include additional attributes to narrow the search results"
+                )
             elif candidate_stats["NOT_FOUND"] > 0:
-                msg = "\tNo entities at all were found"
-                msg += "\n\tPlease search by other attributes for this entity if you feel it should exist"
+                msg = (
+                    "No entities at all were found ..."
+                    "\nPlease search by other attributes for this entity if you feel it should exist"
+                )
             else:
-                msg = "\tNo search keys were even generated"
-                msg += "\n\tPlease search by other attributes"
+                msg = (
+                    "No search keys were even generated ..."
+                    "\nPlease search by other attributes"
+                )
         else:  # older versions do not have statistics
-            msg = "\tNo matches found or there were simply too many to return"
-            msg += "\n\tPlease include additional search parameters if you feel this entity is in the database"
-        print_message(msg, "warning")
+            msg = (
+                "No matches found or there were simply too many to return ..."
+                "\nPlease include additional search parameters if you feel this entity is in the database"
+            )
+        print(colorize(f"\n\t{"\n\t".join(msg.split("\n"))}\n", "caution"))
 
     # ---------------------------
     def help_getFeatures(self):
@@ -4173,6 +3294,7 @@ class G2CmdShell(cmd.Cmd):
         if not arg:
             self.help_get()
             return 0
+        sz_pretty.begin_call_cache(inspect.stack()[0].function)
         kwargs["show_relations_on_get"] = self.current_settings["show_relations_on_get"]
         kwargs["show_detail"] = False
         kwargs["feature_filters"] = []
@@ -4303,6 +3425,7 @@ class G2CmdShell(cmd.Cmd):
         if not arg:
             self.help_compare()
             return 0
+        sz_pretty.begin_call_cache(inspect.stack()[0].function)
 
         if isinstance(arg, str) and "SEARCH" in arg.upper():
             entity_list = self.last_search_result
@@ -4345,6 +3468,7 @@ class G2CmdShell(cmd.Cmd):
         if not arg:
             self.help_tree()
             return
+        sz_pretty.begin_call_cache(inspect.stack()[0].function)
 
         root_entity_id = None
         build_out_degree = 1
@@ -4421,6 +3545,7 @@ class G2CmdShell(cmd.Cmd):
         if not arg:
             self.help_why()
             return -1 if caller != "onecmd" else 0
+        sz_pretty.begin_call_cache(inspect.stack()[0].function)
 
         old_why_not = False
         if arg.upper().endswith(" OLD"):
@@ -6752,6 +5877,10 @@ class G2CmdShell(cmd.Cmd):
             self.help_export()
             return -1 if caller else 0
 
+        if "LAST CALL" in arg.upper():
+            print(sz_pretty.export_call_cache())
+            return
+        
         entity_list = []
         file_name = None
         max_degree = 0
@@ -6905,29 +6034,17 @@ class G2CmdShell(cmd.Cmd):
         return False
 
 
-# --------------------------------------
-
 
 # --------------------------------------
 def dict_keys_upper(dict):
     return {k.upper(): v for k, v in dict.items()}
 
 
-# --------------------------------------
 def remove_from_history(idx=0):
     if readline:
         if not idx:
             idx = readline.get_current_history_length() - 1
         readline.remove_history_item(idx)
-
-
-# --------------------------------------
-def _append_slash_if_dir(p):
-    if p and os.path.isdir(p) and p[-1] != os.sep:
-        return p + os.sep
-    else:
-        return p
-
 
 def debug_print(_value, _desc="some variable"):
     print("-" * 20)
@@ -6939,7 +6056,6 @@ def debug_print(_value, _desc="some variable"):
     input("press any key ...")
 
 
-# --------------------------------------
 if __name__ == "__main__":
     appPath = os.path.dirname(os.path.abspath(sys.argv[0]))
 
@@ -6964,11 +6080,6 @@ if __name__ == "__main__":
         "-w",
         "--webapp_url",
         help="the url to the senzing webapp if available",
-    )
-    argParser.add_argument(
-        "-D",
-        "--debug_output",
-        help="print raw api json to screen or <filename.txt>",
     )
     argParser.add_argument(
         "-H",
@@ -7003,7 +6114,7 @@ if __name__ == "__main__":
     engine_config = get_engine_config(args.config_file_name)
 
     try:
-        sz_pretty = sz_pretty_sdk(engine_config, args.debug_trace, args.debug_output)
+        sz_pretty = sz_pretty_sdk(engine_config, args.debug_trace)
     except SzError:
         print_exception_info()
         sys.exit(1)
