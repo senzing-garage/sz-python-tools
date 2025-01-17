@@ -24,8 +24,7 @@ from _tool_helpers import (
     get_max_futures_workers,
     human_readable_bytes,
 )
-from senzing_core import (
-    SzAbstractFactory,
+from senzing import (
     SzConfigManager,
     SzDiagnostic,
     SzEngine,
@@ -33,6 +32,7 @@ from senzing_core import (
     SzError,
     SzProduct,
 )
+from senzing_core import SzAbstractFactoryCore
 
 try:
     import orjson as json
@@ -556,7 +556,7 @@ def shuffle_ingest_file(
 
 
 def get_sz_engines(
-    sz_factory: SzAbstractFactory,
+    sz_factory: SzAbstractFactoryCore,
 ) -> Tuple[SzEngine, SzDiagnostic, SzProduct, SzConfigManager]:
     """# TODO"""
     try:
@@ -1185,7 +1185,7 @@ def main() -> None:
     engine_config = get_engine_config(cli_args["engine_settings"])
 
     try:
-        sz_factory = SzAbstractFactory(MODULE_NAME, engine_config, verbose_logging=cli_args["debug_trace"])
+        sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config, verbose_logging=cli_args["debug_trace"])
     except SzError as err:
         logger.error(err)
         sys.exit(1)

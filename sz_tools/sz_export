@@ -12,7 +12,8 @@ import time
 from datetime import datetime
 
 from _tool_helpers import get_engine_config, print_error, print_warning
-from senzing_core import SzAbstractFactory, SzEngineFlags, SzError
+from senzing import SzEngineFlags, SzError
+from senzing_core import SzAbstractFactoryCore
 
 MODULE_NAME = pathlib.Path(__file__).stem
 
@@ -464,7 +465,7 @@ if __name__ == "__main__":
     engine_config = get_engine_config(args.ini_file_name)
 
     try:
-        sz_factory = SzAbstractFactory(MODULE_NAME, engine_config)
+        sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config)
         sz_engine = sz_factory.create_engine()
     except SzError as err:
         print_error(err, exit_=True)

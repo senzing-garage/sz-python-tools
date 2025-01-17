@@ -23,7 +23,7 @@ from pathlib import Path
 from signal import SIGALRM, alarm, signal
 from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Union
 
-from senzing_core import SzEngineFlags
+from senzing import SzEngineFlags
 
 READLINE_AVAIL = False
 with suppress(ImportError):
@@ -52,8 +52,8 @@ with suppress(ImportError):
     PYCLIP_AVAIL = True
 
 if TYPE_CHECKING:
-    from sz_command import SzCmdShell
-    from sz_configtool import SzCfgShell
+    from .sz_command import SzCmdShell
+    from .sz_configtool import SzCfgShell
 
 # TODO Change to sz when changed in builds
 CONFIG_FILE = "G2Module.ini"

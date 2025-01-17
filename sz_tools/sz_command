@@ -38,7 +38,8 @@ from _tool_helpers import (
     response_to_clipboard,
     response_to_file,
 )
-from senzing_core import SzAbstractFactory, SzError
+from senzing import SzError
+from senzing_core import SzAbstractFactoryCore
 
 _WrappedFunc = TypeVar("_WrappedFunc", bound=Callable[..., Any])
 
@@ -306,7 +307,7 @@ class SzCmdShell(cmd.Cmd):
         verbose_logging = 1 if any([self.debug_reinit["verbose_logging"], self.config["debug_sz_engine"]]) else 0
 
         try:
-            self.sz_factory = SzAbstractFactory(
+            self.sz_factory = SzAbstractFactoryCore(
                 MODULE_NAME,
                 self.engine_settings,
                 verbose_logging=verbose_logging,

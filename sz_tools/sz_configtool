@@ -12,14 +12,15 @@ import sys
 import textwrap
 import traceback
 
-from _tool_helpers import Colors, get_engine_config
+from _tool_helpers import Colors, colorize_cmd_prompt, get_engine_config
 
 try:
     import prettytable
 except (ImportError, ModuleNotFoundError):
     prettytable = None
 
-from senzing_core import SzAbstractFactory, SzError
+from senzing import SzError
+from senzing_core import SzAbstractFactoryCore
 
 try:
     import atexit
@@ -109,7 +110,9 @@ def colorize_json(json_str):
 class SzCfgShell(cmd.Cmd):
 
     def __init__(
-        self, sz_abstract_factory: SzAbstractFactory, hist_disable, force_mode, file_to_process, engine_config
+        self,
+        cli_args,
+        engine_config,
     ):
         # cmd.Cmd.__init__(self)
         super().__init__()
@@ -117,18 +120,24 @@ class SzCfgShell(cmd.Cmd):
         # Create Senzing engines
         self.engine_config = engine_config
         try:
-            self.sz_factory2 = SzAbstractFactory(MODULE_NAME, self.engine_config)
+            self.sz_factory = SzAbstractFactoryCore(MODULE_NAME, self.engine_config)
         except SzError as err:
             print(err)
             sys.exit(1)
 
-        self.sz_factory = sz_abstract_factory
         self.sz_config = self.sz_factory.create_config()
         self.sz_configmgr = self.sz_factory.create_configmanager()
 
-        # Cmd Module settings
+        # Used to change the theme and for setting cmd prompt, use the default colors set by the terminal
+        self.themes = Colors.AVAILABLE_THEMES
+        Colors.set_theme("TERMINAL")
+
+        # Cmd module settings
         self.intro = ""
-        self.prompt = "(szcfg) "
+        self.prompt_str = "szcfg"
+        self.prompt_color = "info"
+        # self.prompt = colorize_cmd_prompt(self.prompt_str, self.prompt_color, self.config["color_output"])  # type: ignore[arg-type]
+        self.prompt = colorize_cmd_prompt(self.prompt_str, self.prompt_color, True)
         self.ruler = "-"
         self.doc_header = "Configuration Command List"
         self.misc_header = "Help Topics (help <topic>)"
@@ -163,8 +172,8 @@ class SzCfgShell(cmd.Cmd):
         self.config_updated = False
 
         # Processing input file
-        self.force_mode = force_mode
-        self.file_to_process = file_to_process
+        self.force_mode = cli_args.force_mode
+        self.file_to_process = cli_args.file_to_process
 
         self.attribute_class_list = (
             "NAME",
@@ -221,10 +230,6 @@ class SzCfgShell(cmd.Cmd):
             "FIELD": "string|255",
         }
 
-        # Themes - set early, used for setting cmd prompt, use the default colors set by the terminal
-        self.themes = Colors.AVAILABLE_THEMES
-        self.theme = "TERMINAL"
-        Colors.set_theme(self.theme)
         self.pygments_installed = True if "pygments" in sys.modules else False
         # self.current_output_format = 'table' if prettytable else 'jsonl'
         self.current_output_format_list = "table" if prettytable else "jsonl"
@@ -232,7 +237,7 @@ class SzCfgShell(cmd.Cmd):
 
         # Readline and history
         self.readline_available = True if "readline" in sys.modules else False
-        self.hist_disable = hist_disable
+        self.hist_disable = cli_args.hist_disable
         self.hist_check()
 
         self.parser = argparse.ArgumentParser(prog="", add_help=False)
@@ -6053,15 +6058,7 @@ def main() -> None:
     # Check an engine configuration can be located
     engine_config = get_engine_config(cli_args.ini_file_name)
 
-    try:
-        sz_abstract_factory = SzAbstractFactory("sz_comfigtool", engine_config)
-    except SzError as err:
-        print(err)
-        sys.exit(1)
-
-    cmd_obj = SzCfgShell(
-        sz_abstract_factory, cli_args.hist_disable, cli_args.force_mode, cli_args.file_to_process, engine_config
-    )
+    cmd_obj = SzCfgShell(cli_args, engine_config)
 
     if cli_args.file_to_process:
         cmd_obj.fileloop()

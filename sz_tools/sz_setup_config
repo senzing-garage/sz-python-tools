@@ -6,7 +6,8 @@ import pathlib
 import sys
 
 from _tool_helpers import get_engine_config, print_error
-from senzing_core import SzAbstractFactory, SzError
+from senzing import SzError
+from senzing_core import SzAbstractFactoryCore
 
 MODULE_NAME = pathlib.Path(__file__).stem
 
@@ -36,7 +37,7 @@ def main() -> None:
 
     # Determine if a default/initial Senzing configuration exists
     try:
-        sz_abstract_factory = SzAbstractFactory(MODULE_NAME, engine_config)
+        sz_abstract_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config)
         sz_config_mgr = sz_abstract_factory.create_configmanager()
         default_config_id = sz_config_mgr.get_default_config_id()
     except SzError as err:
