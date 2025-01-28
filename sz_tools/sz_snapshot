@@ -20,7 +20,8 @@ from queue import Empty, Full
 
 from _sz_database import SzDatabase
 from _tool_helpers import get_engine_config, get_max_futures_workers
-from senzing_core import SzAbstractFactory, SzEngine, SzEngineFlags, SzError
+from senzing import SzEngine, SzEngineFlags, SzError
+from senzing_core import SzAbstractFactoryCore
 
 try:
     import orjson
@@ -1315,7 +1316,7 @@ if __name__ == "__main__":
     g2dbUri = json.loads(engine_config)["SQL"]["CONNECTION"]
 
     try:
-        sz_factory = SzAbstractFactory(MODULE_NAME, engine_config)
+        sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config)
         sz_configmgr = sz_factory.create_configmanager()
         sz_engine = sz_factory.create_engine()
         sz_product = sz_factory.create_product()
