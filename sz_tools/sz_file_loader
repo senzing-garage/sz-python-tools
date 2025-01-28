@@ -76,7 +76,7 @@ try:
     file_handle.setLevel(logging.ERROR)
     logger.setLevel(logging.INFO)
     logger.propagate = False
-    console_handle.setFormatter(logging.Formatter(LOG_FORMAT))
+    console_handle.setFormatter(logging.Formatter(""))
     file_handle.setFormatter(logging.Formatter(LOG_FORMAT))
     logger.addHandler(console_handle)
     logger.addHandler(file_handle)
@@ -285,6 +285,18 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
             """
         ),
     )
+    arg_parser.add_argument(
+        "-l",
+        "--loggingOutput",
+        action="store_true",
+        default=False,
+        help=textwrap.dedent(
+            """\
+            Use logging style output to stdout
+
+            """
+        ),
+    )
     # TODO Env vars?
     # Args for Senzing team testing
     # Disable DS Perf
@@ -396,6 +408,17 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
             os.getenv(
                 "SENZING_WORKLOAD_STATS_OUTPUT_FREQUENCY",
                 cli_args.statsOutputFrequency,
+            )
+        )
+    )
+
+    settings["logging_output"] = (
+        cli_args.disableLoggingOutput
+        if cli_args.__dict__.get("loggingOutput_specified")
+        else int(
+            os.getenv(
+                "SENZING_LOGGING_OUTPUT",
+                cli_args.loggingOutput,
             )
         )
     )
@@ -1075,27 +1098,20 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
     # f"{pathlib.Path(errors_file).resolve() if (load_errors + error_recs) > 0 else 'No errors'}",
     logger.info("")
     if result["source_file"]:
-        # TODO Language?
-        logger.info("Successful load records:  %s", result["load_stats"]["success_recs"])
-        logger.info("Error load records:       %s", result["load_stats"]["error_recs"])
+        logger.info("Successful load records:    %s", result["load_stats"]["success_recs"])
+        logger.info("Error load records:         %s", result["load_stats"]["error_recs"])
         logger.info("Loading elapsed time (s):   %s", result["load_stats"]["elapsed_time"])
 
     logger.info("")
-    # if not cli_args.noRedo:
     if not no_redo:
-        # f"Successful redo records:    {f'{redo_success:,}' if not no_redo else no_redo_msg}"
         logger.info("Successful redo records:    %s", result["redo_stats"]["success_recs"])
-        # f"{redo_success:,}" if not no_redo else "Redo disabled",
         logger.info("Error redo records:         %s", result["redo_stats"]["error_recs"])
-        # f"{redo_errors:,}" if not no_redo else "",
         logger.info(
             "Redo elapsed time (s):      %s", result["redo_stats"]["elapsed_time"]
-        )  # redo_time if not no_redo else "")
     else:
         logger.info("Redo:                       %s", "Not requested")
     logger.info("")
 
-    # if result["source_file"] and not cli_args.noRedo:
     if result["source_file"] and not no_redo:
         logger.info(
             "Total elapsed time (s):     %s",
@@ -1181,6 +1197,8 @@ def main() -> None:
         logger.error("No input file and redo processing disabled, nothing to do!")
         sys.exit(1)
 
+    if cli_args["logging_output"]:
+        console_handle.setFormatter(logging.Formatter(LOG_FORMAT))
     # Check an engine configuration can be located
     engine_config = get_engine_config(cli_args["engine_settings"])
 

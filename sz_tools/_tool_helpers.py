@@ -21,9 +21,9 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from signal import SIGALRM, alarm, signal
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, TypeVar, Union
 
-from senzing import SzEngineFlags
+from senzing import SzEngineFlags, SzError, constants
 
 READLINE_AVAIL = False
 with suppress(ImportError):
@@ -58,6 +58,8 @@ if TYPE_CHECKING:
 # TODO Change to sz when changed in builds
 CONFIG_FILE = "G2Module.ini"
 
+# TODO
+TSzEngineFlags = TypeVar("TSzEngineFlags", bound="SzEngineFlags")  # pylint: disable=C0103
 
 # -------------------------------------------------------------------------
 # Helper classes
@@ -418,6 +420,19 @@ def get_engine_config(ini_file_name: Union[str, None] = None) -> str:
 # -------------------------------------------------------------------------
 
 
+# TODO Moved from core
+def combine_engine_flags(flags: Union[List[TSzEngineFlags], List[str]]) -> int:
+    """ORs together all flags in a list of strings or engine flag members"""
+    result = constants.SZ_WITHOUT_INFO
+    try:
+        for flag in flags:
+            result = result | SzEngineFlags[flag.upper()].value if isinstance(flag, str) else flag.value
+    except (AttributeError, KeyError) as err:
+        raise SzError(f"{err} is not a valid engine flag") from err
+    # TODO
+    return result
+
+
 def get_engine_flag_names() -> List[str]:
     """# TODO"""
     return list(SzEngineFlags.__members__.keys())
@@ -433,7 +448,9 @@ def get_engine_flags_as_int(flags: List[str]) -> int:
         return int(flags[0])
 
     # Named engine flag(s) used, combine and return the int value
-    return SzEngineFlags.combine_flags(flags)
+    # TODO
+    # return SzEngineFlags.combine_flags(flags)
+    return combine_engine_flags(flags)
 
 
 # -------------------------------------------------------------------------

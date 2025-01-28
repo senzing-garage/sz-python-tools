@@ -11,7 +11,12 @@ import textwrap
 import time
 from datetime import datetime
 
-from _tool_helpers import get_engine_config, print_error, print_warning
+from _tool_helpers import (
+    combine_engine_flags,
+    get_engine_config,
+    print_error,
+    print_warning,
+)
 from senzing import SzEngineFlags, SzError
 from senzing_core import SzAbstractFactoryCore
 
@@ -483,7 +488,9 @@ if __name__ == "__main__":
 
     valid_flags = [flag for flag in flags if flag not in invalid_string_flags]
 
-    final_flags = SzEngineFlags.combine_flags(valid_flags)
+    # TODO
+    # final_flags = SzEngineFlags.combine_flags(valid_flags)
+    final_flags = combine_engine_flags(valid_flags)
 
     # Initialize the export
     export_output = args.output_file

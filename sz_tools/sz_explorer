@@ -18,7 +18,12 @@ import traceback
 from contextlib import suppress
 from typing import Any, Dict, List, Union
 
-from _tool_helpers import Colors, colorize_cmd_prompt, get_engine_config
+from _tool_helpers import (
+    Colors,
+    colorize_cmd_prompt,
+    combine_engine_flags,
+    get_engine_config,
+)
 from senzing import SzEngineFlags, SzError
 from senzing_core import SzAbstractFactoryCore
 
@@ -582,8 +587,11 @@ class SzCmdShell(cmd.Cmd):
         parms = parms if isinstance(parms, list) else [parms]
         caller = inspect.stack()[1].function
 
+        # TODO only if there are flags
         try:
-            flags_int = SzEngineFlags.combine_flags(flags)
+            # TODO
+            # flags_int = SzEngineFlags.combine_flags(flags)
+            flags_int = combine_engine_flags(flags)
             parms.append(flags_int)
         except SzError as err:
             raise SzError(f"{caller}: {api_name} - {err}") from None
@@ -598,6 +606,7 @@ class SzCmdShell(cmd.Cmd):
             raise SzError(f"{caller}: {api_name} - {err}") from None
 
         if self.debugOutput:
+            # TODO move to a constant for all tools
             n_t = "\n\t"
             self.show_debug(
                 caller,

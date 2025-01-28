@@ -175,3 +175,8 @@ cython_debug/
 
 # Synology NAS files
 .DS_Store
+
+# Typical names for tools output files such as snapshot, export, etc
+sz_tools/snap*.json
+sz_tools/export*.csv
+sz_tools/export*.json

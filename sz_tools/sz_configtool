@@ -5404,7 +5404,7 @@ class SzCfgShell(cmd.Cmd):
             return
 
         newRecord = dict(old_record)  # must use dict to create a new instance
-        newRecord["EXEC_ORDER"] = parm_data["RETURNORDER"]
+        newRecord["EXEC_ORDER"] = parm_data.get("RETURNORDER", newParmData["RETURNORDER"])
         newRecord["SAME_SCORE"] = parm_data["SAMESCORE"]
         newRecord["CLOSE_SCORE"] = parm_data["CLOSESCORE"]
         newRecord["LIKELY_SCORE"] = parm_data["LIKELYSCORE"]
