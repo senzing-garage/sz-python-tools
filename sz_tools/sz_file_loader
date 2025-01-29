@@ -1106,8 +1106,7 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
     if not no_redo:
         logger.info("Successful redo records:    %s", result["redo_stats"]["success_recs"])
         logger.info("Error redo records:         %s", result["redo_stats"]["error_recs"])
-        logger.info(
-            "Redo elapsed time (s):      %s", result["redo_stats"]["elapsed_time"]
+        logger.info("Redo elapsed time (s):      %s", result["redo_stats"]["elapsed_time"])
     else:
         logger.info("Redo:                       %s", "Not requested")
     logger.info("")
