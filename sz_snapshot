@@ -143,7 +143,7 @@ class IOQueueProcessor:
         self.queue_write(self.output_queue, msg)
 
 
-class reader:
+class SnapshotReader:
 
     def __init__(self, **kwargs):
 
@@ -266,7 +266,7 @@ class reader:
         return entity_size, entity_id, features
 
 
-class writer:
+class SnapshotWriter:
 
     def __init__(self, **kwargs):
         self.stat_pack = kwargs.get("stat_pack")
@@ -546,7 +546,7 @@ def check_stat_pack(stats_file_name, csv_file_name, args):
 def progress_display(started, cntr):
     elapsed_seconds = round((time.time() - started))
     elapsed_minutes = round(elapsed_seconds / 60, 1)
-    eps = cntr / float(elapsed_seconds) if elapsed_seconds else 0
+    eps = round(cntr / float(elapsed_seconds) if elapsed_seconds else 0, 0)
     parms = (cntr, elapsed_minutes, eps)
     logging.info("%s entities processed after %s minutes at %s per second" % parms)
 
@@ -586,7 +586,7 @@ def database_snapshot(sz_dbo, kwargs):
         sys.exit(1)
     entity_sql = sz_dbo.sqlPrep(entity_sql)
 
-    queue_processor = IOQueueProcessor(reader, writer, **kwargs)
+    queue_processor = IOQueueProcessor(SnapshotReader, SnapshotWriter, **kwargs)
     logging.info("starting %s processes" % queue_processor.process_count)
     queue_processor.start_up()
 
@@ -639,7 +639,7 @@ def next_sdk_record(sz_engine, export_handle, errule_code_lookup, export_headers
 def sdk_snapshot(sz_engine, kwargs):
     logging.info("Starting sdk export ...")
     proc_start_time = kwargs.get("proc_start_time")
-    stat_writer = writer(**kwargs)
+    stat_writer = SnapshotWriter(**kwargs)
     sz_config_data = kwargs.get("sz_config_data")
     relationship_filter = kwargs.get("relationship_filter")
     errule_code_lookup = {x["ERRULE_CODE"]: x for x in sz_config_data["G2_CONFIG"]["CFG_ERRULE"]}
