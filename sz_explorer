@@ -3,7 +3,6 @@
 import argparse
 import atexit
 import cmd
-import csv
 import glob
 import inspect
 import json
@@ -19,12 +18,15 @@ from contextlib import suppress
 from typing import Any, Dict, List, Union
 
 from senzing_core import SzAbstractFactory, SzEngineFlags, SzError
+
 from _tool_helpers import Colors, get_engine_config
 
 MODULE_NAME = pathlib.Path(__file__).stem
+LF = "\n"
+LFTAB = "\n\t"
 
 try:
-    from prettytable import PrettyTable, SINGLE_BORDER, ALL, NONE, HEADER, FRAME
+    from prettytable import ALL, SINGLE_BORDER, PrettyTable
 except ImportError:
     print("\nPlease install the Python prettytable module (e.g. pip install prettytable)")
     sys.exit(1)
@@ -82,6 +84,7 @@ def fmt_statistic(amt):
 # colorizers
 # -------------------
 
+
 def colorize(in_string, color_list="None"):
     return Colors.apply(in_string, color_list) if color_list else in_string
 
@@ -99,11 +102,13 @@ def colorize_dsrc(dsrc_str):
         return colorize_attr(dsrc_str, "dsrc_color")
     return colorize(dsrc_str, "dsrc_color")
 
+
 def colorize_entity(entity_str, added_color=None):
     entity_color = "entity_color" + ("," + added_color if added_color else "")
     if ":" in str(entity_str):
         return colorize_attr(entity_str, entity_color)
     return colorize(entity_str, entity_color)
+
 
 def colorize_match_key(match_key):
     if " (Ambiguous)" in match_key:
@@ -180,8 +185,6 @@ def view_report(report, **kwargs):
         less_options = "-MXSR"
     else:
         less_options = "-FMXSR"
-    if kwargs.get("search"):
-        less_options + " /" + kwargs["search"]
 
     less = subprocess.Popen(["less", less_options], stdin=subprocess.PIPE)
     with suppress(Exception):
@@ -225,7 +228,7 @@ class eda_node(object):
     def add_parent(self, obj):
         self.parents.append(obj)
 
-    def render_tree(self, filter_str=None):
+    def render_tree(self):
         tree = ""
         tree += self.node_desc + "\n"
         if self.node_text:
@@ -278,24 +281,24 @@ class eda_table:
         self.title = ""
         self.columns = []
         self.rows = []
-        self.border_style = 'default'
+        self.border_style = "default"
 
     def hide_last_char(self, field_name):
         # INVISIBLE = "\033[08m"
         return field_name[0:-1] + "\033[08m" + field_name[-1] + "\033[0m"
-    
+
     def render_table(self, **kwargs):
         super_header = kwargs.get("super_header", False)
         no_lines = kwargs.get("no_lines", False)
 
         table_object = PrettyTable()
-        if self.border_style == 'SINGLE':
+        if self.border_style == "SINGLE":
             table_object.set_style(SINGLE_BORDER)
-        else: # default
+        else:  # default
             table_object.horizontal_char = "\u2500"
             table_object.vertical_char = "\u2502"
             table_object.junction_char = "\u253C"
-            
+
         if no_lines:
             table_object.border = False
             table_object.preserve_internal_border = True
@@ -364,22 +367,19 @@ class eda_table:
 
 
 class EdaReports:
-    
-    def __init__(self):
+
+    def __init__(self, **kwargs):
         self.match_level_tags = {
-            "MATCH": "Matches",  # from dss
+            "MATCH": "Matches",
             "AMBIGUOUS_MATCH": "Ambiguous matches",
             "POSSIBLE_MATCH": "Possible matches",
             "POSSIBLE_RELATION": "Possibly related",
             "DISCLOSED_RELATION": "Disclosed relation",
         }
-        self.audit_colors = {
-            "MERGE": "good",
-            "SPLIT": "bad",
-            "SPLIT+MERGE": "fg_red,bg_green"
-        }
+        self.audit_colors = {"MERGE": "good", "SPLIT": "bad", "SPLIT+MERGE": "fg_red,bg_green"}
         self.snapshot_data = None
         self.audit_data = None
+        self.how_display_level = kwargs.get("how_display_level", "columnar")
 
     def load_file(self, file_name):
         if not os.path.exists(file_name):
@@ -415,7 +415,7 @@ class EdaReports:
             review_max = 25
         review_features = []
         feature_counts = list(entity_data.values())[0]
-        #(feature_counts)
+        # (feature_counts)
         for ftype_code in feature_counts:
             ftype_excl = sdk_wrapper.ftype_code_lookup[ftype_code]["FTYPE_EXCL"]
             ftype_count = feature_counts[ftype_code]
@@ -425,7 +425,7 @@ class EdaReports:
                 review_features.append(ftype_code)
             elif ftype_count > review_max:
                 review_features.append(ftype_code)
-        return review_features       
+        return review_features
 
     def show_audit_sample(self, audit_records, use_color=True):
         get_flag_list = ["SZ_ENTITY_INCLUDE_ALL_FEATURES", "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS"]
@@ -447,10 +447,10 @@ class EdaReports:
 
         ftypes_used = []
         for i in range(len(audit_records)):
-            record_key = audit_records[i]["RECORD_ID"] + "||" + audit_records[i].get("DATA_SOURCE","")
+            record_key = audit_records[i]["RECORD_ID"] + "||" + audit_records[i].get("DATA_SOURCE", "")
             if record_key in features_by_record:
                 features = features_by_record[record_key]
-            else: # try to find by record_id alone (truthset key does not require data source)
+            else:  # try to find by record_id alone (truthset key does not require data source)
                 features = {}
                 for record_key in features_by_record:
                     if record_key.startswith(audit_records[i]["RECORD_ID"] + "||"):
@@ -472,7 +472,7 @@ class EdaReports:
             {"name": "Audit result", "width": 10, "align": "left"},
         ]
         for ftype_code in ftypes_used:
-            #ftype_code = sdk_wrapper.ftype_lookup[ftype_id]["FTYPE_CODE"]
+            # ftype_code = sdk_wrapper.ftype_lookup[ftype_id]["FTYPE_CODE"]
             tbl.columns.append({"name": ftype_code, "width": 50, "align": "left"})
 
         sort_order = {"same": 1, "new negative": 3, "new positive": 2, "missing": 4}
@@ -510,7 +510,7 @@ class EdaReports:
         if not self.audit_data:
             print_message("Please load a json file created with sz_audit to view this report", "warning")
             return
-        
+
         tbl = eda_table()
         tbl.title = f"Audit Summary from {self.audit_file}"
         tbl.columns = [
@@ -562,11 +562,11 @@ class EdaReports:
         for category in self.audit_data["AUDIT"]:
             report_data[category] = {
                 "COUNT": self.audit_data["AUDIT"][category]["COUNT"],
-                "MATCH_KEY": self.audit_data["AUDIT"][category]["SUB_CATEGORY"]
-            }    
+                "MATCH_KEY": self.audit_data["AUDIT"][category]["SUB_CATEGORY"],
+            }
 
         tbl = eda_table()
-        tbl.title = f"Review categories ..."
+        tbl.title = "Review categories ..."
         tbl.columns = [
             {"name": "row", "width": 5, "align": "center"},
             {"name": "Category", "width": 25, "align": "left"},
@@ -582,9 +582,10 @@ class EdaReports:
                     row_num,
                     colorize(category, self.audit_colors.get(category, "caution")),
                     fmt_statistic(count),
-                ])
+                ]
+            )
         report_table += "\n" + tbl.render_table()
-        
+
         select_levels = ["CATEGORY", "MATCH_KEY"]
         self.drill_into(report_table, report_data, select_levels)
 
@@ -636,11 +637,11 @@ class EdaReports:
             row_num += 1
             report_segment = report_data[size_group]
             row = [
-                row_num, 
-                size_group, 
-                report_segment["COUNT"], 
-                report_segment["REVIEW_COUNT"], 
-                ', '.join(report_segment["REVIEW_FEATURES"])
+                row_num,
+                size_group,
+                report_segment["COUNT"],
+                report_segment["REVIEW_COUNT"],
+                ", ".join(report_segment["REVIEW_FEATURES"]),
             ]
             tbl.rows.append(row)
             report_data[size_group] = report_segment
@@ -834,7 +835,7 @@ class EdaReports:
             errule_code = ""
             match_key = key
         if not errule_code:
-            return colorize_match_key(match_key) if '+' in match_key else match_key
+            return colorize_match_key(match_key) if "+" in match_key else match_key
         return f"{colorize_match_key(match_key)}{sep}{colorize(errule_code, 'dim')}"
 
     def drill_into(self, report_table, report_data, select_levels):
@@ -915,7 +916,7 @@ class EdaReports:
                 else:
                     next_level = select_levels[len(report_levels)].upper()
                     select_data = select_data[selected_key][next_level]
-                
+
                 if select_level.startswith("DATA_SOURCE"):
                     prior_key = colorize_dsrc(selected_key)
                 elif select_level == "MATCH_KEY":
@@ -928,13 +929,13 @@ class EdaReports:
 
                 if "SAMPLE" in select_data:
                     if len(select_data["SAMPLE"]) == 0:
-                        input('\nNo samples found, press any key to continue')
+                        input("\nNo samples found, press any key to continue")
                         continue
                     if isinstance(select_data["SAMPLE"][0], list):  # from audit_summary
                         sample_records = select_data["SAMPLE"]
                     elif isinstance(select_data["SAMPLE"][0], dict):  # from entity_size_breakdown
                         sample_records = sorted(select_data["SAMPLE"], key=lambda d: list(d.keys())[0])
-                    else: # from source_summaries
+                    else:  # from source_summaries
                         sample_records = sorted(select_data["SAMPLE"])
                     self.browse_list(prior_keys, sample_records)
                 else:
@@ -971,17 +972,17 @@ class EdaReports:
         current_index = 0
         while True:
             item_header = colorize(f"Sample {current_index + 1} of {list_count} in {list_header}", "bold")
-            #debug_print(list_records[current_index])
-            if isinstance(list_records[current_index], list): # from audit_summary
+            # debug_print(list_records[current_index])
+            if isinstance(list_records[current_index], list):  # from audit_summary
                 entity_list = list(set([x["NEWER_ID"] for x in list_records[current_index]]))
                 report = self.show_audit_sample(list_records[current_index])
             else:
-                if isinstance(list_records[current_index], dict): # from entity_size breakdown
+                if isinstance(list_records[current_index], dict):  # from entity_size breakdown
                     entity_id, review_list = list(list_records[current_index].items())[0]
                     entity_list = [entity_id]
                     if review_list:
                         item_header += colorize(f", review for {','.join(review_list)}", "bold")
-                else: # from source_summaries
+                else:  # from source_summaries
                     entity_list = str(list_records[current_index]).split()
 
                 if len(entity_list) == 1:
@@ -1025,7 +1026,7 @@ class EdaReports:
                 if current_index == list_count - 1:
                     input("\nNo more records, press enter to continue\n")
                 else:
-                    current_index =  current_index + 1
+                    current_index = current_index + 1
             elif reply.upper().startswith("G"):
                 reply = reply[1:]
                 if not reply:
@@ -1038,7 +1039,7 @@ class EdaReports:
                     else:
                         input("\nInvalid item number, press enter to continue\n")
             elif reply.upper().startswith("W") and "W" in special_actions:
-                #if len(entity_list) == 1:
+                # if len(entity_list) == 1:
                 #    report = sdk_wrapper.why_how(entity_list[0]) # should not hit this
                 if len(entity_list) == 2:
                     report = sdk_wrapper.why_not(entity_list)
@@ -1046,25 +1047,26 @@ class EdaReports:
                     report = sdk_wrapper.why_not_many(entity_list)
                 view_report(report, force_scroll=True)
             elif reply.upper().startswith("H") and "H" in special_actions:
-                how_data = sdk_wrapper.get_how_data(entity_list[0])
-                view_report(sdk_wrapper.columnar_how(how_data), force_scroll=True)
+                sdk_wrapper.how_viewer(int(entity_list[0]), self.how_display_level, force_scroll=True)
             elif reply.upper().startswith("E"):
                 additive = False
                 file_name = f"{'-'.join(entity_list)}.jsonl"
                 token_list = reply.split()
-                for i in range(len(token_list)):
-                    if token_list[i].lower() == "additive":
+                for i, token in enumerate(token_list):
+                    next_token = token_list[i + 1] if i + 1 < len(token_list) else None
+                    if token.lower() == "additive":
                         additive = True
-                    elif token_list[i].lower() == "to" and i < len(token_list)-1:
-                        file_name = token_list[i+1]
+                    elif token.lower() == "to" and next_token:
+                        file_name = next_token
                 json_lines = sdk_wrapper.export_records(entity_list, degree=0)
                 if json_lines:
-                    with open(file_name, 'a' if additive else 'w') as f:
-                        f.write('\n'.join(json_lines))
+                    with open(file_name, "a" if additive else "w", encoding="utf-8") as f:
+                        f.write("\n".join(json_lines) + "\n")
                     input(f"\n{len(json_lines)} records written to {file_name}, press enter to continue\n")
 
 
 class EdaSdkWrapper:
+
     def __init__(self, engine_config, debug_trace):
         try:
             self.sz_factory = SzAbstractFactory(MODULE_NAME, engine_config, verbose_logging=debug_trace)
@@ -1137,10 +1139,12 @@ class EdaSdkWrapper:
         self.last_command = None
         self.last_call_cache = []
 
+        self.how_display_levels = {"S": "summary", "T": "tree", "C": "columnar"}
+
     def begin_call_cache(self, cmd):
         self.last_command = cmd
         self.last_call_cache = []
-        
+
     def export_call_cache(self):
         report = ""
         for caller, api_name, flags, parms, response_data in self.last_call_cache:
@@ -1160,8 +1164,10 @@ class EdaSdkWrapper:
             report += json.dumps(response_data, indent=4)
 
         return report
-        
-    def call_sdk(self, api_name: str, flags: List[str], parms: Union[List[Union[str, int]], int, str]) -> Dict[str, Any]:
+
+    def call_sdk(
+        self, api_name: str, flags: List[str], parms: Union[List[Union[str, int]], int, str]
+    ) -> Dict[str, Any]:
         parms = parms if isinstance(parms, list) else [parms]
         caller = inspect.stack()[1].function
         try:
@@ -1178,14 +1184,13 @@ class EdaSdkWrapper:
 
         return response_data
 
-    ### sdk reformatters ###
+    # sdk reformatters
 
     def get_entity_features(self, feature_data):
         features_by_id = {}
         features_by_type = {}
         for ftype_code in feature_data:
             features_by_type[ftype_code] = []
-            feat_config = self.ftype_code_lookup[ftype_code]
             for distinct_feat_record in feature_data[ftype_code]:
                 distinct_usage_type = distinct_feat_record.get("USAGE_TYPE", "")
                 for feat_record in distinct_feat_record["FEAT_DESC_VALUES"]:
@@ -1379,7 +1384,7 @@ class EdaSdkWrapper:
             "DERIVED_FEATURE_COUNT": 0,
             "STEP_TYPE": {},
             "PRINCIPLE": {},
-            "INTERESTING_STEP": {}
+            "INTERESTING_STEP": {},
         }
         for lib_feat_id in entity_features:
             ftype_code = entity_features[lib_feat_id]["FTYPE_CODE"]
@@ -1434,7 +1439,7 @@ class EdaSdkWrapper:
             elif entity_list[0]["MEMBER_COUNT"] > 1:
                 step_type = "Combine virtual entities"
                 # all combine steps are interesting
-                member_count1 = entity_list[0]["MEMBER_COUNT"] 
+                member_count1 = entity_list[0]["MEMBER_COUNT"]
                 member_count2 = entity_list[1]["MEMBER_COUNT"]
                 reason = f"Combines a group of {member_count1} with a group of {member_count2}"
                 summary["INTERESTING_STEP"][step_num] = reason
@@ -1449,23 +1454,20 @@ class EdaSdkWrapper:
             }
             if step_type not in summary["STEP_TYPE"]:
                 summary["STEP_TYPE"][step_type] = 1
-            else:                
+            else:
                 summary["STEP_TYPE"][step_type] = 1
 
-            errule_code = step["MATCH_INFO"].get("ERRULE_CODE","None")
-            match_key = step["MATCH_INFO"].get("MATCH_KEY","None")
+            errule_code = step["MATCH_INFO"].get("ERRULE_CODE", "None")
+            match_key = step["MATCH_INFO"].get("MATCH_KEY", "None")
             if errule_code not in summary["PRINCIPLE"]:
-                summary["PRINCIPLE"][errule_code] = {
-                    "COUNT": 1,
-                    "MATCH_KEY": {}                    
-                }
+                summary["PRINCIPLE"][errule_code] = {"COUNT": 1, "MATCH_KEY": {}}
             else:
                 summary["PRINCIPLE"][errule_code]["COUNT"] += 1
             if match_key not in summary["PRINCIPLE"][errule_code]["MATCH_KEY"]:
                 summary["PRINCIPLE"][errule_code]["MATCH_KEY"][match_key] = 1
             else:
                 summary["PRINCIPLE"][errule_code]["MATCH_KEY"][match_key] += 1
-            
+
         final_entities = how_data["HOW_RESULTS"]["FINAL_STATE"]["VIRTUAL_ENTITIES"]
         if how_data["HOW_RESULTS"]["FINAL_STATE"]["NEED_REEVALUATION"]:
             reevaluation_msg = f"Needs reevaluation: resulted in {len(final_entities)} entities!"
@@ -1481,14 +1483,14 @@ class EdaSdkWrapper:
             "RECORDS": entity_records,
             "SUMMARY": summary,
             "STEPS": steps,
-            "FINAL_ENTITIES": final_entities
+            "FINAL_ENTITIES": final_entities,
         }
 
-        #with open('how_doc.json', 'w') as f:
+        # with open('how_doc.json', 'w') as f:
         #    f.write(json.dumps(how_data, indent=4))
         return how_data
 
-    ### display formatters ###
+    # display formatters
 
     def fmt_record_summary(self, record_summary, **kwargs):
         sep = kwargs.get("sep", "\n")
@@ -1675,7 +1677,7 @@ class EdaSdkWrapper:
                 colored_key = colorize("No candidates", "bad")
             else:
                 colored_key = colorize("No principles satisfied", "bad")
-                
+
         return colored_key
 
     def fmt_match_group(self, match_category, match_key, **kwargs):
@@ -1744,7 +1746,7 @@ class EdaSdkWrapper:
     def how_format_statistic(self, stat, cnt):
         return stat + " " + colorize("(" + str(cnt) + ")", "highlight2")
 
-    ### formatted tables ###
+    # formatted tables
 
     def get_features(self, arg_tokens, **kwargs):
         """display an entity's features and internal parsing"""
@@ -1981,7 +1983,7 @@ class EdaSdkWrapper:
                         rel_node.node_desc = rel_desc
                         group_node.add_child(rel_node)
         else:
-            input('NEVER GETS HERE')
+            input("NEVER GETS HERE")
             tree_nodes = {}
             for entity_id in entities:
                 if entity_id not in tree_nodes:
@@ -2225,12 +2227,14 @@ class EdaSdkWrapper:
             else:
                 feat_color = "caution"
 
-            tbl.rows.append([
-                colorize_attr(ftype_code),
-                best_score["INBOUND_FEAT_DESC"],
-                colorize(best_score["SCORE"], feat_color),
-                best_score["CANDIDATE_FEAT_DESC"],
-            ])
+            tbl.rows.append(
+                [
+                    colorize_attr(ftype_code),
+                    best_score["INBOUND_FEAT_DESC"],
+                    colorize(best_score["SCORE"], feat_color),
+                    best_score["CANDIDATE_FEAT_DESC"],
+                ]
+            )
 
         return tbl.render_table(no_lines=True)
 
@@ -2385,12 +2389,12 @@ class EdaSdkWrapper:
 
     def how_summary(self, how_data):
         summary_node = eda_node("summary")
-        summary_node.node_desc = colorize("HOW STATISTICS", "") #"highlight2")
+        summary_node.node_desc = colorize("HOW STATISTICS", "")  # "highlight2")
 
         category_node = eda_node("resolution")
         category_node.node_desc = self.how_format_statistic_header("RESOLUTIUON SUMMARY")
         summary_node.add_child(category_node)
-        
+
         group_node = eda_node("steps")
         step_count = 0
         for step_type in how_data["SUMMARY"]["STEP_TYPE"]:
@@ -2413,7 +2417,7 @@ class EdaSdkWrapper:
                 group_node.add_child(interest_node)
             group_node.node_desc = self.how_format_statistic("Steps of interest", interesting_step_count)
             category_node.add_child(group_node)
-            
+
         group_node = eda_node("principles")
         principles_used_count = 0
         for principle in how_data["SUMMARY"]["PRINCIPLE"]:
@@ -2454,9 +2458,9 @@ class EdaSdkWrapper:
             if derived != "No":
                 continue
             ftype_node = eda_node(ftype_code)
-            ftype_node.node_desc = self.how_format_statistic(ftype_code, len(feature_list))        
+            ftype_node.node_desc = self.how_format_statistic(ftype_code, len(feature_list))
             category_node.add_child(ftype_node)
-            
+
             cntr = 0
             for feature in sorted(feature_list, key=lambda k: k["RECORD_COUNT"], reverse=True):
                 cntr += 1
@@ -2468,11 +2472,11 @@ class EdaSdkWrapper:
                         stats = colorize(stats, "dim")
                     node_desc = f'{colorize(lib_feat_id, "dim")}: {feat_desc} {stats}'
                     feat_node = eda_node(lib_feat_id)
-                    feat_node.node_desc = self.how_format_statistic(node_desc, feature["RECORD_COUNT"])                    
+                    feat_node.node_desc = self.how_format_statistic(node_desc, feature["RECORD_COUNT"])
                     ftype_node.add_child(feat_node)
                 elif cntr == 3 and len(feature_list) > 4:
                     ftype_node.add_child(eda_node("~~~"))
-                
+
         return summary_node.render_tree()
 
     def how_tree(self, how_data, how_type):
@@ -2508,7 +2512,6 @@ class EdaSdkWrapper:
                 result_id_str = colorize_entity(result_id)
                 step_node.node_desc = f"Step {step_num}: {step_desc} on {match_key_desc} to create {result_id_str}"
                 step_node.node_text = self.how_tree_display(steps[step_num])
-
 
                 current_node.add_child(step_node)
                 if step_data["STEP_TYPE"] == "Combine virtual entities":
@@ -2552,6 +2555,27 @@ class EdaSdkWrapper:
         tbl_title += colorize(reevaluation_msg, "bad") if reevaluation_msg else ""
 
         return self.why_display(entities, row1_title, tbl_title)
+
+    # special functions
+
+    def how_viewer(self, entity_id, display_level, **kwargs):
+        how_data = sdk_wrapper.get_how_data(entity_id)
+        while True:
+            if display_level == "summary":
+                view_report(sdk_wrapper.how_summary(how_data), **kwargs)
+            elif display_level == "tree":
+                view_report(sdk_wrapper.how_tree(how_data, "brief"), **kwargs)
+            elif display_level == "columnar":
+                view_report(sdk_wrapper.columnar_how(how_data), **kwargs)
+
+            response = input("\nView (S)ummary, (T)ree, (C)olumnar or (Q)uit ...")
+            if response:
+                remove_from_history()
+            if not response or response.upper().startswith("Q"):
+                break
+            response = response.upper()
+            if response in self.how_display_levels:
+                display_level = self.how_display_levels[response]
 
     def export_records(self, entity_list, **kwargs):
         max_degree = kwargs.get("degree", 0)
@@ -2597,7 +2621,6 @@ class EdaCmd(cmd.Cmd):
         self.prompt = "(sz) "
         readline.set_completer_delims(" ")
         self.histCheck()
-
 
         self.settings_file_name = f"{os.path.expanduser('~')}{os.path.sep}.sz_explorer_settings"
         if os.path.exists(self.settings_file_name):
@@ -2918,7 +2941,7 @@ class EdaCmd(cmd.Cmd):
 
     def do_quickLook(self, arg):
         if not sz_dbo:
-            print_message(f"Direct database access is required, database drivers must be installed", "error")
+            print_message("Direct database access is required, database drivers must be installed", "error")
             return
         tbl = eda_table()
         tbl.title = "Data source counts"
@@ -2978,7 +3001,7 @@ class EdaCmd(cmd.Cmd):
         except Exception:
             print_exception_info()
         return
-            
+
     def help_entitySizeBreakdown(self):
         print(
             textwrap.dedent(
@@ -3002,7 +3025,7 @@ class EdaCmd(cmd.Cmd):
             self.eda_reports.entity_size_breakdown()
         except Exception as err:
             print_message(err, "error")
-            #print_exception_info()
+            # print_exception_info()
         return
 
     def complete_dataSourceSummary(self, text, line, begidx, endidx):
@@ -3227,7 +3250,7 @@ class EdaCmd(cmd.Cmd):
                     sdk_wrapper.fmt_record_list(matched_entity["RECORDS"], 1, 75),
                     sdk_wrapper.fmt_match_key(matched_entity["MATCH_INFO"]),
                     matched_entity["MATCH_SCORE"],
-                    rels
+                    rels,
                 ]
             )
             self.last_search_result.append(str(matched_entity["ENTITY_ID"]))
@@ -3255,16 +3278,13 @@ class EdaCmd(cmd.Cmd):
                     "\nPlease search by other attributes for this entity if you feel it should exist"
                 )
             else:
-                msg = (
-                    "No search keys were even generated ..."
-                    "\nPlease search by other attributes"
-                )
+                msg = "No search keys were even generated ..." "\nPlease search by other attributes"
         else:  # older versions do not have statistics
             msg = (
                 "No matches found or there were simply too many to return ..."
                 "\nPlease include additional search parameters if you feel this entity is in the database"
             )
-        print(colorize(f"\n\t{'\n\t'.join(msg.split('\n'))}\n", "caution"))
+        print(colorize(f"{LFTAB}{LFTAB.join(msg.split(LF))}{LF}", "caution"))
 
     def help_getFeatures(self):
         print(
@@ -3358,17 +3378,17 @@ class EdaCmd(cmd.Cmd):
             print_exception_info()
             return 0
         view_report(report)
-        if len(arg_tokens) == 1: # supports previous/next
+        if len(arg_tokens) == 1:  # supports previous/next
             self.last_entity_id = int(arg_tokens[0])
-            
+
     def find(self, operator, arg):
         starting_id = self.last_entity_id
-        #data_source = None  # to support find a record in a data source
+        # data_source = None  # to support find a record in a data source
         arg_list = arg.split()
         for parm in arg_list:
             if parm.isdigit():
                 starting_id = int(parm)
-            #else:
+            # else:
             #    data_source = parm.upper()
 
         sql = f"select RES_ENT_ID from RES_ENT_OKEY where RES_ENT_ID {operator} ?"
@@ -3553,10 +3573,10 @@ class EdaCmd(cmd.Cmd):
             return
 
         if len(entity_list) == 1:
-            input('here ...')
+            input("here ...")
             self.do_how(entity_list[0])
-            #how_data = sdk_wrapper.get_how_data(entity_list[0])
-            #view_report(sdk_wrapper.columnar_how(how_data))
+            # how_data = sdk_wrapper.get_how_data(entity_list[0])
+            # view_report(sdk_wrapper.columnar_how(how_data))
         elif len(entity_list) == 2 and not old_why_not:
             view_report(sdk_wrapper.why_not(entity_list))
         elif len(entity_list) == 4 and entity_list[0].upper() in sdk_wrapper.dsrc_code_lookup:
@@ -3573,7 +3593,8 @@ class EdaCmd(cmd.Cmd):
             Shows shows how the records in a single entity came together.
 
             {colorize('Syntax:', 'highlight2')}
-                how {entity_id}            {colorize('shows the summary view', 'dim')}
+                how {entity_id}            {colorize('shows the default view (can be changed via set command)', 'dim')}
+                how {entity_id} summary    {colorize('shows the summary view', 'dim')}
                 how {entity_id} tree       {colorize('shows the decision tree view', 'dim')}
                 how {entity_id} columnar   {colorize('shows the columnar view', 'dim')}
 
@@ -3586,45 +3607,18 @@ class EdaCmd(cmd.Cmd):
             self.help_how()
             return
 
-        display_levels = {
-            "S": "summary",
-            "T": "tree",
-            "C": "columnar"
-        }
         display_level = self.current_settings["default_how_view"]
         for token in arg.split():
-            if token.lower() in display_levels.values():
+            if token.lower() in sdk_wrapper.how_display_levels.values():
                 display_level = token.lower()
                 arg = arg.replace(token, "")
                 break
-        try:
-            entity_id = int(arg)
-        except:
+        if not arg.isdigit():
             print_message("Invalid parameter: expected a numeric entity ID", "warning")
             return
 
         sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
-        how_data = sdk_wrapper.get_how_data(entity_id)
-        
-        while True:
-            if display_level == "summary":
-                view_report(sdk_wrapper.how_summary(how_data))
-            elif display_level == "tree":
-                view_report(sdk_wrapper.how_tree(how_data, "brief"))
-            elif display_level == "columnar":
-                view_report(sdk_wrapper.columnar_how(how_data))
-
-            response = input("\nView (S)ummary, (T)ree, (C)olumnar or (Q)uit ...") 
-            if response:
-                remove_from_history()
-            if not response or response.upper().startswith("Q"):
-                break
-            response = response.upper()
-            if response in display_levels:
-                display_level = display_levels[response]
-                self.current_settings["default_how_view"] = display_level
-
-        return
+        sdk_wrapper.how_viewer(int(arg), display_level)
 
     def help_score(self):
         print(
@@ -3697,14 +3691,85 @@ class EdaCmd(cmd.Cmd):
 
         return
 
+    def help_export(self):
+        print(
+            textwrap.dedent(
+                f"""\
+
+        Exports the json records that make up the selected entities for debugging, reloading, etc.
+
+        {colorize('Syntax:', 'highlight2')}
+            export <entity_id>, <entity_id> degree <n> to <fileName> additive
+            export search to <fileName>
+            export search <search index> to <fileName>\n
+        """
+            )
+        )
+
+    def do_export(self, arg):
+        if not arg:
+            self.help_export()
+            return
+        entity_list = []
+        degree = 0
+        file_name = None
+        additive = False
+        token_list = arg.replace(",", " ").split()
+        ignore_token = False
+        for i, token in enumerate(token_list):
+            if ignore_token:
+                ignore_token = False
+                continue
+            next_token = token_list[i + 1] if i + 1 < len(token_list) else None
+            if token.isdigit():
+                entity_list.append(token)
+            elif token.lower() == "degree" and next_token:
+                if next_token.isdigit() and int(next_token) <= 3:
+                    degree = int(next_token)
+                    ignore_token = True
+                else:
+                    print_message("Degrees must be 3 or less", "error")
+                    return
+            elif token.lower() == "search":
+                if not self.last_search_result:
+                    print_message("No prior search result", "error")
+                    return
+                if next_token and next_token.isdigit():
+                    entity_list.extend(self.last_search_result[0 : int(next_token)])
+                    ignore_token = True
+                else:
+                    entity_list.extend(self.last_search_result)
+
+            elif token.lower() == "additive":
+                additive = True
+            elif token.lower() == "to" and next_token:
+                file_name = next_token
+                ignore_token = True
+        if len(entity_list) == 0:
+            print_message("No entities specified", "warning")
+            return
+        if not file_name:
+            file_name = f"{entity_list[0]}.jsonl" if len(entity_list) == 1 else "records.jsonl"
+
+        print(entity_list)
+
+        json_lines = sdk_wrapper.export_records(entity_list, degree=degree)
+        if json_lines:
+            with open(file_name, "a" if additive else "w", encoding="utf-8") as f:
+                f.write("\n".join(json_lines) + "\n")
+            print_message(f"{len(json_lines)} records written to {file_name}", "info")
+
+
 def dict_keys_upper(dict):
     return {k.upper(): v for k, v in dict.items()}
+
 
 def remove_from_history(idx=0):
     if readline:
         if not idx:
             idx = readline.get_current_history_length() - 1
         readline.remove_history_item(idx)
+
 
 def debug_print(_value, _desc="some variable"):
     print("-" * 20)
@@ -3714,6 +3779,7 @@ def debug_print(_value, _desc="some variable"):
     else:
         print(_value)
     input("press any key ...")
+
 
 if __name__ == "__main__":
     appPath = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -3779,6 +3845,7 @@ if __name__ == "__main__":
 
     try:
         from _sz_database import SzDatabase
+
         sz_dbo = SzDatabase(json.loads(engine_config)["SQL"]["CONNECTION"])
     except Exception as err:
         print_message(err, "warning")
