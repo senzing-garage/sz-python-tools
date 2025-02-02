@@ -379,7 +379,7 @@ class EdaReports:
         self.audit_colors = {"MERGE": "good", "SPLIT": "bad", "SPLIT+MERGE": "fg_red,bg_green"}
         self.snapshot_data = None
         self.audit_data = None
-        self.how_display_level = kwargs.get("how_display_level", "columnar")
+        self.default_how_view = kwargs.get("default_how_view", "columnar")
 
     def load_file(self, file_name):
         if not os.path.exists(file_name):
@@ -828,7 +828,7 @@ class EdaReports:
         self.drill_into(report_table, report_data, select_levels)
 
     def fmt_match_key_category(self, key, **kwargs):
-        sep = kwargs.get("no_rule", "\n ")
+        sep = kwargs.get("sep", "\n ")
         if "||" in key:
             errule_code, match_key = key.split("||")
         else:
@@ -1047,7 +1047,7 @@ class EdaReports:
                     report = sdk_wrapper.why_not_many(entity_list)
                 view_report(report, force_scroll=True)
             elif reply.upper().startswith("H") and "H" in special_actions:
-                sdk_wrapper.how_viewer(int(entity_list[0]), self.how_display_level, force_scroll=True)
+                sdk_wrapper.how_viewer(int(entity_list[0]), self.default_how_view, force_scroll=True)
             elif reply.upper().startswith("E"):
                 additive = False
                 file_name = f"{'-'.join(entity_list)}.jsonl"
@@ -1740,10 +1740,10 @@ class EdaSdkWrapper:
             entity_desc += " " + self.fmt_record_summary(entity["RECORD_SUMMARY"], sep=" | ")
         return entity_desc
 
-    def how_format_statistic_header(self, header):
+    def fmt_how_statistic_hdr(self, header):
         return colorize(header, "highlight2")
 
-    def how_format_statistic(self, stat, cnt):
+    def fmt_how_statistic(self, stat, cnt):
         return stat + " " + colorize("(" + str(cnt) + ")", "highlight2")
 
     # formatted tables
@@ -2208,14 +2208,24 @@ class EdaSdkWrapper:
         virtual_id1 = step_data["ENTITY_LIST"][0]["VIRTUAL_ID"]
         virtual_id2 = step_data["ENTITY_LIST"][1]["VIRTUAL_ID"]
 
+        # debug_print(step_data["ENTITY_LIST"][0])
+        # source_row.append(self.fmt_record_list(records, 1, attr_width))
+
         tbl = eda_table()
         tbl.columns = [
             {"name": "VIRTUAL_ID", "width": 25, "align": "left"},
-            {"name": colorize_entity(virtual_id1), "width": 80, "align": "left"},
             {"name": "SCORES", "width": 25, "align": "left"},
+            {"name": colorize_entity(virtual_id1), "width": 80, "align": "left"},
             {"name": colorize_entity(virtual_id2), "width": 80, "align": "left"},
         ]
-        tbl.rows = []
+        tbl.rows = [
+            [
+                "DATA_SOURCES",
+                "",
+                self.fmt_record_list(step_data["ENTITY_LIST"][0]["RECORDS"], 1, attr_width),
+                self.fmt_record_list(step_data["ENTITY_LIST"][1]["RECORDS"], 1, attr_width),
+            ]
+        ]
         feature_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"]
         for ftype_code in sorted(set(feature_scores), key=lambda k: self.ftype_code_order[k]):
             all_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"][ftype_code]
@@ -2229,9 +2239,9 @@ class EdaSdkWrapper:
 
             tbl.rows.append(
                 [
-                    colorize_attr(ftype_code),
-                    best_score["INBOUND_FEAT_DESC"],
+                    ftype_code,
                     colorize(best_score["SCORE"], feat_color),
+                    best_score["INBOUND_FEAT_DESC"],
                     best_score["CANDIDATE_FEAT_DESC"],
                 ]
             )
@@ -2392,7 +2402,7 @@ class EdaSdkWrapper:
         summary_node.node_desc = colorize("HOW STATISTICS", "")  # "highlight2")
 
         category_node = eda_node("resolution")
-        category_node.node_desc = self.how_format_statistic_header("RESOLUTIUON SUMMARY")
+        category_node.node_desc = self.fmt_how_statistic_hdr("RESOLUTIUON SUMMARY")
         summary_node.add_child(category_node)
 
         group_node = eda_node("steps")
@@ -2401,9 +2411,9 @@ class EdaSdkWrapper:
             step_type_count = how_data["SUMMARY"]["STEP_TYPE"][step_type]
             step_count += step_type_count
             step_node = eda_node(step_type)
-            step_node.node_desc = self.how_format_statistic(step_type, step_type_count)
+            step_node.node_desc = self.fmt_how_statistic(step_type, step_type_count)
             group_node.add_child(step_node)
-        group_node.node_desc = self.how_format_statistic("Resolutiuon steps", step_count)
+        group_node.node_desc = self.fmt_how_statistic("Resolutiuon steps", step_count)
         category_node.add_child(group_node)
 
         if how_data["SUMMARY"]["INTERESTING_STEP"]:
@@ -2415,7 +2425,7 @@ class EdaSdkWrapper:
                 reason = how_data["SUMMARY"]["INTERESTING_STEP"][step_num]
                 interest_node.node_desc = colorize(f"Step {step_num} {reason}", "italics")
                 group_node.add_child(interest_node)
-            group_node.node_desc = self.how_format_statistic("Steps of interest", interesting_step_count)
+            group_node.node_desc = self.fmt_how_statistic("Steps of interest", interesting_step_count)
             category_node.add_child(group_node)
 
         group_node = eda_node("principles")
@@ -2432,22 +2442,22 @@ class EdaSdkWrapper:
                 match_key_node = eda_node(match_key)
                 match_key_desc = colorize_match_key(match_key)
                 match_key_count = how_data["SUMMARY"]["PRINCIPLE"][principle]["MATCH_KEY"][match_key]
-                match_key_node.node_desc = self.how_format_statistic(match_key_desc, match_key_count)
+                match_key_node.node_desc = self.fmt_how_statistic(match_key_desc, match_key_count)
                 principle_node.add_child(match_key_node)
-            principle_node.node_desc = self.how_format_statistic(principle_desc, principle_count)
+            principle_node.node_desc = self.fmt_how_statistic(principle_desc, principle_count)
             group_node.add_child(principle_node)
-        group_node.node_desc = self.how_format_statistic("Principles used", principles_used_count)
+        group_node.node_desc = self.fmt_how_statistic("Principles used", principles_used_count)
         category_node.add_child(group_node)
 
         category_node = eda_node("entity")
-        category_node.node_desc = self.how_format_statistic_header("ENTITY SUMMARY")
+        category_node.node_desc = self.fmt_how_statistic_hdr("ENTITY SUMMARY")
         summary_node.add_child(category_node)
         for stat_data in [
             ["Total record count", how_data["SUMMARY"]["RECORD_COUNT"]],
             ["Total feature count", how_data["SUMMARY"]["SOURCE_FEATURE_COUNT"]],
         ]:
             item_node = eda_node(stat_data[0])
-            item_node.node_desc = self.how_format_statistic(stat_data[0], stat_data[1])
+            item_node.node_desc = self.fmt_how_statistic(stat_data[0], stat_data[1])
             category_node.add_child(item_node)
 
         features_by_type = self.regroup_by_type(how_data["FEATURES"])
@@ -2458,7 +2468,7 @@ class EdaSdkWrapper:
             if derived != "No":
                 continue
             ftype_node = eda_node(ftype_code)
-            ftype_node.node_desc = self.how_format_statistic(ftype_code, len(feature_list))
+            ftype_node.node_desc = self.fmt_how_statistic(ftype_code, len(feature_list))
             category_node.add_child(ftype_node)
 
             cntr = 0
@@ -2472,7 +2482,7 @@ class EdaSdkWrapper:
                         stats = colorize(stats, "dim")
                     node_desc = f'{colorize(lib_feat_id, "dim")}: {feat_desc} {stats}'
                     feat_node = eda_node(lib_feat_id)
-                    feat_node.node_desc = self.how_format_statistic(node_desc, feature["RECORD_COUNT"])
+                    feat_node.node_desc = self.fmt_how_statistic(node_desc, feature["RECORD_COUNT"])
                     ftype_node.add_child(feat_node)
                 elif cntr == 3 and len(feature_list) > 4:
                     ftype_node.add_child(eda_node("~~~"))
@@ -2533,7 +2543,7 @@ class EdaSdkWrapper:
             root_node = root_node.children[0]
         return root_node.render_tree()
 
-    def columnar_how(self, how_data):
+    def how_columnar(self, how_data):
         entity_id = how_data["ENTITY_ID"]
         entities = {}
         step_data = how_data["STEPS"]
@@ -2566,7 +2576,7 @@ class EdaSdkWrapper:
             elif display_level == "tree":
                 view_report(sdk_wrapper.how_tree(how_data, "brief"), **kwargs)
             elif display_level == "columnar":
-                view_report(sdk_wrapper.columnar_how(how_data), **kwargs)
+                view_report(sdk_wrapper.how_columnar(how_data), **kwargs)
 
             response = input("\nView (S)ummary, (T)ree, (C)olumnar or (Q)uit ...")
             if response:
@@ -2659,7 +2669,7 @@ class EdaCmd(cmd.Cmd):
         self.last_entity_id = 0
         self.last_search_result = []
 
-        self.eda_reports = EdaReports()
+        self.eda_reports = EdaReports(default_how_view=self.current_settings["default_how_view"])
         if args.snapshot_json_file:
             self.current_settings["snapshot_json_file"] = args.snapshot_json_file
         if self.current_settings.get("snapshot_json_file"):
@@ -2896,6 +2906,8 @@ class EdaCmd(cmd.Cmd):
         self.current_settings[arg_list[0]] = arg_list[1]
         if arg_list[0] == "color_scheme":
             Colors.set_theme(arg_list[1])
+        if arg_list[0] == "default_how_view":
+            self.eda_reports.default_how_view = arg_list[1]
 
     # reports
 
@@ -3576,7 +3588,7 @@ class EdaCmd(cmd.Cmd):
             input("here ...")
             self.do_how(entity_list[0])
             # how_data = sdk_wrapper.get_how_data(entity_list[0])
-            # view_report(sdk_wrapper.columnar_how(how_data))
+            # view_report(sdk_wrapper.how_columnar(how_data))
         elif len(entity_list) == 2 and not old_why_not:
             view_report(sdk_wrapper.why_not(entity_list))
         elif len(entity_list) == 4 and entity_list[0].upper() in sdk_wrapper.dsrc_code_lookup:
@@ -3611,7 +3623,7 @@ class EdaCmd(cmd.Cmd):
         for token in arg.split():
             if token.lower() in sdk_wrapper.how_display_levels.values():
                 display_level = token.lower()
-                arg = arg.replace(token, "")
+                arg = arg.replace(token, "").strip()
                 break
         if not arg.isdigit():
             print_message("Invalid parameter: expected a numeric entity ID", "warning")
