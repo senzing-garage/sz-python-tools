@@ -1317,14 +1317,31 @@ class EdaSdkWrapper:
             for score_record in match_info["CANDIDATE_KEYS"][ftype_code]:
                 lib_feat_id = score_record["FEAT_ID"]
                 scores_by_id[lib_feat_id] = {"WAS_CANDIDATE": True, "MATCH_SCORE": 100}
-        for ftype_code in match_info["FEATURE_SCORES"]:
+
+        score_records = {}
+        if match_info.get("WHY_KEY_DETAILS"):
+            for best_score in match_info["WHY_KEY_DETAILS"].get("CONFIRMATIONS", []):
+                best_score["TOKEN"] = "+" + best_score["TOKEN"]
+                key = f"{best_score['INBOUND_FEAT_ID']}-{best_score['CANDIDATE_FEAT_ID']}"
+                score_records[key] = best_score
+            for best_score in match_info["WHY_KEY_DETAILS"].get("DENIALS", []):
+                best_score["TOKEN"] = "-" + best_score["TOKEN"]
+                key = f"{best_score['INBOUND_FEAT_ID']}-{best_score['CANDIDATE_FEAT_ID']}"
+                score_records[key] = best_score
+        for ftype_code in match_info.get("FEATURE_SCORES", {}):
             all_scores = match_info["FEATURE_SCORES"][ftype_code]
             best_score = sorted(all_scores, key=lambda x: x["SCORE"])[-1]
+            key = f"{best_score['INBOUND_FEAT_ID']}-{best_score['CANDIDATE_FEAT_ID']}"
+            if key not in score_records:
+                score_records[key] = best_score
+
+        for key, best_score in score_records.items():
             scores_by_id[best_score["INBOUND_FEAT_ID"]] = {
                 "MATCHED_FEAT_ID": best_score["CANDIDATE_FEAT_ID"],
                 "MATCHED_FEAT_DESC": best_score["CANDIDATE_FEAT_DESC"],
                 "MATCH_SCORE": best_score["SCORE"],
                 "ALL_SCORES": best_score["ADDITIONAL_SCORES"],
+                "MATCH_KEY_TOKEN": best_score.get("TOKEN"),
                 "SCORE_BUCKET": best_score["SCORE_BUCKET"],
                 "SCORE_BEHAVIOR": best_score["SCORE_BEHAVIOR"],
             }
@@ -1333,10 +1350,10 @@ class EdaSdkWrapper:
                 "MATCHED_FEAT_DESC": best_score["INBOUND_FEAT_DESC"],
                 "MATCH_SCORE": best_score["SCORE"],
                 "ALL_SCORES": best_score["ADDITIONAL_SCORES"],
+                "MATCH_KEY_TOKEN": best_score.get("TOKEN"),
                 "SCORE_BUCKET": best_score["SCORE_BUCKET"],
                 "SCORE_BEHAVIOR": best_score["SCORE_BEHAVIOR"],
             }
-
         return scores_by_id
 
     def combine_json(self, records):
@@ -1370,6 +1387,7 @@ class EdaSdkWrapper:
             "SZ_ENTITY_INCLUDE_FEATURE_STATS",
             "SZ_ENTITY_INCLUDE_RECORD_DATA",
             "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+            "SZ_INCLUDE_MATCH_KEY_DETAILS",
         ]
         try:
             entity_data = self.call_sdk("get_entity_by_entity_id", get_flag_list, entity_id)
@@ -1601,6 +1619,11 @@ class EdaSdkWrapper:
 
             if any(x in stats for x in ("~", "!", "#")):
                 feat_color += ",dim" if feat_color else "dim"
+
+            # mixed_color = False / mixed_color and wrap text would not work well with each other
+            if feature.get("MATCH_KEY_TOKEN"):
+                feat_color = "good" if feature["MATCH_KEY_TOKEN"].startswith("+") else "bad"
+                # mixed_color = feature["FTYPE_CODE"] = feature["MATCH_KEY_TOKEN"][1:]
 
             display_list.extend(wrap_text(f"{feat_desc} {stats}", attr_width, feat_color))
 
@@ -2252,6 +2275,7 @@ class EdaSdkWrapper:
         whyFlagList = [
             "SZ_WHY_ENTITIES_DEFAULT_FLAGS",
             "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+            "SZ_INCLUDE_MATCH_KEY_DETAILS",
         ]
         try:
             parms = [entity_list[0], entity_list[1], entity_list[2], entity_list[3]]
@@ -2306,7 +2330,7 @@ class EdaSdkWrapper:
 
     def why_not(self, entity_list):
         entity_list = [int(x) for x in entity_list]
-        why_flag_list = ["SZ_WHY_ENTITIES_DEFAULT_FLAGS"]
+        why_flag_list = ["SZ_WHY_ENTITIES_DEFAULT_FLAGS", "SZ_INCLUDE_MATCH_KEY_DETAILS"]
         try:
             parms = [entity_list[0], entity_list[1]]
             json_data = self.call_sdk("why_entities", why_flag_list, parms)
