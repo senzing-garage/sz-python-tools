@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.9] - 2025-02-05
+
+### Added in 0.0.9
+
+- New sz_audit, sz_explorer and sz_snapshot
+
+### Changed in 0.0.9
+
+- Continued initial V4 work
+
 ## [0.0.8] - 2025-01-29
 
 ### Fixed in 0.0.8

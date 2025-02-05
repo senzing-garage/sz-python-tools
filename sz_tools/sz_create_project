@@ -171,7 +171,9 @@ def main() -> None:
     # Files & strings to modify
     update_files = [
         project_path.joinpath("setupEnv"),
-        etc_path.joinpath("G2Module.ini"),
+        # TODO
+        # etc_path.joinpath("G2Module.ini"),
+        etc_path.joinpath("sz_engine_config.ini"),
     ]
 
     path_subs = [

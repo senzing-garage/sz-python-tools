@@ -298,7 +298,7 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
         ),
     )
     # TODO Env vars?
-    # Args for Senzing team testing
+    # Args for testing
     # Disable DS Perf
     arg_parser.add_argument(
         "-sdsp",
@@ -471,7 +471,6 @@ def check_ingest_file(in_file: pathlib.Path) -> bool:
 
 
 def shuffle_ingest_file(
-    # cli_args: argparse.Namespace, shuff_files_ignore: bool, ingest_file: pathlib.Path
     settings: dict[str, Union[bool, int, list[str], None, str]],
     ingest_file: pathlib.Path,
 ) -> pathlib.Path:
@@ -499,7 +498,6 @@ def shuffle_ingest_file(
     shuff_file_glob = f"{ingest_file.name}{SHUFF_GLOB_TAG}"
 
     # If redirecting the shuffled file to a new path (-sfr / --shuffFileRedirect)
-    # if cli_args.shuffFileRedirect:
     if settings["shuffle_files_redirect"]:
         # redirect_path = pathlib.Path(cli_args.shuffFileRedirect[0]).resolve()
         redirect_path = pathlib.Path(settings["shuffle_files_redirect"][0]).resolve()
@@ -518,11 +516,9 @@ def shuffle_ingest_file(
         shuff_file = redirect_path / shuff_file_name
 
     # Look for previously shuffled files in original path
-    # if not cli_args.shuffFilesIgnore:
     if not settings["shuffle_files_ignore"]:
         prior_shuf_files = [p.resolve() for p in shuff_file_path.glob(shuff_file_glob)]
         # If redirecting the shuffle file look for previously shuffled files there too
-        # if cli_args.shuffFileRedirect:
         if settings["shuffle_files_redirect"]:
             prior_shuf_files.extend([p.resolve() for p in redirect_path.glob(shuff_file_glob)])
 
@@ -820,13 +816,8 @@ def signal_int(sig_num: int, stack_frame: FrameType) -> None:  # pylint: disable
 
 
 def load_and_redo(
-    # cli_args: argparse.Namespace,
-    # settings: dict[str, Union[bool, int, list[str], None, str]],
     settings: dict[str, Any],
     sz_engine: SzEngine,
-    # num_workers: int,
-    # no_redo: bool,
-    # with_info: bool,
     with_info_out: TextIO,
     file_to_process: Union[None, TextIO] = None,
     ingest_file: Union[pathlib.Path, None] = None,
@@ -1011,7 +1002,6 @@ def load_and_redo(
                     break
 
                 time_now = time.time()
-                # if time_now > work_stats_time + WORK_STATS_INTERVAL:
                 if time_now > work_stats_time + stats_output_frequency:
                     work_stats_time = time_now
                     workload_stats(sz_engine)
@@ -1054,7 +1044,6 @@ def load_and_redo(
             "elapsed_time": load_time,
         },
         "redo_stats": {
-            # "success_recs": redo_success if not no_redo else "Redo disabled",
             "success_recs": redo_success if not no_redo else 0,
             "error_recs": redo_errors if not no_redo else 0,
             "elapsed_time": redo_time if not no_redo else 0,
@@ -1064,7 +1053,6 @@ def load_and_redo(
     return results
 
 
-# def per_result(cli_args: argparse.Namespace, result) -> None:
 def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
     """# TODO"""
 
@@ -1078,8 +1066,6 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
 
     if result["source_file"]:
         logger.info("Source file:                %s", result["source_file"])
-        # f"{ingest_file if ingest_file else 'No input file specified'}",
-        # if cli_args.shuffleNoDelete and result["persisted_shuff_file"]:
         if shuffle_no_delete and result["persisted_shuff_file"]:
             logger.info("Persisted shuffled file:    %s", result["persisted_shuff_file"])
         else:
@@ -1089,38 +1075,35 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
         "With info file:             %s",
         result["with_info"] if result["with_info"] else "Not requested",
     )
-    # f"{pathlib.Path(with_info_file).resolve() if with_info else 'Not requested'}",
     logger.info(
         "Errors file:                %s",
         result["errors_file"] if result["errors_file"] else "No errors",
     )
 
-    # f"{pathlib.Path(errors_file).resolve() if (load_errors + error_recs) > 0 else 'No errors'}",
     logger.info("")
     if result["source_file"]:
-        logger.info("Successful load records:    %s", result["load_stats"]["success_recs"])
-        logger.info("Error load records:         %s", result["load_stats"]["error_recs"])
-        logger.info("Loading elapsed time (s):   %s", result["load_stats"]["elapsed_time"])
+        logger.info("Successful load records:    %s", f"{result['load_stats']['success_recs']:,}")
+        logger.info("Error load records:         %s", f"{result['load_stats']['error_recs']:,}")
+        logger.info("Loading elapsed time (m):   %s", f"{result['load_stats']['elapsed_time']:,}")
 
     logger.info("")
     if not no_redo:
-        logger.info("Successful redo records:    %s", result["redo_stats"]["success_recs"])
-        logger.info("Error redo records:         %s", result["redo_stats"]["error_recs"])
-        logger.info("Redo elapsed time (s):      %s", result["redo_stats"]["elapsed_time"])
+        logger.info("Successful redo records:    %s", f"{result['redo_stats']['success_recs']:,}")
+        logger.info("Error redo records:         %s", f"{result['redo_stats']['error_recs']:,}")
+        logger.info("Redo elapsed time (m):      %s", f"{result['redo_stats']['elapsed_time']:,}")
     else:
         logger.info("Redo:                       %s", "Not requested")
     logger.info("")
 
     if result["source_file"] and not no_redo:
         logger.info(
-            "Total elapsed time (s):     %s",
-            result["load_stats"]["elapsed_time"] + result["redo_stats"]["elapsed_time"],
-        )  # load_time + redo_time)
+            "Total elapsed time (m):     %s",
+            f"{result['load_stats']['elapsed_time'] + result['redo_stats']['elapsed_time']:,}",
+        )
         logger.info("")
 
 
 def summary_results(
-    # cli_args: argparse.Namespace, overall_results: dict[str, dict[str, Any]]
     settings: dict[str, Union[bool, int, list[str], None, str]],
     overall_results: dict[str, dict[str, Any]],
 ) -> None:
@@ -1230,12 +1213,9 @@ def main() -> None:
                 check_ingest_file(ingest_file)
 
                 # Don't shuffle small files
-                # if not cli_args.noShuffle:
                 if not cli_args["no_shuffle"]:
                     if ingest_file_size > 50_000:
-                        # if ingest_file_size > 0:
                         ingest_file_shuff = shuffle_ingest_file(
-                            # cli_args, shuff_files_ignore, ingest_file
                             cli_args,
                             ingest_file,
                         )
@@ -1247,19 +1227,14 @@ def main() -> None:
 
                 with open(ingest_or_shuff_file, "r", encoding="utf-8-sig") as file_to_process:
                     results = load_and_redo(
-                        # cli_args,
                         cli_args,
                         sz_engine,
-                        # num_threads,
-                        # no_redo,
-                        # with_info,
                         with_info_out,
                         file_to_process,
                         ingest_file,
                         ingest_file_shuff,
                     )
 
-                # per_result(cli_args, results)
                 per_result(cli_args, results)
                 overall_results[str(idx)] = results
 
@@ -1275,12 +1250,8 @@ def main() -> None:
         # Redo only
         else:
             results = load_and_redo(
-                # cli_args,
                 cli_args,
                 sz_engine,
-                # num_threads,
-                # no_redo,
-                # with_info,
                 with_info_out,
             )
 
