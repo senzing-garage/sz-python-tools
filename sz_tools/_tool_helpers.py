@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 
 # TODO Change to sz when changed in builds
 CONFIG_FILE = "G2Module.ini"
+CONFIG_FILE = "sz_engine_config.ini"
 
 # TODO
 TSzEngineFlags = TypeVar("TSzEngineFlags", bound="SzEngineFlags")  # pylint: disable=C0103
