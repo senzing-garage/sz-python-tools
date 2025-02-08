@@ -1050,7 +1050,7 @@ class SzCmdShell(cmd.Cmd):
 
         response = add_record(kwargs["flags"]) if "flags" in kwargs else add_record()
 
-        if response == "{}":
+        if not response:
             self.last_response = self.output_response("Record added", "success")
         else:
             self.last_response = self.output_response(response)
@@ -1095,7 +1095,7 @@ class SzCmdShell(cmd.Cmd):
 
         response = delete_record(kwargs["flags"]) if "flags" in kwargs else delete_record()
 
-        if response == "{}":
+        if not response:
             self.last_response = self.output_response("Record deleted.", "success")
         else:
             self.last_response = self.output_response(response)
@@ -1678,7 +1678,7 @@ class SzCmdShell(cmd.Cmd):
         )
 
         response = reevaluate(kwargs["flags"]) if "flags" in kwargs else reevaluate()
-        if response == "{}":
+        if not response:
             self.last_response = self.output_response("Entity reevaluated", "success")
         else:
             self.last_response = self.output_response(response)
@@ -1710,7 +1710,7 @@ class SzCmdShell(cmd.Cmd):
         )
 
         response = reevaluate(kwargs["flags"]) if "flags" in kwargs else reevaluate()
-        if response == "{}":
+        if not response:
             self.last_response = self.output_response("Record reevaluated", "success")
         else:
             self.last_response = self.output_response(response)
