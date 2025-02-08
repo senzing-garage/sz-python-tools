@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning].
 ### Fixed in 0.0.10
 
 - With info commands in sz_command detect "" instead of "{}" when with info not requested
+- Revert sz_engine_config.ini to G2Module.ini in helpers until V4 builds have made the change
 
 ## [0.0.9] - 2025-02-05
 
