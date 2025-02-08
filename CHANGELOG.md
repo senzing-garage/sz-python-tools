@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.10] - 2025-02-08
+
+### Fixed in 0.0.10
+
+- With info commands in sz_command detect "" instead of "{}" when with info not requested
+
 ## [0.0.9] - 2025-02-05
 
 ### Added in 0.0.9
