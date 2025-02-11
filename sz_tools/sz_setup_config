@@ -20,7 +20,7 @@ def parse_cli_args() -> argparse.Namespace:
         "--iniFile",
         dest="ini_file_name",
         default=None,
-        help="Path and file name of optional G2Module.ini to use",
+        help="Path and file name of optional sz_engine_config.ini to use",
     )
     # Run in non-interactive mode for Senzing team testing
     arg_parser.add_argument("-a", "--auto", action="store_true", help=argparse.SUPPRESS)

@@ -156,7 +156,7 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
         "--iniFile",
         help=textwrap.dedent(
             """\
-            Optional path and file name of G2Module.ini to use.
+            Optional path and file name of sz_engine_config.ini to use.
 
             Default: None
             Env Var: SENZING_ENGINE_CONFIGURATION_JSON
@@ -1084,13 +1084,13 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
     if result["source_file"]:
         logger.info("Successful load records:    %s", f"{result['load_stats']['success_recs']:,}")
         logger.info("Error load records:         %s", f"{result['load_stats']['error_recs']:,}")
-        logger.info("Loading elapsed time (m):   %s", f"{result['load_stats']['elapsed_time']:,}")
+        logger.info("Loading elapsed time (m):   %s", f"{result['load_stats']['elapsed_time']:,.1f}")
 
     logger.info("")
     if not no_redo:
         logger.info("Successful redo records:    %s", f"{result['redo_stats']['success_recs']:,}")
         logger.info("Error redo records:         %s", f"{result['redo_stats']['error_recs']:,}")
-        logger.info("Redo elapsed time (m):      %s", f"{result['redo_stats']['elapsed_time']:,}")
+        logger.info("Redo elapsed time (m):      %s", f"{result['redo_stats']['elapsed_time']:,.1f}")
     else:
         logger.info("Redo:                       %s", "Not requested")
     logger.info("")
@@ -1098,7 +1098,7 @@ def per_result(settings: dict[str, Any], result: dict[str, Any]) -> None:
     if result["source_file"] and not no_redo:
         logger.info(
             "Total elapsed time (m):     %s",
-            f"{result['load_stats']['elapsed_time'] + result['redo_stats']['elapsed_time']:,}",
+            f"{result['load_stats']['elapsed_time'] + result['redo_stats']['elapsed_time']:,.1f}",
         )
         logger.info("")
 

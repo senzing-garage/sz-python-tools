@@ -3839,7 +3839,7 @@ if __name__ == "__main__":
     argParser.add_argument(
         "-c",
         "--config_file_name",
-        help="Path and name of optional G2Module.ini file to use.",
+        help="Path and name of optional sz_engine_config.ini file to use.",
     )
     argParser.add_argument(
         "-s",

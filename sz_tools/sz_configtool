@@ -52,7 +52,7 @@ def parse_cli_args() -> argparse.Namespace:
         "--ini-file-name",
         dest="ini_file_name",
         default=None,
-        help="name of a G2Module.ini file to use",
+        help="name of a sz_engine_config.ini file to use",
     )
     arg_parser.add_argument(
         "-f",
