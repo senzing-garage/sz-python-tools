@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.11] - 2025-02-11
+
+### Changed in 0.0.11
+
+- Change G2Module.ini to sz_engine_config.ini 
+- Improvements to some output
+
 ## [0.0.10] - 2025-02-08
 
 ### Fixed in 0.0.10

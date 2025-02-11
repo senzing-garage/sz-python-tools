@@ -270,7 +270,7 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             """\
 
-                                                                                        Path and file name of optional G2Module.ini to use.
+                                                                                        Path and file name of optional sz_engine_config.ini to use.
 
                                                                                         """
         ),

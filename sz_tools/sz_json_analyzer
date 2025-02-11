@@ -672,7 +672,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-c",
         "--iniFile",
-        help="optional path and file name of G2Module.ini to use",
+        help="optional path and file name of sz_engine_config.ini to use",
     )
 
     args = parser.parse_args()

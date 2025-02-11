@@ -55,11 +55,8 @@ if TYPE_CHECKING:
     from .sz_command import SzCmdShell
     from .sz_configtool import SzCfgShell
 
-# TODO Change to sz when changed in builds
-CONFIG_FILE = "G2Module.ini"
-# CONFIG_FILE = "sz_engine_config.ini"
+CONFIG_FILE = "sz_engine_config.ini"
 
-# TODO
 TSzEngineFlags = TypeVar("TSzEngineFlags", bound="SzEngineFlags")  # pylint: disable=C0103
 
 # -------------------------------------------------------------------------
@@ -293,7 +290,7 @@ class Colors:
 
 def check_environment() -> None:
     """# TODO"""
-    # Error if can't locate a G2Module.ini or SENZING_ENGINE_CONFIGURATION_JSON
+    # Error if can't locate a sz_engine_config.ini or SENZING_ENGINE_CONFIGURATION_JSON
     if "SENZING_ETC_PATH" not in os.environ and "SENZING_ROOT" not in os.environ:
         # Check if set or not and that it's not set to null
         secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
@@ -421,7 +418,6 @@ def get_engine_config(ini_file_name: Union[str, None] = None) -> str:
 # -------------------------------------------------------------------------
 
 
-# TODO Moved from core
 def combine_engine_flags(flags: Union[List[TSzEngineFlags], List[str]]) -> int:
     """ORs together all flags in a list of strings or engine flag members"""
     result = constants.SZ_WITHOUT_INFO
@@ -430,7 +426,7 @@ def combine_engine_flags(flags: Union[List[TSzEngineFlags], List[str]]) -> int:
             result = result | SzEngineFlags[flag.upper()].value if isinstance(flag, str) else flag.value
     except (AttributeError, KeyError) as err:
         raise SzError(f"{err} is not a valid engine flag") from err
-    # TODO
+
     return result
 
 
