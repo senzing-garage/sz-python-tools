@@ -160,8 +160,6 @@ class SzCfgShell(cmd.Cmd):
             "do_addEntityScore",
             "do_addToNameSSNLast4hash",
             "do_deleteFromSSNLast4hash",
-            "do_updateAttributeAdvanced",
-            "do_updateAttributeAdvanced",
             "do_updateFeatureVersion",
         )
 
@@ -1540,7 +1538,6 @@ class SzCfgShell(cmd.Cmd):
         newRecord["SHOW_IN_MATCH_KEY"] = parm_data.get("MATCHKEY", "Yes")
         # somewhat hidden fields in case an engineer wants to specify them
         newRecord["PERSIST_HISTORY"] = parm_data.get("HISTORY", "Yes")
-        newRecord["DERIVATION"] = parm_data.get("DERIVATION")
         newRecord["VERSION"] = parm_data.get("VERSION", 1)
         newRecord["RTYPE_ID"] = parm_data.get("RTYPEID", 0)
 
@@ -1591,7 +1588,6 @@ class SzCfgShell(cmd.Cmd):
             newRecord = {}
             newRecord["CFCALL_ID"] = cfcall_id
             newRecord["CFUNC_ID"] = cfuncID
-            newRecord["EXEC_ORDER"] = 1
             newRecord["FTYPE_ID"] = ftype_id
             self.config_data["G2_CONFIG"]["CFG_CFCALL"].append(newRecord)
 
@@ -1816,11 +1812,6 @@ class SzCfgShell(cmd.Cmd):
                         "FCLASS_ID",
                         fclass_record["FCLASS_ID"],
                     )
-
-            elif parmCode == "DERIVATION":
-                ftype_record, update_cnt = self.update_if_different(
-                    ftype_record, update_cnt, "DERIVATION", parm_data["DERIVATION"]
-                )
 
             elif parmCode == "VERSION":
                 ftype_record, update_cnt = self.update_if_different(
@@ -2279,7 +2270,6 @@ class SzCfgShell(cmd.Cmd):
             "default": attribute_record["DEFAULT_VALUE"],
             "internal": attribute_record["INTERNAL"],
         }
-        # "advanced": attribute_record["ADVANCED"],
 
     def do_addAttribute(self, arg):
         """
@@ -2358,11 +2348,6 @@ class SzCfgShell(cmd.Cmd):
             colorize_msg(message, "error")
             return
 
-        parm_data["ADVANCED"], message = self.validateDomain("Advanced", parm_data.get("ADVANCED", "No"), ["Yes", "No"])
-        if not parm_data["ADVANCED"]:
-            colorize_msg(message, "error")
-            return
-
         parm_data["INTERNAL"], message = self.validateDomain("Internal", parm_data.get("INTERNAL", "No"), ["Yes", "No"])
         if not parm_data["INTERNAL"]:
             colorize_msg(message, "error")
@@ -2376,7 +2361,6 @@ class SzCfgShell(cmd.Cmd):
         newRecord["FELEM_CODE"] = parm_data["ELEMENT"]
         newRecord["FELEM_REQ"] = parm_data["REQUIRED"]
         newRecord["DEFAULT_VALUE"] = parm_data.get("DEFAULT")
-        newRecord["ADVANCED"] = parm_data["ADVANCED"]
         newRecord["INTERNAL"] = parm_data["INTERNAL"]
         self.config_data["G2_CONFIG"]["CFG_ATTR"].append(newRecord)
         self.config_updated = True
@@ -2390,7 +2374,7 @@ class SzCfgShell(cmd.Cmd):
             setAttribute {json_configuration}
 
         Example:
-            setAttribute {"attribute": "ACCOUNT_NUMBER", "Advanced": "Yes"}
+            setAttribute {"attribute": "ACCOUNT_NUMBER", "Internal": "Yes"}
         """
         if not arg:
             self.do_help(sys._getframe(0).f_code.co_name)
@@ -2409,7 +2393,7 @@ class SzCfgShell(cmd.Cmd):
             return
 
         oldParmData = dict_keys_upper(self.format_attribute_json(old_record))
-        newParmData = self.settable_parms(oldParmData, parm_data, ("REQUIRED", "ADVANCED", "INTERNAL"))
+        newParmData = self.settable_parms(oldParmData, parm_data, ("REQUIRED", "INTERNAL"))
         if newParmData.get("errors"):
             colorize_msg(newParmData["errors"], "error")
             return
@@ -2426,15 +2410,6 @@ class SzCfgShell(cmd.Cmd):
                 colorize_msg(message, "error")
                 return
             newRecord["FELEM_REQ"] = parm_data["REQUIRED"]
-
-        if parm_data.get("ADVANCED"):
-            parm_data["ADVANCED"], message = self.validateDomain(
-                "Advanced", parm_data.get("ADVANCED", "No"), ["Yes", "No"]
-            )
-            if not parm_data["ADVANCED"]:
-                colorize_msg(message, "error")
-                return
-            newRecord["ADVANCED"] = parm_data["ADVANCED"]
 
         if parm_data.get("INTERNAL"):
             parm_data["INTERNAL"], message = self.validateDomain(
@@ -2812,7 +2787,7 @@ class SzCfgShell(cmd.Cmd):
             func_id_field,
         )
 
-    def getCallID(self, feature, call_type, function=None):
+    def getCallID(self, feature, call_type, function=None, preferredCallID=None):
         (
             call_table,
             bom_table,
@@ -2828,11 +2803,18 @@ class SzCfgShell(cmd.Cmd):
             func_id = self.get_record(func_table, func_code_field, function)[func_id_field]
             if not func_id:
                 return 0, function + " not found"
-            call_record = self.get_record(
-                call_table,
-                ["FTYPE_ID", func_id_field],
-                [ftype_record["FTYPE_ID"], func_id],
-            )
+            if preferredCallID:
+                call_record = self.get_record(
+                    call_table,
+                    ["FTYPE_ID", func_id_field, call_id_field],
+                    [ftype_record["FTYPE_ID"], func_id, preferredCallID],
+                )
+            else:
+                call_record = self.get_record(
+                    call_table,
+                    ["FTYPE_ID", func_id_field],
+                    [ftype_record["FTYPE_ID"], func_id],
+                )
         else:
             call_recordList = self.get_record_list(call_table, "FTYPE_ID", ftype_record["FTYPE_ID"])
             if len(call_recordList) == 1:
@@ -3564,7 +3546,6 @@ class SzCfgShell(cmd.Cmd):
             return
         ftype_id = ftype_record["FTYPE_ID"]
 
-        parm_data["EXECORDER"] = 1
         cfcall_record = self.get_record("CFG_CFCALL", "FTYPE_ID", ftype_id)
         if cfcall_record:
             colorize_msg(
@@ -3616,7 +3597,6 @@ class SzCfgShell(cmd.Cmd):
         newRecord["CFCALL_ID"] = cfcall_id
         newRecord["FTYPE_ID"] = ftype_id
         newRecord["CFUNC_ID"] = cfuncID
-        newRecord["EXEC_ORDER"] = parm_data["EXECORDER"]
         self.config_data["G2_CONFIG"]["CFG_CFCALL"].append(newRecord)
         self.config_data["G2_CONFIG"]["CFG_CFBOM"].extend(cfbom_record_list)
         self.config_updated = True
@@ -3984,7 +3964,12 @@ class SzCfgShell(cmd.Cmd):
             return
 
         parm_data["CALLTYPE"] = "expression"
-        call_id, message = self.getCallID("NAME", parm_data["CALLTYPE"], "NAME_HASHER")
+
+        preferredCallID = 7
+        if parm_data.get("CALLID"):
+            preferredCallID = parm_data["CALLID"]
+
+        call_id, message = self.getCallID("NAME", parm_data["CALLTYPE"], "NAME_HASHER", preferredCallID)
         if not call_id:
             colorize_msg(message, "error")
             return
@@ -4064,7 +4049,6 @@ class SzCfgShell(cmd.Cmd):
 
         newRecord = {}
         newRecord["FTYPE_ID"] = ftype_id
-        newRecord["ECLASS_ID"] = 0
         newRecord["UTYPE_CODE"] = parm_data["USAGETYPE"]
         newRecord["FTYPE_FREQ"] = behaviorData["FREQUENCY"]
         newRecord["FTYPE_EXCL"] = behaviorData["EXCLUSIVITY"]
@@ -4257,8 +4241,8 @@ class SzCfgShell(cmd.Cmd):
         if not behaviorData:
             errorList.append(message)
 
-        record["SENDTOREDO"], message = self.validateDomain("sendToRedo", record.get("SEND_TO_REDO"), ["Yes", "No"])
-        if not record["SENDTOREDO"]:
+        record["SEND_TO_REDO"], message = self.validateDomain("sendToRedo", record.get("SEND_TO_REDO"), ["Yes", "No"])
+        if not record["SEND_TO_REDO"]:
             errorList.append(message)
 
         if not isinstance(record["CANDIDATE_CAP"], int):
@@ -4665,10 +4649,8 @@ class SzCfgShell(cmd.Cmd):
         return {
             "id": record["ERRULE_ID"],
             "rule": record["ERRULE_CODE"],
-            # "desc": record["ERRULE_DESC"],
             "resolve": record["RESOLVE"],
             "relate": record["RELATE"],
-            # "ref_score": record["REF_SCORE"],
             "rtype_id": record["RTYPE_ID"],
             "fragment": record["QUAL_ERFRAG_CODE"],
             "disqualifier": record["DISQ_ERFRAG_CODE"],
@@ -4767,10 +4749,8 @@ class SzCfgShell(cmd.Cmd):
         newRecord = {}
         newRecord["ERRULE_ID"] = parm_data["ID"]
         newRecord["ERRULE_CODE"] = parm_data["RULE"]
-        newRecord["ERRULE_DESC"] = parm_data.get("DESC", parm_data["RULE"])
         newRecord["RESOLVE"] = parm_data["RESOLVE"]
         newRecord["RELATE"] = parm_data["RELATE"]
-        newRecord["REF_SCORE"] = parm_data.get("REF_SCORE", 0)
         newRecord["RTYPE_ID"] = parm_data["RTYPE_ID"]
         newRecord["QUAL_ERFRAG_CODE"] = parm_data["FRAGMENT"]
         newRecord["DISQ_ERFRAG_CODE"] = parm_data.get("DISQUALIFIER")
@@ -4812,10 +4792,8 @@ class SzCfgShell(cmd.Cmd):
         oldParmData = dict_keys_upper(self.format_rule_json(old_record))
         settable_parm_list = (
             "RULE",
-            "DESC",
             "RESOLVE",
             "RELATE",
-            "REF_SCORE",
             "RTYPE_ID",
             "FRAGMENT",
             "DISQUALIFIER",
@@ -4831,10 +4809,8 @@ class SzCfgShell(cmd.Cmd):
 
         newRecord = dict(old_record)  # must use dict to create a new instance
         newRecord["ERRULE_CODE"] = parm_data.get("RULE", newRecord["ERRULE_CODE"])
-        newRecord["ERRULE_DESC"] = parm_data.get("DESC", newRecord["ERRULE_DESC"])
         newRecord["RESOLVE"] = parm_data.get("RESOLVE", newRecord["RESOLVE"])
         newRecord["RELATE"] = parm_data.get("RELATE", newRecord["RELATE"])
-        newRecord["REF_SCORE"] = parm_data.get("REF_SCORE", newRecord["REF_SCORE"])
         newRecord["RTYPE_ID"] = parm_data.get("RTYPE_ID", newRecord["RTYPE_ID"])
         newRecord["QUAL_ERFRAG_CODE"] = parm_data.get("FRAGMENT", newRecord["QUAL_ERFRAG_CODE"])
         newRecord["DISQ_ERFRAG_CODE"] = parm_data.get("DISQUALIFIER", newRecord["DISQ_ERFRAG_CODE"])
@@ -5033,7 +5009,6 @@ class SzCfgShell(cmd.Cmd):
             )
             return
 
-        parm_data["FUNCLIB"] = parm_data.get("FUNCLIB", "g2func_lib")
         parm_data["VERSION"] = parm_data.get("VERSION", 1)
         parm_data["CONNECTSTR"] = parm_data.get("CONNECTSTR", None)
         parm_data["LANGUAGE"] = parm_data.get("LANGUAGE", None)
@@ -5043,13 +5018,107 @@ class SzCfgShell(cmd.Cmd):
         newRecord["SFUNC_ID"] = sfuncID
         newRecord["SFUNC_CODE"] = parm_data["FUNCTION"]
         newRecord["SFUNC_DESC"] = parm_data["FUNCTION"]
-        newRecord["FUNC_LIB"] = parm_data["FUNCLIB"]
-        newRecord["FUNC_VER"] = parm_data["VERSION"]
         newRecord["CONNECT_STR"] = parm_data["CONNECTSTR"]
         newRecord["LANGUAGE"] = parm_data["LANGUAGE"]
         self.config_data["G2_CONFIG"]["CFG_SFUNC"].append(newRecord)
         self.config_updated = True
         colorize_msg("Standardize function successfully added!", "success")
+
+    def do_removeStandardizeFunction(self, arg):
+        """
+        Removes a standardize function
+
+        Syntax:
+            removeStandardizeFunction {json_configuration}
+
+        Examples:
+            see listStandardizeFunctions for examples of json_configurations
+        """
+        if not arg:
+            self.do_help(sys._getframe(0).f_code.co_name)
+            return
+        try:
+            parm_data = dict_keys_upper(json.loads(arg))
+            self.validate_parms(parm_data, ["FUNCTION"])
+            parm_data["FUNCTION"] = parm_data["FUNCTION"].upper()
+        except Exception as err:
+            colorize_msg(f"Command error: {err}", "error")
+            return
+
+        function_record = self.get_record("CFG_SFUNC", "SFUNC_CODE", parm_data["FUNCTION"])
+
+        for sfcall_record in self.get_record_list("CFG_SFCALL", "SFUNC_ID", function_record["SFUNC_ID"]):
+            self.config_data["G2_CONFIG"]["CFG_SFCALL"].remove(sfcall_record)
+
+        self.config_data["G2_CONFIG"]["CFG_SFUNC"].remove(function_record)
+        colorize_msg("Standardization function successfully deleted!", "success")
+        self.config_updated = True
+
+    def do_removeExpressionFunction(self, arg):
+        """
+        Removes an expression function
+
+        Syntax:
+            removeExpressionFunction {json_configuration}
+
+        Examples:
+            see listExpressionFunctions for examples of json_configurations
+        """
+        if not arg:
+            self.do_help(sys._getframe(0).f_code.co_name)
+            return
+        try:
+            parm_data = dict_keys_upper(json.loads(arg))
+            self.validate_parms(parm_data, ["FUNCTION"])
+            parm_data["FUNCTION"] = parm_data["FUNCTION"].upper()
+        except Exception as err:
+            colorize_msg(f"Command error: {err}", "error")
+            return
+
+        function_record = self.get_record("CFG_EFUNC", "EFUNC_CODE", parm_data["FUNCTION"])
+
+        for efcall_record in self.get_record_list("CFG_EFCALL", "EFUNC_ID", function_record["EFUNC_ID"]):
+            for efbom_record in self.get_record_list("CFG_EFBOM", "EFCALL_ID", efcall_record["EFCALL_ID"]):
+                self.config_data["G2_CONFIG"]["CFG_EFBOM"].remove(efbom_record)
+            self.config_data["G2_CONFIG"]["CFG_EFCALL"].remove(efcall_record)
+
+        self.config_data["G2_CONFIG"]["CFG_EFUNC"].remove(function_record)
+        colorize_msg("Expression function successfully deleted!", "success")
+        self.config_updated = True
+
+    def do_removeComparisonFunction(self, arg):
+        """
+        Removes a comparison function
+
+        Syntax:
+            removeComparisonFunction {json_configuration}
+
+        Examples:
+            see listComparisonFunctions for examples of json_configurations
+        """
+        if not arg:
+            self.do_help(sys._getframe(0).f_code.co_name)
+            return
+        try:
+            parm_data = dict_keys_upper(json.loads(arg))
+            self.validate_parms(parm_data, ["FUNCTION"])
+            parm_data["FUNCTION"] = parm_data["FUNCTION"].upper()
+        except Exception as err:
+            colorize_msg(f"Command error: {err}", "error")
+            return
+
+        function_record = self.get_record("CFG_CFUNC", "CFUNC_CODE", parm_data["FUNCTION"])
+
+        for cfcall_record in self.get_record_list("CFG_CFCALL", "CFUNC_ID", function_record["CFUNC_ID"]):
+            for cfbom_record in self.get_record_list("CFG_CFBOM", "CFCALL_ID", cfcall_record["CFCALL_ID"]):
+                self.config_data["G2_CONFIG"]["CFG_CFBOM"].remove(cfbom_record)
+            self.config_data["G2_CONFIG"]["CFG_CFCALL"].remove(cfcall_record)
+        for cfrtn_record in self.get_record_list("CFG_CFRTN", "CFUNC_ID", function_record["CFUNC_ID"]):
+            self.config_data["G2_CONFIG"]["CFG_CFRTN"].remove(cfrtn_record)
+
+        self.config_data["G2_CONFIG"]["CFG_CFUNC"].remove(function_record)
+        colorize_msg("Expression function successfully deleted!", "success")
+        self.config_updated = True
 
     def do_listStandardizeFunctions(self, arg):
         """
@@ -5114,7 +5183,6 @@ class SzCfgShell(cmd.Cmd):
             )
             return
 
-        parm_data["FUNCLIB"] = parm_data.get("FUNCLIB", "g2func_lib")
         parm_data["VERSION"] = parm_data.get("VERSION", 1)
         parm_data["CONNECTSTR"] = parm_data.get("CONNECTSTR", None)
         parm_data["LANGUAGE"] = parm_data.get("LANGUAGE", None)
@@ -5124,8 +5192,6 @@ class SzCfgShell(cmd.Cmd):
         newRecord["EFUNC_ID"] = efuncID
         newRecord["EFUNC_CODE"] = parm_data["FUNCTION"]
         newRecord["EFUNC_DESC"] = parm_data["FUNCTION"]
-        newRecord["FUNC_LIB"] = parm_data["FUNCLIB"]
-        newRecord["FUNC_VER"] = parm_data["VERSION"]
         newRecord["CONNECT_STR"] = parm_data["CONNECTSTR"]
         newRecord["LANGUAGE"] = parm_data["LANGUAGE"]
 
@@ -5198,7 +5264,6 @@ class SzCfgShell(cmd.Cmd):
             )
             return
 
-        parm_data["FUNCLIB"] = parm_data.get("FUNCLIB", "g2func_lib")
         parm_data["VERSION"] = parm_data.get("VERSION", 1)
         parm_data["ANONSUPPORT"] = parm_data.get("ANONSUPPORT", "No")
         parm_data["CONNECTSTR"] = parm_data.get("CONNECTSTR", None)
@@ -5209,8 +5274,6 @@ class SzCfgShell(cmd.Cmd):
         newRecord["CFUNC_ID"] = cfuncID
         newRecord["CFUNC_CODE"] = parm_data["FUNCTION"]
         newRecord["CFUNC_DESC"] = parm_data["FUNCTION"]
-        newRecord["FUNC_LIB"] = parm_data["FUNCLIB"]
-        newRecord["FUNC_VER"] = parm_data["VERSION"]
         newRecord["CONNECT_STR"] = parm_data["CONNECTSTR"]
         newRecord["ANON_SUPPORT"] = parm_data["ANONSUPPORT"]
         newRecord["LANGUAGE"] = parm_data["LANGUAGE"]
@@ -5445,30 +5508,68 @@ class SzCfgShell(cmd.Cmd):
         Deletes a comparision threshold
 
         Syntax:
-           deleteComparisonThreshold id
+           deleteComparisonThreshold {"feature": "PHONE", "function": "ID_COMP", "scoreName": "FULL_SCORE"}
         """
         if not arg:
             self.do_help(sys._getframe(0).f_code.co_name)
             return
         try:
-            parm_data = dict_keys_upper(json.loads(arg)) if arg.startswith("{") else {"ID": int(arg)}
-            parm_data["ID"] = (
-                int(parm_data["ID"])
-                if isinstance(parm_data["ID"], str) and parm_data["ID"].isdigit()
-                else parm_data["ID"]
-            )
-            self.validate_parms(parm_data, ["ID"])
+            parm_data = dict_keys_upper(json.loads(arg))
+            self.validate_parms(parm_data, ["FEATURE", "FUNCTION", "SCORENAME"])
+            parm_data["FEATURE"] = parm_data["FEATURE"].upper()
+            parm_data["FUNCTION"] = parm_data["FUNCTION"].upper()
+            parm_data["SCORENAME"] = parm_data["SCORENAME"].upper()
         except Exception as err:
             colorize_msg(f"Command error: {err}", "error")
             return
 
-        cfrtn_record = self.get_record("CFG_CFRTN", "CFRTN_ID", parm_data["ID"])
+        ftype_id = 0
+        if "FEATURE" in parm_data and parm_data["FEATURE"].upper() != "ALL":
+            ftype_record, message = self.lookupFeature(parm_data["FEATURE"])
+            if not ftype_record:
+                colorize_msg(message, "error")
+                return
+            ftype_id = ftype_record["FTYPE_ID"]
+
+        cfunc_record, message = self.lookupComparisonFunction(parm_data["FUNCTION"])
+        if not cfunc_record:
+            colorize_msg(message, "error")
+            return
+        cfunc_id = cfunc_record["CFUNC_ID"]
+
+        cfrtn_record = self.get_record("CFG_CFRTN", ["CFUNC_ID", "FTYPE_ID", "CFUNC_RTNVAL"], [cfunc_id, ftype_id, parm_data["SCORENAME"]])
         if not cfrtn_record:
-            colorize_msg(f"Comparison threshold ID {parm_data['ID']} does not exist", "warning")
+            colorize_msg("Comparison threshold does not exist", "warning")
             return
 
         self.config_data["G2_CONFIG"]["CFG_CFRTN"].remove(cfrtn_record)
         colorize_msg("Comparison threshold successfully deleted!", "success")
+        self.config_updated = True
+
+    def do_setSetting(self, arg):
+        """
+        sets a configuration setting
+
+        Example:
+            setSetting {"name": "metaphone_version", "value": 3}
+        """
+        if not arg:
+            self.do_help(sys._getframe(0).f_code.co_name)
+            return
+
+        try:
+            parm_data = dict_keys_upper(json.loads(arg))
+            self.validate_parms(parm_data, ["NAME", "VALUE"])
+            parm_data["NAME"] = parm_data["NAME"].upper()
+        except Exception as err:
+            colorize_msg(f"Command error: {err}", "error")
+            return
+
+        if not "SETTINGS" in self.config_data["G2_CONFIG"]:
+            self.config_data["G2_CONFIG"]["SETTINGS"] = {}
+
+        self.config_data["G2_CONFIG"]["SETTINGS"][parm_data["NAME"]] = parm_data["VALUE"]
+        colorize_msg("Behavior override successfully deleted!", "success")
         self.config_updated = True
 
     # distinct functions
@@ -5535,7 +5636,6 @@ class SzCfgShell(cmd.Cmd):
             )
             return
 
-        parm_data["FUNCLIB"] = parm_data.get("FUNCLIB", "g2func_lib")
         parm_data["VERSION"] = parm_data.get("VERSION", 1)
         parm_data["CONNECTSTR"] = parm_data.get("CONNECTSTR", None)
         parm_data["ANONSUPPORT"] = parm_data.get("ANONSUPPORT", None)
@@ -5546,8 +5646,6 @@ class SzCfgShell(cmd.Cmd):
         newRecord["DFUNC_ID"] = dfuncID
         newRecord["DFUNC_CODE"] = parm_data["FUNCTION"]
         newRecord["DFUNC_DESC"] = parm_data["FUNCTION"]
-        newRecord["FUNC_LIB"] = parm_data["FUNCLIB"]
-        newRecord["FUNC_VER"] = parm_data["VERSION"]
         newRecord["ANON_SUPPORT"] = parm_data["ANONSUPPORT"]
         newRecord["CONNECT_STR"] = parm_data["CONNECTSTR"]
         newRecord["LANGUAGE"] = parm_data["LANGUAGE"]
@@ -5738,6 +5836,72 @@ class SzCfgShell(cmd.Cmd):
                 "success",
             )
 
+    def do_removeConfigSectionField(self, arg):
+        """
+        Removes a field from an existing configuration section
+
+        Syntax:
+            removeConfigSectionField {json_configuration}
+
+        Caution:
+            This command should only be used by Senzing engineers
+        """
+        if not arg:
+            self.do_help(sys._getframe(0).f_code.co_name)
+            return
+        try:
+            parm_data = dict_keys_upper(json.loads(arg))
+            self.validate_parms(parm_data, ["SECTION", "FIELD"])
+            parm_data["SECTION"] = parm_data["SECTION"].upper()
+            parm_data["FIELD"] = parm_data["FIELD"].upper()
+        except Exception as err:
+            colorize_msg(f"Command error: {err}", "error")
+            return
+
+        if parm_data["SECTION"] not in self.config_data["G2_CONFIG"]:
+            colorize_msg("Configuration section does not exist", "error")
+            return
+
+        # update every record that needs it
+        updated_cnt = 0
+        for i in range(len(self.config_data["G2_CONFIG"][parm_data["SECTION"]])):
+            if parm_data["FIELD"] in self.config_data["G2_CONFIG"][parm_data["SECTION"]][i]:
+                del self.config_data["G2_CONFIG"][parm_data["SECTION"]][i][parm_data["FIELD"]]
+                #self.config_data["G2_CONFIG"][parm_data["SECTION"]].remove(parm_data["FIELD"])
+                updated_cnt += 1
+
+        if updated_cnt > 0:
+            self.config_updated = True
+            colorize_msg(
+                f"Configuration section field successfully added to {updated_cnt} records!",
+                "success",
+            )
+
+    def do_removeConfigSection(self, arg):
+        """
+        Removes a configuration section
+
+        Syntax:
+            removeConfigSection {json_configuration}
+
+        Caution:
+            This command should only be used by Senzing engineers
+        """
+        if not arg:
+            self.do_help(sys._getframe(0).f_code.co_name)
+            return
+        try:
+            parm_data = dict_keys_upper(json.loads(arg)) if arg.startswith("{") else {"SECTION": arg}
+            self.validate_parms(parm_data, ["SECTION"])
+            parm_data["SECTION"] = parm_data["SECTION"].upper()
+        except Exception as err:
+            colorize_msg(f"Command error: {err}", "error")
+            return
+
+        del self.config_data["G2_CONFIG"][parm_data["SECTION"]]
+        self.config_updated = True
+        colorize_msg("Configuration section successfully removed!", "success")
+
     # ===== system parameters  =====
 
     def do_listSystemParameters(self, arg):
@@ -5893,10 +6057,6 @@ class SzCfgShell(cmd.Cmd):
         parm_data["ID"] = call_id
         self.delete_call_element(json.dumps(parm_data))
         self.print_replacement(sys._getframe(0).f_code.co_name, "do_deleteExpressionCallElement")
-
-    def do_updateAttributeAdvanced(self, arg):
-        self.do_setAttribute(arg)
-        self.print_replacement(sys._getframe(0).f_code.co_name, "do_setAttribute")
 
     def do_updateFeatureVersion(self, arg):
         self.do_setFeature(arg)
