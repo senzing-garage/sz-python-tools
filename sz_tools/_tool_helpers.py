@@ -874,6 +874,32 @@ def get_char() -> str:
         termios.tcsetattr(file_desc, termios.TCSAFLUSH, orig)
 
 
+def get_char_with_prompt(prompt, valid_responses=None):
+    """# TODO"""
+    print(prompt, end="", flush=True)
+    response = ""
+    while True:
+        char = get_char()
+        if char == "\n":
+            break
+        response += char.upper()
+        if not valid_responses:
+            break
+        possibles = [x for x in valid_responses if x.startswith(response)]
+        if not possibles:
+            if len(response) > 1:
+                sys.stdout.write(f"\x1b[{len(response)-1}D")  # back up (n) spaces
+                sys.stdout.write("\x1b[K")  # Clear to end of line and return
+                sys.stdout.flush()
+            response = ""
+            continue
+        if len(possibles) == 1:
+            break
+        print(char, end="", flush=True)
+    print()
+    return response
+
+
 def get_char_with_timeout(time_out: int) -> str:
     """# TODO"""
 

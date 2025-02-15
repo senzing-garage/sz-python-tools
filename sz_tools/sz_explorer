@@ -17,10 +17,13 @@ import traceback
 from contextlib import suppress
 from typing import Any, Dict, List, Union
 
+from _sz_database import SzDatabase
 from _tool_helpers import (
     Colors,
     colorize_cmd_prompt,
     combine_engine_flags,
+    get_char,
+    get_char_with_prompt,
     get_engine_config,
 )
 from senzing import SzError
@@ -37,9 +40,13 @@ except ImportError:
     sys.exit(1)
 
 
-def print_exception_info():
-    # print(colorize(formatraceback_exc(), "dim"))
-    print(traceback.format_exc())
+def print_exception_info(ex):
+    print_message(ex, "error")
+    response = get_char_with_prompt("press T for traceback...")
+    if response.upper() == "T":
+        print(traceback.format_exc())
+        get_char_with_prompt("press any key any key to continue...")
+        print()
 
 
 def print_message(msg_text, msg_type_or_color=""):
@@ -60,29 +67,6 @@ def print_message(msg_text, msg_type_or_color=""):
         print(f"\n{colorize(msg_type, msg_color)} {msg_text}\n")
     else:
         print(f"\n{colorize(msg_text, msg_color)}\n")
-
-
-def show_debug(call: str, output: str = "") -> None:
-    """# TODO"""
-    if args.debug_output.upper() in ("S", "SCR", "SCREEN") and output:
-        print(f"- {call} -\n")
-        print(f"{output}\n")
-        return
-
-    try:
-        with open(args.debug_output, "a", encoding="utf-8") as f:
-            f.write(f"- {call} -\n")
-            f.write(f"{output}\n\n")
-    except IOError as err:
-        # TODO - Color
-        print(f"cannot write to {args.debug_output}: {err}")
-
-
-def fmt_statistic(amt):
-    amt = int(amt)
-    if amt > 1000000:
-        return "{:,.2f}m".format(round(amt / 1000000, 2))
-    return "{:,}".format(amt)
 
 
 # -------------------
@@ -201,13 +185,8 @@ def view_report(report, **kwargs):
 
 def scroll(report, **kwargs):
     print()
-    # if arg == "auto":
-    #    lessOptions = "FMXSR"
-    # else:
-    lessOptions = "-MXSR"
-
-    # try pipe to less on small enough files (pipe buffer usually 1mb and fills up on large entity displays)
-    less = subprocess.Popen(["less", lessOptions], stdin=subprocess.PIPE)
+    less_options = "-MXSR"
+    less = subprocess.Popen(["less", less_options], stdin=subprocess.PIPE)
     try:
         less.stdin.write(report.encode())
     except IOError:
@@ -295,7 +274,7 @@ class eda_table:
     def render_table(self, **kwargs):
         super_header = kwargs.get("super_header", False)
         no_lines = kwargs.get("no_lines", False)
-
+        side_header = kwargs.get("side_header")
         table_object = PrettyTable()
         if self.border_style == "SINGLE":
             table_object.set_style(SINGLE_BORDER)
@@ -314,9 +293,12 @@ class eda_table:
         column_header_list = []
         for column_data in self.columns:
             field_name_list.append(column_data["name"])
-            column_header_list.append(
-                "\n".join(Colors.apply(str(x), "column_header") for x in str(column_data["name"]).split("\n"))
-            )
+            if side_header and column_data["name"] != self.columns[0]["name"]:
+                column_header_list.append("\n".join(str(x) for x in str(column_data["name"]).split("\n")))
+            else:
+                column_header_list.append(
+                    "\n".join(Colors.apply(str(x), "column_header") for x in str(column_data["name"]).split("\n"))
+                )
         table_object.field_names = field_name_list
         table_object.header = False
         table_object.add_row(column_header_list)
@@ -325,6 +307,8 @@ class eda_table:
         for row in self.rows:
             total_row_cnt += 1
             row[0] = "\n".join([i for i in str(row[0]).split("\n")])
+            if side_header:
+                row[0] = colorize(row[0], "column_header")
             table_object.add_row(row)
 
         for column_data in self.columns:
@@ -386,15 +370,19 @@ class EdaReports:
         self.audit_data = None
         self.default_how_view = kwargs.get("default_how_view", "columnar")
 
+    def fmt_statistic(self, amt):
+        amt = int(amt)
+        if amt > 1000000:
+            return "{:,.2f}m".format(round(amt / 1000000, 2))
+        return "{:,}".format(amt)
+
     def load_file(self, file_name):
         if not os.path.exists(file_name):
             raise Exception(f"{file_name} not found!")
-            return
         try:
             json_data = json.load(open(file_name))
         except Exception as ex:
             raise Exception(f"{file_name}: {ex}")
-            return
         if json_data.get("SOURCE") == "sz_snapshot":
             self.snapshot_file = file_name
             self.snapshot_data = json_data
@@ -435,7 +423,7 @@ class EdaReports:
     def show_audit_sample(self, audit_records, use_color=True):
         get_flag_list = ["SZ_ENTITY_INCLUDE_ALL_FEATURES", "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS"]
         features_by_record = {}
-        entity_list = set([x["newer_id"] for x in audit_records])
+        entity_list = set([x["NEWER_ID"] for x in audit_records])
         for entity_id in entity_list:
             if entity_id == "unknown":  # bypass missing
                 continue
@@ -452,13 +440,13 @@ class EdaReports:
 
         ftypes_used = []
         for i in range(len(audit_records)):
-            record_key = audit_records[i]["record_id"] + "||" + audit_records[i].get("data_source", "")
+            record_key = audit_records[i]["RECORD_ID"] + "||" + audit_records[i].get("DATA_SOURCE", "")
             if record_key in features_by_record:
                 features = features_by_record[record_key]
             else:  # try to find by record_id alone (truthset key does not require data source)
                 features = {}
                 for record_key in features_by_record:
-                    if record_key.startswith(audit_records[i]["record_id"] + "||"):
+                    if record_key.startswith(audit_records[i]["RECORD_ID"] + "||"):
                         features = features_by_record[record_key]
                         break
             audit_records[i]["FEATURES"] = features
@@ -466,7 +454,7 @@ class EdaReports:
         ftypes_used = sorted(set(ftypes_used), key=lambda k: sdk_wrapper.ftype_code_order[k])
 
         tbl = eda_table()
-        tbl.title = f'Audit Result ID {audit_records[0]["audit_id"]} {audit_records[0]["audit_category"]}'
+        tbl.title = f'Audit Result ID {audit_records[0]["AUDIT_ID"]} {audit_records[0]["AUDIT_CATEGORY"]}'
         tbl.columns = [
             {"name": "DataSource", "width": 30, "align": "left"},
             {"name": "Record ID", "width": 30, "align": "left"},
@@ -477,7 +465,6 @@ class EdaReports:
             {"name": "Audit result", "width": 10, "align": "left"},
         ]
         for ftype_code in ftypes_used:
-            # ftype_code = sdk_wrapper.ftype_lookup[ftype_id]["FTYPE_CODE"]
             tbl.columns.append({"name": ftype_code, "width": 50, "align": "left"})
 
         sort_order = {"same": 1, "new negative": 3, "new positive": 2, "missing": 4}
@@ -492,17 +479,17 @@ class EdaReports:
         tbl.rows = []
         for audit_record in sorted(
             audit_records,
-            key=lambda k: [sort_order[k["audit_result"]], str(k["prior_id"]), k["newer_id"]],
+            key=lambda k: [sort_order[k["AUDIT_RESULT"]], str(k["PRIOR_ID"]), k["NEWER_ID"]],
         ):
-            result_color = local_colors.get(audit_record["audit_result"].upper(), "bold") if use_color else None
+            result_color = local_colors.get(audit_record["AUDIT_RESULT"].upper(), "bold") if use_color else None
             row = [
                 colorize(audit_record.get("DATA_SOURCE", ""), local_colors["DSRC_COLOR"]),
-                audit_record["record_id"],
-                audit_record["prior_id"],
-                audit_record["prior_score"],
-                colorize(audit_record["newer_id"], local_colors["ENTITY_COLOR"]),
-                audit_record["newer_score"],
-                colorize(audit_record["audit_result"], result_color),
+                audit_record["RECORD_ID"],
+                audit_record["PRIOR_ID"],
+                audit_record["PRIOR_SCORE"],
+                colorize(audit_record["NEWER_ID"], local_colors["ENTITY_COLOR"]),
+                audit_record["NEWER_SCORE"],
+                colorize(audit_record["AUDIT_RESULT"], result_color),
             ]
             for ftype_code in ftypes_used:
                 row.append("\n".join([x["FEAT_DESC"] for x in audit_record["FEATURES"].get(ftype_code, [])]))
@@ -512,7 +499,7 @@ class EdaReports:
             return tbl.columns, tbl.rows
         return tbl.render_table()
 
-    def audit_summary(self, arg):
+    def audit_summary(self):
         if not self.audit_data:
             print_message("Please load a json file created with sz_audit to view this report", "warning")
             return
@@ -532,10 +519,10 @@ class EdaReports:
         tbl.rows.append(
             [
                 colorize("Prior Count", "highlight2"),
-                fmt_statistic(self.audit_data["ENTITY"].get("PRIOR_COUNT", -1)),
-                fmt_statistic(self.audit_data["PAIRS"].get("PRIOR_COUNT", -1)),
+                self.fmt_statistic(self.audit_data["ENTITY"].get("PRIOR_COUNT", -1)),
+                self.fmt_statistic(self.audit_data["PAIRS"].get("PRIOR_COUNT", -1)),
                 colorize("Same Positives", "highlight2"),
-                colorize(fmt_statistic(self.audit_data["PAIRS"]["SAME_POSITIVE"]), None),
+                colorize(self.fmt_statistic(self.audit_data["PAIRS"]["SAME_POSITIVE"]), None),
                 colorize("Precision", "highlight2"),
                 colorize(self.audit_data["PAIRS"]["PRECISION"], None),
             ]
@@ -543,10 +530,10 @@ class EdaReports:
         tbl.rows.append(
             [
                 colorize("Newer Count", "highlight2"),
-                fmt_statistic(self.audit_data["ENTITY"].get("NEWER_COUNT", -1)),
-                fmt_statistic(self.audit_data["PAIRS"].get("NEWER_COUNT", -1)),
+                self.fmt_statistic(self.audit_data["ENTITY"].get("NEWER_COUNT", -1)),
+                self.fmt_statistic(self.audit_data["PAIRS"].get("NEWER_COUNT", -1)),
                 colorize("New Positives", self.audit_colors["MERGE"]),
-                colorize(fmt_statistic(self.audit_data["PAIRS"]["NEW_POSITIVE"]), None),
+                colorize(self.fmt_statistic(self.audit_data["PAIRS"]["NEW_POSITIVE"]), None),
                 colorize("Recall", "highlight2"),
                 colorize(self.audit_data["PAIRS"]["RECALL"], None),
             ]
@@ -554,10 +541,10 @@ class EdaReports:
         tbl.rows.append(
             [
                 colorize("Common Count", "highlight2"),
-                fmt_statistic(self.audit_data["ENTITY"].get("COMMON_COUNT", -1)),
-                fmt_statistic(self.audit_data["PAIRS"].get("COMMON_COUNT", -1)),
+                self.fmt_statistic(self.audit_data["ENTITY"].get("COMMON_COUNT", -1)),
+                self.fmt_statistic(self.audit_data["PAIRS"].get("COMMON_COUNT", -1)),
                 colorize("New Negatives", self.audit_colors["SPLIT"]),
-                colorize(fmt_statistic(self.audit_data["PAIRS"]["NEW_NEGATIVE"]), None),
+                colorize(self.fmt_statistic(self.audit_data["PAIRS"]["NEW_NEGATIVE"]), None),
                 colorize("F1 Score", "highlight2"),
                 colorize(self.audit_data["PAIRS"]["F1-SCORE"], None),
             ]
@@ -585,9 +572,9 @@ class EdaReports:
             count = report_data[category]["COUNT"]
             tbl.rows.append(
                 [
-                    row_num,
+                    colorize(row_num, "bold"),
                     colorize(category, self.audit_colors.get(category, "caution")),
-                    fmt_statistic(count),
+                    self.fmt_statistic(count),
                 ]
             )
         report_table += "\n" + tbl.render_table()
@@ -643,11 +630,11 @@ class EdaReports:
             row_num += 1
             report_segment = report_data[size_group]
             row = [
-                row_num,
+                colorize(row_num, "bold"),
                 size_group,
                 report_segment["COUNT"],
-                report_segment["REVIEW_COUNT"],
-                ", ".join(report_segment["REVIEW_FEATURES"]),
+                colorize(report_segment["REVIEW_COUNT"], "caution") if report_segment["REVIEW_COUNT"] else "",
+                ", ".join(colorize(x, "caution") for x in report_segment["REVIEW_FEATURES"]),
             ]
             tbl.rows.append(row)
             report_data[size_group] = report_segment
@@ -681,16 +668,16 @@ class EdaReports:
             report_segment = self.snapshot_data["DATA_SOURCES"][data_source]
             compression = 100 - (report_segment["ENTITY_COUNT"] / float(report_segment["RECORD_COUNT"]) * 100)
             row = [
-                row_num,
+                colorize(row_num, "bold"),
                 colorize_dsrc(data_source),
-                fmt_statistic(report_segment["RECORD_COUNT"]),
-                fmt_statistic(report_segment["ENTITY_COUNT"]),
+                self.fmt_statistic(report_segment["RECORD_COUNT"]),
+                self.fmt_statistic(report_segment["ENTITY_COUNT"]),
                 f"{round(compression,2)}%",
-                fmt_statistic(report_segment["MATCH"]["RECORD_COUNT"]),
-                fmt_statistic(report_segment["MATCH"]["ENTITY_COUNT"]),
-                fmt_statistic(report_segment["AMBIGUOUS_MATCH"]["RELATION_COUNT"]),
-                fmt_statistic(report_segment["POSSIBLE_MATCH"]["RELATION_COUNT"]),
-                fmt_statistic(report_segment["POSSIBLE_RELATION"]["RELATION_COUNT"]),
+                self.fmt_statistic(report_segment["MATCH"]["RECORD_COUNT"]),
+                self.fmt_statistic(report_segment["MATCH"]["ENTITY_COUNT"]),
+                self.fmt_statistic(report_segment["AMBIGUOUS_MATCH"]["RELATION_COUNT"]),
+                self.fmt_statistic(report_segment["POSSIBLE_MATCH"]["RELATION_COUNT"]),
+                self.fmt_statistic(report_segment["POSSIBLE_RELATION"]["RELATION_COUNT"]),
             ]
             tbl.rows.append(row)
             report_data[data_source] = {"COUNT": 0, "MATCH_LEVEL": {}}
@@ -733,14 +720,14 @@ class EdaReports:
             row_num += 1
             report_segment = self.snapshot_data["CROSS_SOURCES"][data_source_pair]
             row = [
-                row_num,
+                colorize(row_num, "bold"),
                 colorize_dsrc(data_source1),
                 colorize_dsrc(data_source2),
-                fmt_statistic(report_segment["MATCH"]["RECORD_COUNT"]),
-                fmt_statistic(report_segment["MATCH"]["ENTITY_COUNT"]),
-                fmt_statistic(report_segment["AMBIGUOUS_MATCH"]["RELATION_COUNT"]),
-                fmt_statistic(report_segment["POSSIBLE_MATCH"]["RELATION_COUNT"]),
-                fmt_statistic(report_segment["POSSIBLE_RELATION"]["RELATION_COUNT"]),
+                self.fmt_statistic(report_segment["MATCH"]["RECORD_COUNT"]),
+                self.fmt_statistic(report_segment["MATCH"]["ENTITY_COUNT"]),
+                self.fmt_statistic(report_segment["AMBIGUOUS_MATCH"]["RELATION_COUNT"]),
+                self.fmt_statistic(report_segment["POSSIBLE_MATCH"]["RELATION_COUNT"]),
+                self.fmt_statistic(report_segment["POSSIBLE_RELATION"]["RELATION_COUNT"]),
             ]
             tbl.rows.append(row)
 
@@ -780,9 +767,9 @@ class EdaReports:
             row_num += 1
             report_segment = self.snapshot_data["MULTI_SOURCES"][data_sources]
             row = [
-                row_num,
+                colorize(row_num, "bold"),
                 colorize(" | ", "dim").join(colorize_dsrc(x) for x in data_sources.split("||")),
-                fmt_statistic(report_segment.get("ENTITY_COUNT", 0)),
+                self.fmt_statistic(report_segment.get("ENTITY_COUNT", 0)),
             ]
             tbl.rows.append(row)
             report_data[data_sources] = report_segment
@@ -826,7 +813,7 @@ class EdaReports:
         row_num = 0
         for match_level in report_data.keys():
             row_num += 1
-            row = [row_num, match_level, fmt_statistic(report_data[match_level]["COUNT"])]
+            row = [colorize(row_num, "bold"), match_level, self.fmt_statistic(report_data[match_level]["COUNT"])]
             tbl.rows.append(row)
 
         report_table = tbl.render_table()
@@ -860,14 +847,14 @@ class EdaReports:
                 row_num = 0
                 if select_level in ("MATCH_KEY"):
                     keys = sorted(select_data.keys(), key=lambda k: select_data[k]["COUNT"], reverse=True)
-                    summarized_match_key = 1
                     summarized_data = {}
                     key_count = 0
                     for key in keys:
                         key_count += 1
-                        if key_count < 10 and summarized_match_key != 2:
+                        if key_count < 10 or summarized_match_key == 2:
                             summarized_data[key] = select_data[key]
                         else:
+                            summarized_match_key = 1
                             summarized_key = f"||{len(keys)-9} more match_keys"
                             if summarized_key not in summarized_data:
                                 summarized_data[summarized_key] = select_data[key]
@@ -877,6 +864,7 @@ class EdaReports:
                     select_data = summarized_data
                 elif select_level == "PRINCIPLE":
                     select_data = dict(sorted(select_data.items()))
+
                 for key in select_data.keys():
                     row_num += 1
                     if select_level == "MATCH_KEY":
@@ -884,24 +872,36 @@ class EdaReports:
                     else:
                         formatted_key = key
                     item_count = select_data[key]["COUNT"]
-                    tbl.rows.append([row_num, formatted_key, item_count])
+                    tbl.rows.append([colorize(row_num, "bold"), formatted_key, item_count])
                 select_table = tbl.render_table()
 
             view_report(select_table, no_scroll=True)
-            if select_level == "match_key" and summarized_match_key == 1:
-                selection = input("Select row number to review, (A) for all match_keys, or (Q) to quit... ")
+            # debug_print(f"{select_level} {summarized_match_key}")
+            valid_responses = [str(n + 1) for n in range(len(select_data.keys()))] + ["Q"]
+            if select_level == "ENTITY_SIZE_GROUP":
+                valid_responses.extend(["R" + str(n + 1) for n in range(len(select_data.keys()))])
+                selection = get_char_with_prompt(
+                    'Select row number to review, "R" + row number for review items only, or <enter> if done... ',
+                    valid_responses,
+                )
+
+            elif select_level == "MATCH_KEY" and summarized_match_key == 1:
+                valid_responses.append("A")
+                selection = get_char_with_prompt(
+                    "Select row number to review, (A) for all match_keys, or <enter> if done... ",
+                    valid_responses,
+                )
             else:
-                selection = input("Select row number to review or (Q) to quit... ")
+                selection = get_char_with_prompt("Select row number to review or <enter> if done... ", valid_responses)
             if not selection:
                 selection = "Q"
-            else:
-                remove_from_history()
 
             review_filter = selection.upper().startswith("R")
             if review_filter:
                 selection = selection[1:]
 
             if selection.upper().startswith("Q"):
+                summarized_match_key = 0
                 del report_levels[-1]
                 if len(report_levels) == 0:
                     break
@@ -912,10 +912,10 @@ class EdaReports:
                 if review_filter and "REVIEW_COUNT" in select_data[selected_key]:
                     sample = []
                     for entity_data in select_data[selected_key]["SAMPLE"]:
-                        entity_id, review_list = list(entity_data.items())[0]
+                        review_list = list(entity_data.items())[0][1]
                         if review_list:
                             sample.append(entity_data)
-                    select_data[selected_key]["SAMPLE"] = sample
+                    select_data[selected_key]["REVIEW"] = sample
                     select_data = select_data[selected_key]
                 elif "SAMPLE" in select_data[selected_key]:
                     select_data = select_data[selected_key]
@@ -934,14 +934,13 @@ class EdaReports:
                 prior_keys += " " + prior_key if prior_keys else prior_key
 
                 if "SAMPLE" in select_data:
-                    if len(select_data["SAMPLE"]) == 0:
-                        input("\nNo samples found, press any key to continue")
+                    sample_records = select_data["REVIEW"] if review_filter else select_data["SAMPLE"]
+                    if len(sample_records) == 0:
+                        get_char_with_prompt("\nNo samples found, press any key to continue...")
                         continue
-                    if isinstance(select_data["SAMPLE"][0], list):  # from audit_summary
-                        sample_records = select_data["SAMPLE"]
-                    elif isinstance(select_data["SAMPLE"][0], dict):  # from entity_size_breakdown
-                        sample_records = sorted(select_data["SAMPLE"], key=lambda d: list(d.keys())[0])
-                    else:  # from source_summaries
+                    if isinstance(sample_records[0], dict):  # from entity_size_breakdown
+                        sample_records = sorted(sample_records, key=lambda d: list(d.keys())[0])
+                    elif not isinstance(sample_records[0], list):  # not from audit_summary as it can't be sorted
                         sample_records = sorted(select_data["SAMPLE"])
                     self.browse_list(prior_keys, sample_records)
                 else:
@@ -961,7 +960,7 @@ class EdaReports:
             json_data_2 = sdk_wrapper.call_sdk("get_entity_by_entity_id", get_flag_list, int(entity_id))
         except SzError as err:
             print_message(err, "error")
-            return
+            return None
 
         ambiguous_entity = "AMBIGUOUS_ENTITY" in json_data_2["RESOLVED_ENTITY"]["FEATURES"]
         if ambiguous_entity and "RELATED_ENTITIES" in json_data_2:
@@ -971,16 +970,16 @@ class EdaReports:
                     entity_set.append(str(related_entity["ENTITY_ID"]))
             if len(entity_set) > 1:
                 return [entity_id] + entity_set
-        return
+        return None
 
     def browse_list(self, list_header, list_records):
         list_count = len(list_records)
         current_index = 0
         while True:
             item_header = colorize(f"Sample {current_index + 1} of {list_count} in {list_header}", "bold")
-            # debug_print(list_records[current_index])
             if isinstance(list_records[current_index], list):  # from audit_summary
-                entity_list = list(set([x["newer_id"] for x in list_records[current_index]]))
+                entity_list = list(set([x["NEWER_ID"] for x in list_records[current_index]]))
+                entity_list = [x for x in entity_list if x.isdigit()]  # must remove "unknown" from audit
                 report = self.show_audit_sample(list_records[current_index])
             else:
                 if isinstance(list_records[current_index], dict):  # from entity_size breakdown
@@ -1003,17 +1002,17 @@ class EdaReports:
                     report = sdk_wrapper.compare_entities(entity_list)
             view_report(report, no_scroll=True, extra_header=item_header)
 
+            valid_responses = ["P", "N", "G", "S", "Q", "E"]
             if len(entity_list) == 1:
                 prompt = "Select (P)revious, (N)ext, (G)oto, (H)ow, (E)xport, (S)croll, (Q)uit..."
-                special_actions = "DHE"
+                valid_responses += ["D", "H"]
             else:
                 prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit..."
-                special_actions = "WE"
-            for char in "PNGDHWEQCFSO":
+                valid_responses += ["W"]
+            for char in valid_responses:
                 prompt = prompt.replace(f"({char})", f"({Colors.apply(char, 'bold')})")
-            reply = input(prompt)
+            reply = get_char_with_prompt(prompt, valid_responses)
             if reply:
-                remove_from_history()
                 if reply.isdigit():
                     reply = "G" + reply
             else:
@@ -1025,12 +1024,12 @@ class EdaReports:
                 scroll(report)
             elif reply.upper().startswith("P"):
                 if current_index == 0:
-                    input("\nNo prior records, press enter to continue\n")
+                    get_char_with_prompt("\nNo prior records, press any key to continue...")
                 else:
                     current_index = current_index - 1
             elif reply.upper().startswith("N"):
                 if current_index == list_count - 1:
-                    input("\nNo more records, press enter to continue\n")
+                    get_char_with_prompt("\nNo more records, press any key to continue...")
                 else:
                     current_index = current_index + 1
             elif reply.upper().startswith("G"):
@@ -1043,17 +1042,15 @@ class EdaReports:
                     if reply.isnumeric() and int(reply) > 0 and int(reply) <= list_count:
                         current_index = int(reply) - 1
                     else:
-                        input("\nInvalid item number, press enter to continue\n")
-            elif reply.upper().startswith("W") and "W" in special_actions:
-                # if len(entity_list) == 1:
-                #    report = sdk_wrapper.why_how(entity_list[0]) # should not hit this
+                        get_char_with_prompt("\nInvalid item number, press any key to continue...")
+            elif reply.upper().startswith("W"):
                 if len(entity_list) == 2:
                     report = sdk_wrapper.why_not(entity_list)
                 else:
                     report = sdk_wrapper.why_not_many(entity_list)
                 view_report(report, force_scroll=True)
-            elif reply.upper().startswith("H") and "H" in special_actions:
-                sdk_wrapper.how_viewer(int(entity_list[0]), self.default_how_view, force_scroll=True)
+            elif reply.upper().startswith("H"):
+                sdk_wrapper.how_viewer(int(entity_list[0]), how_view=self.default_how_view, force_scroll=True)
             elif reply.upper().startswith("E"):
                 additive = False
                 file_name = f"{'-'.join(entity_list)}.jsonl"
@@ -1068,14 +1065,18 @@ class EdaReports:
                 if json_lines:
                     with open(file_name, "a" if additive else "w", encoding="utf-8") as f:
                         f.write("\n".join(json_lines) + "\n")
-                    input(f"\n{len(json_lines)} records written to {file_name}, press enter to continue\n")
+                    get_char_with_prompt(
+                        f"\n{len(json_lines)} records written to {file_name}, press any key to continue ..."
+                    )
 
 
 class EdaSdkWrapper:
 
-    def __init__(self, engine_config, debug_trace):
+    def __init__(self, engine_config, **kwargs):
+        self.webapp_url = kwargs.get("webapp_url")
+        self.debug_trace = kwargs.get("debug_trace")
         try:
-            self.sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config, verbose_logging=debug_trace)
+            self.sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config, verbose_logging=self.debug_trace)
             self.sz_engine = self.sz_factory.create_engine()
             self.sz_diagnostic = self.sz_factory.create_diagnostic()
             sz_product = self.sz_factory.create_product()
@@ -1098,7 +1099,7 @@ class EdaSdkWrapper:
         # supplement feature code lookup with attribute details
         for item in sz_config_data["G2_CONFIG"]["CFG_ATTR"]:
             if item.get("FTYPE_CODE"):
-                self.ftype_code_lookup[item["FTYPE_CODE"]]["ATTR_CLASS"] = item["ATTR_CLASS"]
+                # self.ftype_code_lookup[item["FTYPE_CODE"]]["ATTR_CLASS"] = item["ATTR_CLASS"]
                 if "ATTRIBUTES" not in self.ftype_code_lookup[item["FTYPE_CODE"]]:
                     self.ftype_code_lookup[item["FTYPE_CODE"]]["ATTRIBUTES"] = {}
                 self.ftype_code_lookup[item["FTYPE_CODE"]]["ATTRIBUTES"][item["FELEM_CODE"]] = item
@@ -1109,16 +1110,19 @@ class EdaSdkWrapper:
             cfunc_code = self.cfunc_lookup[item["CFUNC_ID"]]["CFUNC_CODE"]
             self.ftype_code_lookup[ftype_code]["CFUNC_CODE"] = cfunc_code
 
+        self.senzing_features = ["CONFUSED_ENTITY", "AMBIGUOUS_ENTITY"]
         # supplement feature code lookup with sort order (scored features first)
         for ftype_code in self.ftype_code_lookup:
             ftype_id = self.ftype_code_lookup[ftype_code]["FTYPE_ID"]
-            if self.ftype_code_lookup[ftype_code].get("CFUNC_CODE"):
+            if ftype_code in self.senzing_features:
                 self.ftype_code_lookup[ftype_code]["SORT_ORDER"] = 10000 + ftype_id
-            else:
+            elif self.ftype_code_lookup[ftype_code].get("CFUNC_CODE"):
                 self.ftype_code_lookup[ftype_code]["SORT_ORDER"] = 20000 + ftype_id
+            else:
+                self.ftype_code_lookup[ftype_code]["SORT_ORDER"] = 30000 + ftype_id
 
         self.ambiguous_ftype_id = self.ftype_code_lookup["AMBIGUOUS_ENTITY"]["FTYPE_ID"]
-        self.ftype_code_lookup["AMBIGUOUS_ENTITY"]["SORT_ORDER"] = 1
+        # self.ftype_code_lookup["AMBIGUOUS_ENTITY"]["SORT_ORDER"] = 1
 
         self.ftype_id_order = {}
         self.ftype_code_order = {}
@@ -1145,29 +1149,30 @@ class EdaSdkWrapper:
         self.last_command = None
         self.last_call_cache = []
 
-        self.how_display_levels = {"S": "summary", "T": "tree", "C": "columnar"}
+        self.how_views = {"T": "tree", "S": "summary", "C": "columnar"}
 
     def begin_call_cache(self, cmd):
         self.last_command = cmd
         self.last_call_cache = []
 
     def export_call_cache(self):
-        report = ""
+        cntr = 0
+        report = f"\nCOMMAND RUN: {self.last_command}, {len(self.last_call_cache)} call(s) made\n"
         for caller, api_name, flags, parms, response_data in self.last_call_cache:
-            report = f"\nCOMMAND RUN: {self.last_command}\n\n"
+            cntr += 1
             parm_list = []
             for parm in parms:
                 if str(parm).startswith("{"):
                     parm_list.append(f"\n{json.dumps(json.loads(parm), indent=4)}")
                 else:
                     parm_list.append(str(parm))
-            report += f"call: {api_name}({', '.join(parm_list)})\n"
+            report += f"\ncall {cntr}: {api_name}({', '.join(parm_list)})\n"
             if flags:
                 report += "flags:\n"
                 for flag in flags:
                     report += f"\t{flag}\n"
             report += "response:\n"
-            report += json.dumps(response_data, indent=4)
+            report += json.dumps(response_data, indent=4) + "\n"
 
         return report
 
@@ -1186,8 +1191,7 @@ class EdaSdkWrapper:
         except SzError as err:
             raise SzError(f"{api_name}: {err}") from None
 
-        if self.last_command:
-            self.last_call_cache.append([caller, api_name, flags, parms, response_data])
+        self.last_call_cache.append([caller, api_name, flags, parms, response_data])
 
         return response_data
 
@@ -1201,6 +1205,7 @@ class EdaSdkWrapper:
             for distinct_feat_record in feature_data[ftype_code]:
                 distinct_usage_type = distinct_feat_record.get("USAGE_TYPE", "")
                 for feat_record in distinct_feat_record["FEAT_DESC_VALUES"]:
+                    feat_record["RECORD_COUNT"] = 0  # will be incremented later
                     feat_record["FTYPE_CODE"] = ftype_code
                     feat_record["USAGE_TYPE"] = feat_record.get("USAGE_TYPE", distinct_usage_type)
                     if feat_record["USAGE_TYPE"] == "PRIMARY":
@@ -1227,6 +1232,7 @@ class EdaSdkWrapper:
         for feat_record in feature_list:
             lib_feat_id = feat_record["LIB_FEAT_ID"]
             if lib_feat_id in entity_features:
+                entity_features[lib_feat_id]["RECORD_COUNT"] += 1
                 feature_data = entity_features[lib_feat_id].copy()
                 feature_data["USAGE_TYPE"] = feat_record.get("USAGE_TYPE", "")
                 if feature_data["USAGE_TYPE"] == "PRIMARY":
@@ -1480,7 +1486,7 @@ class EdaSdkWrapper:
             if step_type not in summary["STEP_TYPE"]:
                 summary["STEP_TYPE"][step_type] = 1
             else:
-                summary["STEP_TYPE"][step_type] = 1
+                summary["STEP_TYPE"][step_type] += 1
 
             errule_code = step["MATCH_INFO"].get("ERRULE_CODE", "None")
             match_key = step["MATCH_INFO"].get("MATCH_KEY", "None")
@@ -1511,8 +1517,6 @@ class EdaSdkWrapper:
             "FINAL_ENTITIES": final_entities,
         }
 
-        # with open('how_doc.json', 'w') as f:
-        #    f.write(json.dumps(how_data, indent=4))
         return how_data
 
     # display formatters
@@ -1528,7 +1532,8 @@ class EdaSdkWrapper:
                 dsrc_counts[record["DATA_SOURCE"]] += count
         return sep.join([f"{colorize_dsrc(k)} ({v})" for k, v in dsrc_counts.items()])
 
-    def fmt_record_list(self, record_list, attr_limit, attr_width):
+    def fmt_record_list(self, record_list, **kwargs):
+        record_limit = kwargs.get("record_limit", 1)
         source_data = {}
         for record in record_list:
             if record["DATA_SOURCE"] not in source_data:
@@ -1538,7 +1543,7 @@ class EdaSdkWrapper:
         display_list = []
         for data_source in sorted(source_data.keys()):
             colored_source = colorize_dsrc(data_source)
-            if attr_limit == 1:
+            if record_limit == 1:
                 if len(source_data[data_source]) == 1:
                     display_list.append(f"{colored_source}: {source_data[data_source][0]}")
                 else:
@@ -1549,26 +1554,34 @@ class EdaSdkWrapper:
                 for record_id in sorted(source_data[data_source]):
                     display_list.append(record_id)
                     line_cnt += 1
-                    if line_cnt == attr_limit:
+                    if line_cnt >= record_limit:
                         break
-                if attr_limit > 0 and len(source_data[data_source]) > attr_limit:
-                    display_list.append(f"+{len(source_data[data_source])-attr_limit} more")
+                if record_limit and len(source_data[data_source]) > record_limit:
+                    display_list.append(f"+{len(source_data[data_source])-record_limit} more")
         return "\n".join(display_list)
 
-    def fmt_features(self, feature_data, attr_limit, attr_width):
+    def fmt_features(self, feature_data, **kwargs):
+        attr_limit = kwargs.get("attr_limit", 0)
+        attr_width = kwargs.get("attr_width", 80)
         display_list = []
-        include_feature_code = True  # len(feature_data.keys()) > 1
+        include_feature_code = True  # kwargs.get("include_feature_code")  # len(feature_data.keys()) > 1
         for ftype_code in sorted(feature_data.keys(), key=lambda k: self.ftype_code_order[k]):
             line_cnt = 0
-            colored_ftype = colorize_attr(ftype_code) + ": " if include_feature_code else ""
+            if include_feature_code:
+                if ftype_code in self.senzing_features:
+                    colored_ftype = colorize(ftype_code, "caution") + ": "
+                else:
+                    colored_ftype = colorize_attr(ftype_code) + ": "
+            else:
+                colored_ftype = ""
             for feature in sorted(feature_data[ftype_code], key=lambda k: (k["USAGE_TYPE_SORT"], -len(k["FEAT_DESC"]))):
                 usage_type = f' ({feature.get("USAGE_TYPE")})' if feature.get("USAGE_TYPE") else ""
                 feat_desc = feature["FEAT_DESC"]
                 line_cnt += 1
-                if line_cnt == attr_limit:
+                if attr_limit and line_cnt >= attr_limit:
                     continue
                 colored_utype = colorize(usage_type, "dim, italics")
-                if len(ftype_code + feat_desc + usage_type) + 2 < attr_width:
+                if len(ftype_code + feat_desc + usage_type) + 2 < attr_width or not attr_width:
                     display_list.append(f"{colored_ftype}{feat_desc}{colored_utype}")
                 elif len(feat_desc + usage_type) + 1 < attr_width - 1:
                     display_list.append(colored_ftype)
@@ -1600,15 +1613,15 @@ class EdaSdkWrapper:
         stats += str(feature["ENTITY_COUNT"]) + "]"
         return stats
 
-    def fmt_why_features(self, feat_list, attr_limit, attr_width):
+    def fmt_why_features(self, feat_list, **kwargs):
+        attr_limit = kwargs.get("attr_limit", 0)
+        attr_width = kwargs.get("attr_width", 80)  # this attr_width cannot be 0 due to use of wrap_text
         display_list = []
         line_cnt = 0
         for feature in sorted(feat_list, key=lambda k: (-k.get("MATCH_SCORE", 0), k["FEAT_DESC"])):
-            # debug_print(feature)
             line_cnt += 1
-            if line_cnt == attr_limit:
+            if attr_limit and line_cnt >= attr_limit:
                 continue
-
             feat_desc = feature["FEAT_DESC"]
             stats = self.fmt_feature_stats(feature)
             feat_color = ""
@@ -1621,8 +1634,8 @@ class EdaSdkWrapper:
                     feat_color = "bad"
                 else:
                     feat_color = "caution"
-            elif feature["FTYPE_CODE"] == "AMBIGUOUS_ENTITY":
-                feat_color = "bad"
+            elif feature["FTYPE_CODE"] in self.senzing_features:
+                feat_color = "caution"
 
             if any(x in stats for x in ("~", "!", "#")):
                 feat_color += ",dim" if feat_color else "dim"
@@ -1655,7 +1668,9 @@ class EdaSdkWrapper:
 
         return "\n".join(display_list)
 
-    def fmt_unmapped(self, unmapped_list, attr_limit, attr_width):
+    def fmt_unmapped(self, unmapped_list, **kwargs):
+        attr_limit = kwargs.get("attr_limit", 0)
+        attr_width = kwargs.get("attr_width", 0)
         attr_data = {}
         for record in unmapped_list:
             attr, value = list(record.items())[0]
@@ -1678,7 +1693,7 @@ class EdaSdkWrapper:
                     for line in wrapper.wrap(text=value):
                         display_list.append(" " + line)
                 line_cnt += 1
-                if line_cnt == attr_limit:
+                if attr_limit and line_cnt >= attr_limit:
                     continue
             if attr_limit > 0 and line_cnt > attr_limit:
                 display_list.append(f"{colored_attr}: +{line_cnt - attr_limit} more")
@@ -1780,7 +1795,7 @@ class EdaSdkWrapper:
 
     def get_features(self, arg_tokens, **kwargs):
         """display an entity's features and internal parsing"""
-        feature_filters = kwargs.get("feature_filters")
+        feature_filter = kwargs.get("feature_list")
         get_flag_list = [
             "SZ_ENTITY_INCLUDE_ENTITY_NAME",
             "SZ_ENTITY_INCLUDE_ALL_FEATURES",
@@ -1811,11 +1826,10 @@ class EdaSdkWrapper:
             try:
                 response = self.sz_diagnostic.get_feature(lib_feat_id)
             except SzError as err:
-                print_message(err, "error")
-                return 0
+                raise err from err
             feature_data = json.loads(response)
 
-            if feature_filters and feature_data["FTYPE_CODE"] not in kwargs.get("feature_filters"):
+            if feature_filter and feature_data["FTYPE_CODE"] not in feature_filter:
                 continue
 
             felem_values = []
@@ -1845,9 +1859,10 @@ class EdaSdkWrapper:
         return tbl.render_table()
 
     def get_entity(self, arg_tokens, **kwargs):
+        kwargs["record_limit"] = kwargs.get("record_limit", 20)
+        kwargs["attr_limit"] = kwargs.get("attr_limit", 20)
+        kwargs["attr_width"] = kwargs.get("attr_width", 80)
         show_detail = kwargs.get("show_detail")
-        attr_limit = kwargs.get("attr_limit", 20)
-        attr_width = kwargs.get("attr_width", 80)
         show_relations_on_get = kwargs.get("show_relations_on_get", "none")
         get_flag_list = [
             "SZ_ENTITY_INCLUDE_ENTITY_NAME",
@@ -1878,14 +1893,14 @@ class EdaSdkWrapper:
         report_type = "detail" if show_detail else "summary"
         tbl = eda_table()
         tbl.title = f"Entity {report_type} for entity {colorize_entity(entity_id)}: {entity_name}"
-        if args.webapp_url:
+        if self.webapp_url:
             tbl.title += f"  {colorize('WebApp:', 'dim')} " + colorize(
-                f"{args.webapp_url}/graph/{entity_id}", "highlight1,underline"
+                f"{self.webapp_url}/graph/{entity_id}", "highlight1,underline"
             )
         tbl.columns = [
             {"name": "Sources", "width": 50, "align": "left"},
-            {"name": "Features", "width": attr_width, "align": "left"},
-            {"name": "Additional Data", "width": attr_width, "align": "left"},
+            {"name": "Features", "width": kwargs["attr_width"], "align": "left"},
+            {"name": "Additional Data", "width": kwargs["attr_width"], "align": "left"},
         ]
 
         table_data = {}
@@ -1913,13 +1928,21 @@ class EdaSdkWrapper:
                 table_data[table_key]["UNMAPPED"].extend(unmapped_items)
 
         for table_key in table_data:
-            source_display = self.fmt_record_list(table_data[table_key]["RECORDS"], attr_limit, attr_width)
+            source_display = self.fmt_record_list(table_data[table_key]["RECORDS"], **kwargs)
             if report_type != "summary":
                 source_display += "\n" + self.fmt_match_key(table_data[table_key]["RECORDS"][0])
             features_by_type = self.regroup_by_type(table_data[table_key]["FEATURES"])
-            feature_display = self.fmt_features(features_by_type, attr_limit, attr_width)
-            unmapped_display = self.fmt_unmapped(table_data[table_key]["UNMAPPED"], attr_limit, attr_width)
+            feature_display = self.fmt_features(features_by_type, **kwargs)
+            unmapped_display = self.fmt_unmapped(table_data[table_key]["UNMAPPED"], **kwargs)
             tbl.rows.append([source_display, feature_display, unmapped_display])
+
+        entity_only_features = []
+        for feat_data in entity_features.values():
+            if feat_data["RECORD_COUNT"] == 0:
+                entity_only_features.append(f"{colorize(feat_data['FTYPE_CODE'], 'caution')}: {feat_data['FEAT_DESC']}")
+        if entity_only_features:
+            tbl.rows.insert(0, [colorize_dsrc("SENZING"), "\n".join(entity_only_features), ""])
+
         report = tbl.render_table()
 
         if related_entity_count == 0 or show_relations_on_get == "none":
@@ -2071,15 +2094,16 @@ class EdaSdkWrapper:
             "SZ_ENTITY_INCLUDE_ALL_FEATURES",
             "SZ_ENTITY_INCLUDE_RECORD_UNMAPPED_DATA",
         ]
+        kwargs["record_limit"] = kwargs.get("record_limit", 1)
+        kwargs["attr_limit"] = kwargs.get("attr_limit", 20)
+        kwargs["attr_width"] = kwargs.get("attr_width", 80)
 
-        attr_limit = kwargs.get("attr_limit", 20)
-        attr_width = kwargs.get("attr_width", 80)
         tbl = eda_table()
         if kwargs.get("compare_to_1"):
             tbl.title = "Comparison of relationships"
         else:
             tbl.title = "Comparison of listed entities"
-        tbl.columns = [{"name": "Entity", "width": 15, "align": "left"}]
+        tbl.columns = [{"name": "ENTITY", "width": 15, "align": "left"}]
         tbl.rows = []
         ftype_codes = []
         entities = {}
@@ -2094,10 +2118,10 @@ class EdaSdkWrapper:
             features = self.get_entity_features(json_data["RESOLVED_ENTITY"]["FEATURES"])["BY_TYPE"]
             relations = self.get_related_entities(json_data["RELATED_ENTITIES"])["BY_ID"]
 
-            source_row.append(self.fmt_record_list(records, 1, attr_width))
+            source_row.append(self.fmt_record_list(records, **kwargs))
             entities[entity_id] = {"RECORDS": records, "FEATURES": features, "RELATIONS": relations}
             column_header = f"{colorize_entity(entity_id)}"
-            tbl.columns.append({"name": column_header, "width": attr_width, "align": "left"})
+            tbl.columns.append({"name": column_header, "width": kwargs["attr_width"], "align": "left"})
             ftype_codes.extend(list(features.keys()))
         tbl.rows.append(source_row)
 
@@ -2141,11 +2165,15 @@ class EdaSdkWrapper:
             tbl.rows.append(common_row)
 
         for ftype_code in sorted(set(ftype_codes), key=lambda k: self.ftype_code_order[k]):
+            # if ftype_code in self.senzing_features:
+            #     colorized_ftype = colorize(ftype_code, "caution")
+            # else:
+            #     colorized_ftype = colorize_attr(ftype_code)
             feat_row = [ftype_code]
             for entity_id in entity_list:
                 feat_list = entities[entity_id]["FEATURES"].get(ftype_code)
                 if feat_list:
-                    feat_row.append(self.fmt_features({ftype_code: feat_list}, attr_limit, attr_width))
+                    feat_row.append(self.fmt_features({ftype_code: feat_list}, **kwargs))
                 else:
                     feat_row.append("")
             tbl.rows.append(feat_row)
@@ -2157,15 +2185,18 @@ class EdaSdkWrapper:
             for record in entities[entity_id]["RECORDS"]:
                 unmapped_list.extend(self.get_unmapped_list(record.get("UNMAPPED_DATA")))
                 any_unmapped = True
-            unmapped_row.append(self.fmt_unmapped(unmapped_list, attr_limit, attr_width))
+            unmapped_row.append(self.fmt_unmapped(unmapped_list, **kwargs))
         if any_unmapped:
             tbl.rows.append(unmapped_row)
 
-        return tbl.render_table()
+        return tbl.render_table(side_header=True)
 
-    def why_display(self, entity_data, row1_title, report_title):
-        attr_width = 80
-        attr_limit = 20
+    def why_display(self, entity_data, **kwargs):
+        row1_title = kwargs.get("row1_title", "id").upper()
+        report_title = kwargs.get("report_title", "why report")
+        kwargs["record_limit"] = kwargs.get("record_limit", 1)
+        kwargs["attr_limit"] = kwargs.get("attr_limit", 20)
+        kwargs["attr_width"] = kwargs.get("attr_width", 80)
         tbl = eda_table()
         tbl.title = report_title
         tbl.columns = [{"name": row1_title, "width": 15, "align": "left"}]
@@ -2177,7 +2208,7 @@ class EdaSdkWrapper:
         ftype_codes_used = []
         for _id in entity_list:
             records = entity_data[_id]["RECORDS"]
-            source_row.append(self.fmt_record_list(records, 1, attr_width))
+            source_row.append(self.fmt_record_list(records, **kwargs))
 
             if "MATCH_INFO_LIST" in entity_data[_id]:  # for why not many
                 scores_by_id = {}
@@ -2202,7 +2233,7 @@ class EdaSdkWrapper:
             entity_data[_id]["FEATURES"] = self.regroup_by_type(features_by_id)
 
             column_header = colorize(_id, "dim" if row1_title == "Internal ID" else "entity_color")
-            tbl.columns.append({"name": column_header, "width": attr_width, "align": "left"})
+            tbl.columns.append({"name": column_header, "width": kwargs["attr_width"], "align": "left"})
         tbl.rows.append(source_row)
         tbl.rows.append(why_row)
 
@@ -2224,16 +2255,17 @@ class EdaSdkWrapper:
             for _id in entity_list:
                 feat_list = entity_data[_id]["FEATURES"].get(ftype_code)
                 if feat_list:
-                    feat_row.append(self.fmt_why_features(feat_list, attr_limit, attr_width))
+                    feat_row.append(self.fmt_why_features(feat_list, **kwargs))
                 else:
                     feat_row.append("")
             tbl.rows.append(feat_row)
 
-        return tbl.render_table()
+        return tbl.render_table(side_header=True)
 
-    def how_tree_display(self, step_data):
-        attr_width = 80
-        # attr_limit = 20
+    def how_tree_display(self, step_data, **kwargs):
+        kwargs["record_limit"] = kwargs.get("record_limit", 1)
+        kwargs["attr_limit"] = kwargs.get("attr_limit", 20)
+        kwargs["attr_width"] = kwargs.get("attr_width", 80)
 
         virtual_id1 = step_data["ENTITY_LIST"][0]["VIRTUAL_ID"]
         virtual_id2 = step_data["ENTITY_LIST"][1]["VIRTUAL_ID"]
@@ -2245,15 +2277,15 @@ class EdaSdkWrapper:
         tbl.columns = [
             {"name": "VIRTUAL_ID", "width": 25, "align": "left"},
             {"name": "SCORES", "width": 25, "align": "left"},
-            {"name": colorize_entity(virtual_id1), "width": 80, "align": "left"},
-            {"name": colorize_entity(virtual_id2), "width": 80, "align": "left"},
+            {"name": colorize_entity(virtual_id1), "width": kwargs["attr_width"], "align": "left"},
+            {"name": colorize_entity(virtual_id2), "width": kwargs["attr_width"], "align": "left"},
         ]
         tbl.rows = [
             [
                 "DATA_SOURCES",
                 "",
-                self.fmt_record_list(step_data["ENTITY_LIST"][0]["RECORDS"], 1, attr_width),
-                self.fmt_record_list(step_data["ENTITY_LIST"][1]["RECORDS"], 1, attr_width),
+                self.fmt_record_list(step_data["ENTITY_LIST"][0]["RECORDS"], **kwargs),
+                self.fmt_record_list(step_data["ENTITY_LIST"][1]["RECORDS"], **kwargs),
             ]
         ]
         feature_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"]
@@ -2278,7 +2310,7 @@ class EdaSdkWrapper:
 
         return tbl.render_table(no_lines=True)
 
-    def why_records(self, entity_list):
+    def why_records(self, entity_list, **kwargs):
         whyFlagList = [
             "SZ_WHY_ENTITIES_DEFAULT_FLAGS",
             "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
@@ -2331,12 +2363,13 @@ class EdaSdkWrapper:
                 "RELATIONS": [],
                 "MATCH_INFO": match_info,
             }
-        tbl_title = "Why for listed records"
-        row1_title = "INTERNAL_ID"
-        return self.why_display(entity_data, row1_title, tbl_title)
+        kwargs["report_title"] = "Why for listed records"
+        kwargs["row1_title"] = "INTERNAL_ID"
+        return self.why_display(entity_data, **kwargs)
 
-    def why_not(self, entity_list):
+    def why_not(self, entity_list, **kwargs):
         entity_list = [int(x) for x in entity_list]
+
         why_flag_list = ["SZ_WHY_ENTITIES_DEFAULT_FLAGS", "SZ_INCLUDE_MATCH_KEY_DETAILS"]
         try:
             parms = [entity_list[0], entity_list[1]]
@@ -2360,11 +2393,11 @@ class EdaSdkWrapper:
                 "RELATIONS": relations,
                 "MATCH_INFO": match_info,
             }
-        tbl_title = "Why not for listed entities"
-        row1_title = "ENTITY_ID"
-        return self.why_display(entities, row1_title, tbl_title)
+        kwargs["report_title"] = "Why not for listed entities"
+        kwargs["row1_title"] = "ENTITY_ID"
+        return self.why_display(entities, **kwargs)
 
-    def why_not_many(self, entity_list):
+    def why_not_many(self, entity_list, **kwargs):
         entity_list = [int(x) for x in entity_list]
         get_flag_list = [
             "SZ_ENTITY_INCLUDE_ENTITY_NAME",
@@ -2404,8 +2437,7 @@ class EdaSdkWrapper:
             try:
                 json_data2 = self.call_sdk("search_by_attributes", search_flag_list, search_str)
             except SzError as err:
-                print_message(err, "error")
-                return
+                raise err from err
             match_info_list = []
             for matched_entity in json_data2["RESOLVED_ENTITIES"]:
                 matched_id = matched_entity["ENTITY"]["RESOLVED_ENTITY"]["ENTITY_ID"]
@@ -2424,9 +2456,9 @@ class EdaSdkWrapper:
                 "MATCH_INFO_LIST": match_info_list,
             }
 
-        tbl_title = "Why not for listed entities"
-        row1_title = "ENTITY_ID"
-        return self.why_display(entities, row1_title, tbl_title)
+        kwargs["report_title"] = "Why not for listed entities"
+        kwargs["row1_title"] = "ENTITY_ID"
+        return self.why_display(entities, **kwargs)
 
     def how_summary(self, how_data):
         summary_node = eda_node("summary")
@@ -2520,7 +2552,7 @@ class EdaSdkWrapper:
 
         return summary_node.render_tree()
 
-    def how_tree(self, how_data, how_type):
+    def how_tree(self, how_data, **kwargs):
         final_entities = how_data["FINAL_ENTITIES"]
         steps = how_data["STEPS"]
         result_key = {steps[k]["RESULT_ID"]: k for k in steps.keys()}
@@ -2552,7 +2584,7 @@ class EdaSdkWrapper:
                 match_key_desc = self.fmt_match_key(steps[step_num]["MATCH_INFO"], sep=" ")
                 result_id_str = colorize_entity(result_id)
                 step_node.node_desc = f"Step {step_num}: {step_desc} on {match_key_desc} to create {result_id_str}"
-                step_node.node_text = self.how_tree_display(steps[step_num])
+                step_node.node_text = self.how_tree_display(steps[step_num], **kwargs)
 
                 current_node.add_child(step_node)
                 if step_data["STEP_TYPE"] == "Combine virtual entities":
@@ -2574,7 +2606,7 @@ class EdaSdkWrapper:
             root_node = root_node.children[0]
         return root_node.render_tree()
 
-    def how_columnar(self, how_data):
+    def how_columnar(self, how_data, **kwargs):
         entity_id = how_data["ENTITY_ID"]
         entities = {}
         step_data = how_data["STEPS"]
@@ -2590,33 +2622,32 @@ class EdaSdkWrapper:
                         "MATCH_INFO": step_data[step_num]["MATCH_INFO"],
                     }
         # entities, how_data = self.why_how(entity_id)
-        tbl_title = f"How for entity: {colorize_entity(entity_id)}"
-        row1_title = "VIRTUAL_ID"
+        kwargs["report_title"] = f"How for entity: {colorize_entity(entity_id)}"
+        kwargs["row1_title"] = "VIRTUAL_ID"
         reevaluation_msg = how_data["SUMMARY"]["REEVALUATION_MSG"]
-        tbl_title += colorize(reevaluation_msg, "bad") if reevaluation_msg else ""
+        kwargs["report_title"] += colorize(reevaluation_msg, "bad") if reevaluation_msg else ""
 
-        return self.why_display(entities, row1_title, tbl_title)
+        return self.why_display(entities, **kwargs)
 
     # special functions
 
-    def how_viewer(self, entity_id, display_level, **kwargs):
+    def how_viewer(self, entity_id, **kwargs):
         how_data = sdk_wrapper.get_how_data(entity_id)
+        how_view = kwargs["how_view"]
         while True:
-            if display_level == "summary":
-                view_report(sdk_wrapper.how_summary(how_data), **kwargs)
-            elif display_level == "tree":
-                view_report(sdk_wrapper.how_tree(how_data, "brief"), **kwargs)
-            elif display_level == "columnar":
-                view_report(sdk_wrapper.how_columnar(how_data), **kwargs)
+            if how_view == "summary":
+                view_report(sdk_wrapper.how_summary(how_data))
+            elif how_view == "tree":
+                view_report(sdk_wrapper.how_tree(how_data, **kwargs), **kwargs)
+            elif how_view == "columnar":
+                view_report(sdk_wrapper.how_columnar(how_data, **kwargs), **kwargs)
 
-            response = input("\nView (S)ummary, (T)ree, (C)olumnar or (Q)uit...")
-            if response:
-                remove_from_history()
+            response = get_char_with_prompt("\nView (S)ummary, (T)ree, (C)olumnar or <enter> if done...")
             if not response or response.upper().startswith("Q"):
                 break
             response = response.upper()
-            if response in self.how_display_levels:
-                display_level = self.how_display_levels[response]
+            if response in self.how_views:
+                how_view = self.how_views[response]
 
     def export_records(self, entity_list, **kwargs):
         max_degree = kwargs.get("degree", 0)
@@ -2655,7 +2686,7 @@ class EdaSdkWrapper:
 
 class EdaCmd(cmd.Cmd):
 
-    def __init__(self, args, sdk_wrapper, sz_dbo):
+    def __init__(self, args):
         cmd.Cmd.__init__(self)
         self.__hidden_methods = "do_shell", "do_n", "do_p", "do_next", "do_previous"
 
@@ -2687,7 +2718,7 @@ class EdaCmd(cmd.Cmd):
             },
             {
                 "setting": "default_how_view",
-                "values": ["summary", "tree", "columnar"],
+                "values": ["tree", "summary", "columnar"],
                 "description": "dictates which view comes up first",
             },
             {
@@ -2741,7 +2772,7 @@ class EdaCmd(cmd.Cmd):
                 cmd.Cmd.cmdloop(self)
                 break
             except KeyboardInterrupt:
-                ans = input("\n\nAre you sure you want to exit? ")
+                ans = get_char_with_prompt("\nAre you sure you want to exit? ")
                 if ans.upper().startswith("Y"):
                     break
             except TypeError as ex:
@@ -2883,7 +2914,6 @@ class EdaCmd(cmd.Cmd):
 
     def do_show_last_call(self, arg):
         view_report(sdk_wrapper.export_call_cache())
-        return
 
     def do_version(self, arg):
         print(f"\nSenzing SDK version {sdk_wrapper.sdk_version['BUILD_VERSION']}\n")
@@ -3046,10 +3076,9 @@ class EdaCmd(cmd.Cmd):
 
     def do_audit_summary(self, arg):
         try:
-            self.eda_reports.audit_summary(arg)
-        except Exception:
-            print_exception_info()
-        return
+            self.eda_reports.audit_summary()
+        except Exception as ex:
+            print_exception_info(ex)
 
     def help_entity_size_breakdown(self):
         print(
@@ -3072,9 +3101,8 @@ class EdaCmd(cmd.Cmd):
     def do_entity_size_breakdown(self, arg):
         try:
             self.eda_reports.entity_size_breakdown()
-        except Exception as err:
-            print_message(err, "error")
-        return
+        except Exception as ex:
+            print_exception_info(ex)
 
     def complete_data_source_summary(self, text, line, begidx, endidx):
         possibles = sorted(self.eda_reports.snapshot_data.get("DATA_SOURCES", {}).keys())
@@ -3098,8 +3126,8 @@ class EdaCmd(cmd.Cmd):
     def do_data_source_summary(self, arg):
         try:
             self.eda_reports.data_source_summary(arg)
-        except Exception:
-            print_exception_info()
+        except Exception as ex:
+            print_exception_info(ex)
 
     def help_cross_source_summary(self):
         print(
@@ -3123,9 +3151,8 @@ class EdaCmd(cmd.Cmd):
     def do_cross_source_summary(self, arg):
         try:
             self.eda_reports.cross_source_summary(arg)
-        except Exception:
-            print_exception_info()
-        return
+        except Exception as ex:
+            print_exception_info(ex)
 
     def help_multi_source_summary(self):
         print(
@@ -3154,7 +3181,7 @@ class EdaCmd(cmd.Cmd):
         try:
             self.eda_reports.multi_source_summary(arg)
         except Exception as ex:
-            print_exception_info()
+            print_exception_info(ex)
 
     def help_principles_used(self):
         print(
@@ -3174,10 +3201,45 @@ class EdaCmd(cmd.Cmd):
         try:
             self.eda_reports.principles_used_report()
         except Exception as ex:
-            print_exception_info()
-        return
+            print_exception_info(ex)
 
     # adhoc commands
+
+    def kwargs_from_arg(self, arg_str, kwarg_dict):
+        prior_token = None
+        remaining_tokens = []
+        feature_list = []
+        for token in arg_str.split():
+            if token.upper() == "LEGACY":
+                kwarg_dict["legacy"] = True
+            elif token.upper() == "ALL":
+                kwarg_dict["record_limit"] = 0
+                kwarg_dict["attr_limit"] = 0
+            elif token.upper() == "DETAIL":
+                kwarg_dict["show_detail"] = True
+            elif token.upper().startswith("FEATURE"):
+                kwarg_dict["features_only"] = True
+            elif token.upper() == "SEARCH":
+                kwarg_dict["search"] = 0
+            elif token.isdigit() and prior_token == "SEARCH":
+                kwarg_dict["search"] = int(token)
+            elif token.upper() in sdk_wrapper.ftype_code_lookup:
+                feature_list.append(token)
+            elif token.lower() in sdk_wrapper.how_views.values():
+                kwarg_dict["how_view"] = token.lower
+            else:
+                remaining_tokens.append(token)
+            prior_token = token.upper()
+        if feature_list:
+            kwarg_dict["feature_list"] = feature_list
+        if "search" in kwarg_dict:
+            if not self.last_search_result:
+                raise Exception("There is no prior search")
+            elif kwarg_dict["search"] != 0 and kwarg_dict["search"] > len(self.last_search_result):
+                raise Exception("Invalid search index")
+
+        arg_str = " ".join(remaining_tokens)
+        return arg_str, kwarg_dict
 
     def help_search(self):
         print(
@@ -3207,7 +3269,6 @@ class EdaCmd(cmd.Cmd):
         if not arg:
             self.help_search()
             return
-        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
         try:
             if arg.startswith("{"):
                 parm_data = dict_keys_upper(json.loads(arg))
@@ -3239,6 +3300,7 @@ class EdaCmd(cmd.Cmd):
             "SZ_ENTITY_INCLUDE_ALL_RELATIONS",
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
         ]
+        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
         try:
             json_data = sdk_wrapper.call_sdk("search_by_attributes", search_flag_list, json.dumps(search_json))
         except SzError as err:
@@ -3256,8 +3318,6 @@ class EdaCmd(cmd.Cmd):
             {"name": "Match Score", "width": 15, "align": "center"},
             {"name": "Relationships", "width": 15, "align": "left"},
         ]
-        tbl.rows = []
-
         matched_list = []
         for matched_entity in json_data["RESOLVED_ENTITIES"]:
             entity_data = matched_entity["ENTITY"]["RESOLVED_ENTITY"]
@@ -3272,7 +3332,6 @@ class EdaCmd(cmd.Cmd):
             relationships = matched_entity["ENTITY"]["RELATED_ENTITIES"]
             disclosed_count = len([x for x in relationships if x["IS_DISCLOSED"] > 0])
             derived_count = len(relationships) - disclosed_count
-
             matched_list.append(
                 {
                     "ENTITY_ID": entity_data["ENTITY_ID"],
@@ -3295,7 +3354,7 @@ class EdaCmd(cmd.Cmd):
                     colorize(search_index, "dim"),
                     colorize_entity(matched_entity["ENTITY_ID"]),
                     matched_entity["ENTITY_NAME"],
-                    sdk_wrapper.fmt_record_list(matched_entity["RECORDS"], 1, 75),
+                    sdk_wrapper.fmt_record_list(matched_entity["RECORDS"]),
                     sdk_wrapper.fmt_match_key(matched_entity["MATCH_INFO"]),
                     matched_entity["MATCH_SCORE"],
                     rels,
@@ -3351,11 +3410,10 @@ class EdaCmd(cmd.Cmd):
             )
         )
 
-    def do_get_features(self, arg, **kwargs):
-        called_direct = sys._getframe().f_back.f_code.co_name != "onecmd"
+    def do_get_features(self, arg):
         if not arg:
             self.help_get_features()
-            return 0
+            return
         self.do_get("features " + arg)
 
     def help_get(self):
@@ -3382,49 +3440,41 @@ class EdaCmd(cmd.Cmd):
         """get an entity resume"""
         if not arg:
             self.help_get()
-            return 0
-        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
+            return
         kwargs["show_relations_on_get"] = self.current_settings["show_relations_on_get"]
         kwargs["show_detail"] = False
-        kwargs["feature_filters"] = []
-        features_only = False
-        arg_tokens = []
 
-        for token in arg.split():
-            if token.upper() == "DETAIL":
-                kwargs["show_detail"] = True
-            elif token.upper().startswith("FEATURE"):
-                features_only = True
-            elif token.upper() == "ALL":
-                kwargs["attr_limit"] = -1
-            elif features_only and not token.isdigit():
-                kwargs["feature_filters"].append(token.upper())
+        try:
+            arg, kwargs = self.kwargs_from_arg(arg, kwargs)
+        except Exception as ex:
+            print_message(ex, "error")
+            return
+
+        if "search" in kwargs:
+            if kwargs["search"] == 0:
+                arg = str(self.last_search_result[0])
             else:
-                arg_tokens.append(token.upper())
-        if len(arg_tokens) == 2 and arg_tokens[0].upper() == "SEARCH":
-            last_token = arg_tokens[1]
-            if not (last_token.isdigit() and 1 <= int(last_token) <= len(self.last_search_result)):
-                print_message("Invalid search index from the prior search", "error")
-                return 0
-            else:
-                arg_tokens = [str(self.last_search_result[int(last_token) - 1])]
+                arg = str(self.last_search_result[kwargs["search"] - 1])
+
+        arg_tokens = arg.split()
         if len(arg_tokens) not in (1, 2):
             print_message("Incorrect number of parameters", "warning")
-            return 0
+            return
         if len(arg_tokens) == 1 and not arg_tokens[0].isnumeric():
             print_message("Entity ID must be numeric", "error")
-            return 0
+            return
+        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
         try:
-            if features_only:
+            if kwargs.get("features_only"):
                 report = sdk_wrapper.get_features(arg_tokens, **kwargs)
             else:
                 report = sdk_wrapper.get_entity(arg_tokens, **kwargs)
         except SzError as err:
             print_message(err, "error")
-            return 0
-        except Exception:
-            print_exception_info()
-            return 0
+            return
+        except Exception as ex:
+            print_exception_info(ex)
+            return
         view_report(report)
         if len(arg_tokens) == 1:  # supports previous/next
             self.last_entity_id = int(arg_tokens[0])
@@ -3483,26 +3533,29 @@ class EdaCmd(cmd.Cmd):
         """show entities side by side"""
         if not arg:
             self.help_compare()
-            return 0
-        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
-
-        if isinstance(arg, str) and "SEARCH" in arg.upper():
-            entity_list = self.last_search_result
-            last_token = arg.split()[len(arg.split()) - 1]
-            if last_token.isdigit():
-                entity_list = self.last_search_result[: int(last_token)]
+            return
+        try:
+            arg, kwargs = self.kwargs_from_arg(arg, kwargs)
+        except Exception as ex:
+            print_message(ex, "error")
+            return
+        if "search" in kwargs:
+            if kwargs["search"] == 0:
+                entity_list = [str(x) for x in self.last_search_result]
+            else:
+                entity_list = [str(self.last_search_result[kwargs["search"] - 1])]
         elif "," in arg:
             entity_list = arg.split(",")
         else:
             entity_list = arg.split()
         try:
+            sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
             if len(entity_list) == 1:
-                view_report(sdk_wrapper.compare_relationships(entity_list[0]))
+                view_report(sdk_wrapper.compare_relationships(entity_list[0], **kwargs))
             else:
-                view_report(sdk_wrapper.compare_entities(entity_list))
+                view_report(sdk_wrapper.compare_entities(entity_list, **kwargs))
         except Exception as err:
             print_message(err, "error")
-            return 0
 
     def help_tree(self):
         print(
@@ -3524,7 +3577,6 @@ class EdaCmd(cmd.Cmd):
         if not arg:
             self.help_tree()
             return
-        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
 
         root_entity_id = None
         build_out_degree = 1
@@ -3542,29 +3594,8 @@ class EdaCmd(cmd.Cmd):
             print_message("Invalid parameter: expected a numeric entity ID", "warning")
             return
 
+        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
         view_report(sdk_wrapper.get_relationship_tree(root_entity_id, **kwargs))
-
-    def get_related_entity_set(self, entity_id, sample_category=""):
-        get_flag_list = [
-            "SZ_ENTITY_INCLUDE_ALL_RELATIONS",
-            "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
-        ]
-        try:
-            json_data_2 = self.call_sdk("get_entity_by_entity_id", get_flag_list, int(entity_id))
-        except SzError as err:
-            print_message(err, "error")
-            return
-        entity_set = []
-        for related_entity in json_data_2["RELATED_ENTITIES"]:
-            if sample_category == "POSSIBLE_MATCH_SAMPLE":
-                if related_entity["MATCH_LEVEL"] <= 2 and related_entity["IS_AMBIGUOUS"] == 0:
-                    entity_set.append(str(related_entity["ENTITY_ID"]))
-            elif sample_category == "POSSIBLY_RELATED_SAMPLE":
-                if related_entity["MATCH_LEVEL"] == 3:
-                    entity_set.append(str(related_entity["ENTITY_ID"]))
-            else:
-                entity_set.append(str(related_entity["ENTITY_ID"]))
-        return [entity_id] + sorted(entity_set, key=lambda x: int(x))
 
     def help_why(self):
         print(
@@ -3574,7 +3605,7 @@ class EdaCmd(cmd.Cmd):
         Shows the internal values and scores used to determine why a set of records resolved or only related.
 
         {colorize('Syntax:', 'highlight2')}
-            why <entity_id1>                                            {colorize('shows why the records in a single entity resolved together', 'dim')}
+            why <entity_id1>                                            {colorize('actually runs a columnar how instead!', 'dim')}
             why <entity_id1> <entity_id2>                               {colorize('shows why two or more different entities did not resolve', 'dim')}
             why <data_source1> <record_id1> <data_source2> <record_id2> {colorize('shows if the two data source records could resolve or relate', 'dim')}
 
@@ -3594,43 +3625,39 @@ class EdaCmd(cmd.Cmd):
             )
         )
 
-    def do_why(self, arg):
+    def do_why(self, arg, **kwargs):
         if not arg:
             self.help_why()
             return
-        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
-
-        old_why_not = False
-        if arg.upper().endswith(" OLD"):
-            old_why_not = True
-            arg = arg[0:-4]
-
-        if "SEARCH" in arg.upper():
-            last_token = arg.split()[len(arg.split()) - 1]
-            if last_token.isdigit():
-                entity_list = self.last_search_result[: int(last_token)]
+        try:
+            arg, kwargs = self.kwargs_from_arg(arg, kwargs)
+        except Exception as ex:
+            print_message(ex, "error")
+            return
+        if "search" in kwargs:
+            if kwargs["search"] == 0:
+                entity_list = [str(x) for x in self.last_search_result]
             else:
-                entity_list = self.last_search_result
+                entity_list = [str(self.last_search_result[kwargs["search"] - 1])]
         elif "," in arg:
             entity_list = arg.split(",")
         else:
             entity_list = arg.split()
-
         if not all(x.isnumeric() for x in entity_list) and not entity_list[0].upper() in sdk_wrapper.dsrc_code_lookup:
             print_message("invalid parameters, see help", "error")
             return
-
+        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
         try:
             if len(entity_list) == 1:
-                self.do_how(entity_list[0])
-                # how_data = sdk_wrapper.get_how_data(entity_list[0])
-                # view_report(sdk_wrapper.how_columnar(how_data))
-            elif len(entity_list) == 2 and not old_why_not:
-                view_report(sdk_wrapper.why_not(entity_list))
+                if "how_view" not in kwargs:
+                    kwargs["how_view"] = self.current_settings["default_how_view"]
+                self.do_how(entity_list[0], **kwargs)
+            elif len(entity_list) == 2 and not kwargs.get("legacy"):
+                view_report(sdk_wrapper.why_not(entity_list, **kwargs))
             elif len(entity_list) == 4 and entity_list[0].upper() in sdk_wrapper.dsrc_code_lookup:
-                view_report(sdk_wrapper.why_records(entity_list))
+                view_report(sdk_wrapper.why_records(entity_list, **kwargs))
             else:
-                view_report(sdk_wrapper.why_not_many(entity_list))
+                view_report(sdk_wrapper.why_not_many(entity_list, **kwargs))
         except SzError as err:
             print_message(err, "error")
             return
@@ -3653,23 +3680,28 @@ class EdaCmd(cmd.Cmd):
             )
         )
 
-    def do_how(self, arg):
+    def do_how(self, arg, **kwargs):
         if not arg:
             self.help_how()
             return
-
-        display_level = self.current_settings["default_how_view"]
-        for token in arg.split():
-            if token.lower() in sdk_wrapper.how_display_levels.values():
-                display_level = token.lower()
-                arg = arg.replace(token, "").strip()
-                break
-        if not arg.isdigit():
+        try:
+            arg, kwargs = self.kwargs_from_arg(arg, kwargs)
+        except Exception as ex:
+            print_message(ex, "error")
+            return
+        if "how_view" not in kwargs:
+            kwargs["how_view"] = self.current_settings["default_how_view"]
+        if "search" in kwargs:
+            if kwargs["search"] == 0:
+                arg = str(self.last_search_result[0])
+            else:
+                arg = str(self.last_search_result[kwargs["search"] - 1])
+        elif not arg.isdigit():
             print_message("Invalid parameter: expected a numeric entity ID", "warning")
             return
 
         sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
-        sdk_wrapper.how_viewer(int(arg), display_level)
+        sdk_wrapper.how_viewer(int(arg), **kwargs)
 
     def help_score(self):
         print(
@@ -3828,7 +3860,7 @@ def debug_print(_value, _desc="some variable"):
         print(json.dumps(_value, indent=4))
     else:
         print(_value)
-    input("press any key...")
+    get_char_with_prompt("press any key...")
 
 
 if __name__ == "__main__":
@@ -3839,7 +3871,7 @@ if __name__ == "__main__":
     argParser.add_argument(
         "-c",
         "--config_file_name",
-        help="Path and name of optional sz_engine_config.ini file to use.",
+        help="Path and name of optional G2Module.ini file to use.",
     )
     argParser.add_argument(
         "-s",
@@ -3888,19 +3920,17 @@ if __name__ == "__main__":
 
     engine_config = get_engine_config(args.config_file_name)
     try:
-        sdk_wrapper = EdaSdkWrapper(engine_config, args.debug_trace)
+        sdk_wrapper = EdaSdkWrapper(engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url)
     except SzError:
         print_exception_info()
         sys.exit(1)
 
     try:
-        from _sz_database import SzDatabase
-
         sz_dbo = SzDatabase(json.loads(engine_config)["SQL"]["CONNECTION"])
     except Exception as err:
         print_message(err, "warning")
         sz_dbo = None
 
-    EdaCmd(args, sdk_wrapper, sz_dbo).cmdloop()
+    EdaCmd(args).cmdloop()
 
     sys.exit()

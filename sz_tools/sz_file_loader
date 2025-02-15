@@ -31,6 +31,7 @@ from senzing import (
     SzEngineFlags,
     SzError,
     SzProduct,
+    SzRetryableError,
 )
 from senzing_core import SzAbstractFactoryCore
 
@@ -94,7 +95,7 @@ class CustomArgActionStoreTrue(argparse.Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, True)
-        # TODO - Ant - f-string
+        # TODO - f-string
         setattr(namespace, self.dest + "_specified", True)
 
 
@@ -103,7 +104,7 @@ class CustomArgAction(argparse.Action):
 
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, values)
-        # TODO - Ant - f-string
+        # TODO - f-string
         setattr(namespace, self.dest + "_specified", True)
 
 
@@ -112,7 +113,7 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     # TODO - Ant -
     settings: dict[str, Union[bool, int, list[str], None, str]] = {}
 
-    # TODO - Ant -Change github link
+    # TODO - Change github link
     arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description="Utility to load Senzing JSON records and process redo records",
@@ -356,7 +357,7 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     settings["num_threads"] = (
         cli_args.numThreads
         if cli_args.__dict__.get("numThreads_specified")
-        # TODO - Ant - Does this need the os.getenv?
+        # TODO - Does this need the os.getenv?
         else int(os.getenv("SENZING_NUMBER_OF_THREADS", cli_args.numThreads))
     )
 
@@ -773,9 +774,8 @@ def record_stats(success_recs: int, error_recs: int, prev_time: float, operation
 def workload_stats(engine: SzEngine) -> None:
     """Log engine workload stats"""
     try:
-        stats = engine.get_stats()
         logger.info("")
-        logger.info(stats)
+        logger.info(engine.get_stats())
         logger.info("")
     except SzError as err:
         logger.critical("Exception: %s - Operation: get_stats", err)
@@ -825,29 +825,26 @@ def load_and_redo(
 ) -> dict[str, Any]:
     """Load records and process redo records after loading is complete"""
 
-    def add_new_future() -> bool:
+    def add_new_future(supplied_record: str = "") -> bool:
         """
-        Add a new feature as needed
+        Add a new future as needed. supplied_record is used when a retryable error is caught to resend the
+        record to add or redo
         True is returned if there are still records to process
         False is returned when no more records to process
         """
-        if mode.__name__ == "add_record":
-            record = file_to_process.readline()
+        if supplied_record:
+            record = supplied_record
         else:
-            record = get_redo_record(sz_engine)
+            if mode.__name__ == "add_record":
+                record = file_to_process.readline()
+            else:
+                record = get_redo_record(sz_engine)
 
         if record:
-            futures[
-                executor.submit(
-                    mode,
-                    sz_engine,
-                    record,
-                    with_info,
-                )
-            ] = (record, time.time())
+            futures[executor.submit(mode, sz_engine, record, with_info)] = (record, time.time())
             return True
-        else:
-            return False
+
+        return False
 
     error_recs = 0
     load_errors = 0
@@ -912,26 +909,16 @@ def load_and_redo(
         with concurrent.futures.ThreadPoolExecutor(max_workers) as executor:
             if mode.__name__ == "add_record":
                 futures = {
-                    executor.submit(mode, sz_engine, record, with_info): (
-                        record,
-                        time.time(),
-                    )
+                    executor.submit(mode, sz_engine, record, with_info): (record, time.time())
                     for record in itertools.islice(file_to_process, max_workers)
                 }
             else:
                 futures = {
-                    executor.submit(mode, sz_engine, record, with_info): (
-                        record,
-                        time.time(),
-                    )
+                    executor.submit(mode, sz_engine, record, with_info): (record, time.time())
                     for record in prime_redo_records(sz_engine, max_workers)
                 }
             logger.info("")
-            logger.info(
-                "%s %s threads...",
-                mode_text[mode.__name__]["start_msg"],
-                max_workers,
-            )
+            logger.info("%s %s threads...", mode_text[mode.__name__]["start_msg"], max_workers)
             logger.info("")
 
             # Start processing add/redo
@@ -940,6 +927,19 @@ def load_and_redo(
                 for f in done:
                     try:
                         result = f.result()
+                    # TODO - Ant - Test on OS & SG load with redo when engine fixed for process_redo_record()
+                    # TODO         Consider if need to collect and retry later
+                    # # If caught a retryable error resubmit the record to try again
+                    # except SzRetryableError as err:
+                    #     logger.info("")
+                    #     logger.info(
+                    #         "Retrying record due to: %s - Operation: %s - Record: %s",
+                    #         err,
+                    #         mode_text[mode.__name__]["except_msg"],
+                    #         futures[f][0].strip(),
+                    #     )
+                    #     logger.info("")
+                    #     more_recs = add_new_future(futures[f][0].strip())
                     except (
                         SzError,
                         json.JSONDecodeError,
@@ -970,7 +970,6 @@ def load_and_redo(
                             with_info_out.write(f"{result}\n")
 
                         success_recs += 1
-                        # if success_recs % 1000 == 0:
                         if success_recs % recs_per_sec_output_frequency == 0:
                             prev_time = record_stats(
                                 success_recs,
@@ -981,7 +980,7 @@ def load_and_redo(
                     finally:
                         del futures[f]
 
-                # Early errors check to catch mis-mapping, missing dsrc_code, etc
+                # Early errors check to catch mapping errors, missing dsrc_code, etc
                 if error_recs == max_workers:
                     logger.info("")
                     logger.error(
@@ -1215,10 +1214,7 @@ def main() -> None:
                 # Don't shuffle small files
                 if not cli_args["no_shuffle"]:
                     if ingest_file_size > 50_000:
-                        ingest_file_shuff = shuffle_ingest_file(
-                            cli_args,
-                            ingest_file,
-                        )
+                        ingest_file_shuff = shuffle_ingest_file(cli_args, ingest_file)
                     else:
                         logger.info("")
                         logger.info("Not shuffling the file, small file size")
@@ -1249,13 +1245,7 @@ def main() -> None:
                     pathlib.Path.unlink(ingest_file_shuff)
         # Redo only
         else:
-            results = load_and_redo(
-                cli_args,
-                sz_engine,
-                with_info_out,
-            )
-
-            print(f"\nREDO results: {results = }")
+            results = load_and_redo(cli_args, sz_engine, with_info_out)
             per_result(cli_args, results)
             overall_results["redo_only"] = results
 

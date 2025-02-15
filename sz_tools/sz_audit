@@ -74,15 +74,15 @@ def audit(file_name1, file_name2, output_root, debug):
     csv_file_name = output_root + ".csv"
     json_file_name = output_root + ".json"
     csv_headers = [
-        "audit_id",
-        "audit_category",
-        "audit_result",
-        "data_source",
-        "record_id",
-        "prior_id",
-        "prior_score",
-        "newer_id",
-        "newer_score",
+        "AUDIT_ID",
+        "AUDIT_CATEGORY",
+        "AUDIT_RESULT",
+        "DATA_SOURCE",
+        "RECORD_ID",
+        "PRIOR_ID",
+        "PRIOR_SCORE",
+        "NEWER_ID",
+        "NEWER_SCORE",
     ]
     try:
         csv_handle = open(csv_file_name, "w")
