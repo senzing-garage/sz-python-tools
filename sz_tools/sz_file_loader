@@ -927,17 +927,19 @@ def load_and_redo(
                 for f in done:
                     try:
                         result = f.result()
-                    # If caught a retryable error resubmit the record to try again
-                    except SzRetryableError as err:
-                        logger.info("")
-                        logger.info(
-                            "Retrying record due to: %s - Operation: %s - Record: %s",
-                            err,
-                            mode_text[mode.__name__]["except_msg"],
-                            futures[f][0].strip(),
-                        )
-                        logger.info("")
-                        more_recs = add_new_future(futures[f][0].strip())
+                    # TODO - Ant - Test on OS & SG load with redo when engine fixed for process_redo_record()
+                    # TODO         Consider if need to collect and retry later
+                    # # If caught a retryable error resubmit the record to try again
+                    # except SzRetryableError as err:
+                    #     logger.info("")
+                    #     logger.info(
+                    #         "Retrying record due to: %s - Operation: %s - Record: %s",
+                    #         err,
+                    #         mode_text[mode.__name__]["except_msg"],
+                    #         futures[f][0].strip(),
+                    #     )
+                    #     logger.info("")
+                    #     more_recs = add_new_future(futures[f][0].strip())
                     except (
                         SzError,
                         json.JSONDecodeError,

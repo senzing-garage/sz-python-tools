@@ -548,8 +548,8 @@ def check_stat_pack(stats_file_name, csv_file_name, args):
 def progress_display(started, cntr):
     elapsed_seconds = round((time.time() - started))
     elapsed_minutes = round(elapsed_seconds / 60, 1)
-    eps = round(cntr / float(elapsed_seconds) if elapsed_seconds else 0, 0)
-    parms = (cntr, elapsed_minutes, eps)
+    eps = int(round(cntr / float(elapsed_seconds) if elapsed_seconds else 0, 0))
+    parms = (f"{cntr:,}", elapsed_minutes, f"{eps:,}")
     logging.info("%s entities processed after %s minutes at %s per second" % parms)
 
 
@@ -847,7 +847,7 @@ if __name__ == "__main__":
             dsrc_id_filter = dsrc_code_lookup[args.dsrc_filter]["DSRC_ID"]
 
     if os.path.splitext(args.output_file_root)[1] == ".json":
-        args.output_file_root = os.path.splitext(output_file_root)[0]
+        args.output_file_root = os.path.splitext(args.output_file_root)[0]
 
     stats_file_name = args.output_file_root + ".json"
     csv_file_name = args.output_file_root + ".csv"

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.12] - 2025-02-14
+
+### Added in 0.0.12
+
+- New commands for V3 to V4 migrations in sz_configtool
+- New sz_audit, sz_explorer and sz_snapshot
+- New helper function
+- Code added to sz_file_loader for testing retryable errors
+
 ## [0.0.11] - 2025-02-11
 
 ### Changed in 0.0.11
