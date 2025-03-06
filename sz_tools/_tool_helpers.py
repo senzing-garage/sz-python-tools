@@ -577,9 +577,12 @@ def print_error(
         sys.exit(1)
 
 
-def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
+def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True, info_prefix=True) -> None:
     """# TODO"""
-    print(colorize_output(f"\n{msg}", "info", output_color), end=end_str)
+    if info_prefix:
+        print(f"\n{colorize_output('INFO:', 'info', output_color)} {msg}", end=end_str)
+    else:
+        print(colorize_output(f"\n{msg}", "info", output_color), end=end_str)
 
 
 def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
@@ -729,27 +732,40 @@ def do_history() -> None:
     print()
 
 
-def history_setup(module_name: str) -> Tuple[str, Path]:
+def history_setup(module_name: str) -> Union[None, Path]:
     """Attempt to setup history file"""
-    history_error = ""
-    history_file = Path(f"~/.{module_name}_history").expanduser()
+    history_file: Union[None, Path] = None
+    history_files = [Path(f"~/.{module_name}_history").expanduser(), Path(f"/tmp/.{module_name}_history")]
+    history_errors = []
 
     if not READLINE_AVAIL:
-        history_error = "History file won't be used, python readline or atexit module isn't available"
+        print_warning("History can't be used for this session, Python readline or atexit module(s) aren't available")
+        return None
 
-    # Try and open history file, also create it if it doesn't exist
-    if not history_error:
+    # Try and open history file, create it if it doesn't exist
+    for history_file in history_files:
         try:
             with open(history_file, "a", encoding="utf-8"):
                 pass
         except OSError as err:
-            history_error = f"History file won't be used for this session: {err}"
+            history_errors.append(f"Error trying to use the history file {history_file} for this session: {err}")
+        else:
+            break
 
+    # 1 file from history files could succeed
+    if len(history_errors) < len(history_files):
         # Read the history file and setup exit handlers to write on exit
         readline.read_history_file(history_file)
         atexit.register(history_write_file, history_file)
 
-    return (history_error, history_file)
+    # If no files succeeded show errors
+    if len(history_errors) == len(history_files):
+        history_file = None
+        for error in history_errors:
+            print_warning(error, end_str="\n")
+        print_info("History will be available in this session but will not be saved")
+
+    return history_file
 
 
 def history_write_file(file: Path) -> None:
@@ -940,3 +956,14 @@ def startup_message(logger: logging.Logger, module_name: str, pause_time: int = 
     # lines = [line for line in message.split("\n")]
 
     time.sleep(1)
+
+
+# -------------------------------------------------------------------------
+# Function helpers
+# -------------------------------------------------------------------------
+def get_function_name() -> str:
+    return sys._getframe(1).f_code.co_name
+
+
+def get_calling_function_name() -> str:
+    return sys._getframe(1).f_back.f_code.co_name
