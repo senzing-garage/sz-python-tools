@@ -761,9 +761,10 @@ def history_setup(module_name: str) -> Union[None, Path]:
     # If no files succeeded show errors
     if len(history_errors) == len(history_files):
         history_file = None
-        for error in history_errors:
-            print_warning(error, end_str="\n")
-        print_info("History will be available in this session but will not be saved")
+        if not in_docker():
+            for error in history_errors:
+                print_warning(error, end_str="\n")
+            print_info("History will be available in this session but will not be saved")
 
     return history_file
 
@@ -967,3 +968,13 @@ def get_function_name() -> str:
 
 def get_calling_function_name() -> str:
     return sys._getframe(1).f_back.f_code.co_name
+
+
+# -------------------------------------------------------------------------
+# Docker helpers
+# -------------------------------------------------------------------------
+
+
+def in_docker():
+    cgroup = Path("/proc/self/cgroup")
+    return Path("/.dockerenv").is_file() or (cgroup.is_file() and "docker" in cgroup.read_text())
