@@ -71,7 +71,6 @@ SETTINGS_TO_CONFIG_MAP = {
     "colour": ["color_output", True],
     "nocolor": ["color_output", False],
     "nocolour": ["color_output", False],
-    # TODO
     "debug": ["debug_sdk_call", True],
     "debug_sdk": ["debug_sdk_call", True],
     "timer": ["timer", True],
@@ -2118,43 +2117,44 @@ class SzCmdShell(cmd.Cmd):
 
     # pylint: disable=[unused-argument]
 
-    # TODO
-    def cmd_settings_completes(self, text: str, line: str) -> List[str]:
-        # TODO
-        comp_settings = []
-        func_name = get_calling_function_name().lstrip("complete_")
-        num_args = 0
-        num_args_required = 0
+    @staticmethod
+    def cmd_settings_decorator(func):
+        @functools.wraps(func)
+        def wrapper_decorator(self, *args, **kwargs):
+            comps = []
+            func_name = func.__name__.lstrip("complete_")
+            line = args[1]
+            line_parse = shlex.split(line)
+            num_args = 0
+            num_args_required = 0
+            text = args[0]
 
-        # print(f"\nIn {get_calling_function_name() = }", flush=True)
-        # print(f"\n{get_calling_function_name().lstrip('complete_') = }", flush=True)
+            # # Not all do_ commands have arguments, e.g., get_license(), collect command arguments if it has any
+            if self.subparsers.choices.get(func_name):
+                for action in self.subparsers.choices[func_name]._actions:  # pylint: disable=protected-access
+                    if isinstance(action, argparse._StoreAction):  # pylint: disable=protected-access
+                        num_args += 1
+                        if action.required:
+                            num_args_required += 1
 
-        # Not all do_ commands have arguments, e.g., get_license(), collect command arguments if it has any
-        if self.subparsers.choices.get(func_name):
-            # print(f"\n{self.subparsers.choices[func_name]._actions = }", flush=True)
-            for action in self.subparsers.choices[func_name]._actions:
-                # print(f"\t{action = }", flush=True)
-                if isinstance(action, argparse._StoreAction):
-                    num_args += 1
-                    # print(f"\t\t{action.required = }", flush=True)
-                    if action.required:
-                        num_args_required += 1
+            # Check if have the required number of arguments specified and there is a space or the last element
+            # in line_parse fully or partially matches command settings in PER_CMD_SETTINGS
+            # The check on -f is to prevent command settings being suggested when autocompleting flags
+            if (
+                len(line_parse) - 1 >= num_args_required
+                and (
+                    line[-1:] == " "
+                    or any(line_parse[-1].startswith(c[: len(line_parse[-1])]) for c in PER_CMD_SETTINGS)
+                )
+                and line_parse[-1] != "-f"
+            ):
+                comps = [s for s in PER_CMD_SETTINGS if s.lower().startswith(text.lower()) and s not in line_parse]
 
-        # print(f"\n{num_args = } - {num_args_required = }", flush=True)
+            # Set kwargs to be available in the wrapper function
+            kwargs["cmd_settings"] = comps
+            return func(self, *args, **kwargs)
 
-        line_parse = shlex.split(line)
-        # print(f"\n{line_parse = }", flush=True)
-        # Is there the required number of arguments for the command
-        # if (len(line_parse) - 1 >= num_args_required and line[-1:] == " ") or any(
-        #     line_parse[-1].startswith(c[: len(line_parse[-1])]) for c in PER_CMD_SETTINGS
-        # ):
-        if len(line_parse) - 1 >= num_args_required and (
-            line[-1:] == " " or any(line_parse[-1].startswith(c[: len(line_parse[-1])]) for c in PER_CMD_SETTINGS)
-        ):
-            # print("Matched!")
-            comp_settings = [s for s in PER_CMD_SETTINGS if s.lower().startswith(text.lower())]
-
-        return comp_settings
+        return wrapper_decorator
 
     # Auto complete engine flags from self.szengineflags
     def flags_completes(self, text: str, line: str) -> List[str]:
@@ -2215,90 +2215,19 @@ class SzCmdShell(cmd.Cmd):
 
         return completes
 
-    # TODO
-
-    @staticmethod
-    def cmd_settings_decorator(func):
-        @functools.wraps(func)
-        def wrapper_decorator(self, *args, **kwargs):
-
-            # value = func(*args, **kwargs)
-            # print(f"\n{kwargs['line'] = }", flush=True)
-            print("\nin the wrapper", flush=True)
-            print("\ntext: str, line: str, begidx: int, endidx: int", flush=True)
-            print(f"\n{args = }", flush=True)
-            print(f"\n{kwargs = }", flush=True)
-
-            comp_settings = []
-            # func_name = get_calling_function_name().lstrip("complete_")
-            func_name = func.__name__.lstrip("complete_")
-            num_args = 0
-            num_args_required = 0
-            print(f"\n{func_name = }", flush=True)
-
-            # # Not all do_ commands have arguments, e.g., get_license(), collect command arguments if it has any
-            if self.subparsers.choices.get(func_name):
-                # print(f"\n{self.subparsers.choices[func_name]._actions = }", flush=True)
-                for action in self.subparsers.choices[func_name]._actions:
-                    # print(f"\t{action = }", flush=True)
-                    if isinstance(action, argparse._StoreAction):
-                        num_args += 1
-                        # print(f"\t\t{action.required = }", flush=True)
-                        if action.required:
-                            num_args_required += 1
-
-            # print(f"\n{num_args = } - {num_args_required = }", flush=True)
-
-            # text: str, line: str, begidx: int, endidx: int
-            line = args[1]
-            text = args[0]
-            line_parse = shlex.split(line)
-            # print(f"\n{line_parse = }", flush=True)
-            # Is there the required number of arguments for the command
-            # if (len(line_parse) - 1 >= num_args_required and line[-1:] == " ") or any(
-            #     line_parse[-1].startswith(c[: len(line_parse[-1])]) for c in PER_CMD_SETTINGS
-            # ):
-            if len(line_parse) - 1 >= num_args_required and (
-                line[-1:] == " " or any(line_parse[-1].startswith(c[: len(line_parse[-1])]) for c in PER_CMD_SETTINGS)
-            ):
-                # print("Matched!")
-                comp_settings = [s for s in PER_CMD_SETTINGS if s.lower().startswith(text.lower())]
-                # print(comp_settings)
-                # return comp_settings
-
-            kwargs["cmd_settings"] = comp_settings
-            print(f"\n{kwargs = }", flush=True)
-            value = func(self, *args, **kwargs)
-
-            # Do something after
-            return value
-
-        return wrapper_decorator
+    @cmd_settings_decorator
+    def complete_add_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     @cmd_settings_decorator
-    # def complete_add_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-    def complete_add_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
-        # TODO
-        # if cmd_settings := self.cmd_settings_completes(text, line):
-        #     return cmd_settings
-        if kwargs["cmd_settings"]:
-            print(f"add_record and got cmd_settings: {kwargs['cmd_settings']}", flush=True)
-            return kwargs["cmd_settings"]
-        # return self.json_and_flags_completes(text, line, begidx, endidx)
-        return self.flags_completes(text, line)
+    def complete_check_datastore_performance(
+        self, text: str, line: str, begidx: int, endidx: int, **kwargs
+    ) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_check_datastore_performance(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-
-        return []
-
-    def complete_delete_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_delete_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     def complete_export_csv_entity_report(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if re.match("export_csv_entity_report +", line) and not re.match("export_csv_entity_report +.* +", line):
@@ -2316,175 +2245,115 @@ class SzCmdShell(cmd.Cmd):
             return self.flags_completes(text, line)
         return []
 
+    @cmd_settings_decorator
     def complete_find_interesting_entities_by_entity_id(
-        self, text: str, line: str, begidx: int, endidx: int
+        self, text: str, line: str, begidx: int, endidx: int, **kwargs
     ) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
+    @cmd_settings_decorator
     def complete_find_interesting_entities_by_record_id(
-        self, text: str, line: str, begidx: int, endidx: int
+        self, text: str, line: str, begidx: int, endidx: int, **kwargs
     ) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_find_network_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_find_network_by_entity_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_find_network_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_find_network_by_record_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_find_path_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_find_path_by_entity_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_find_path_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_find_path_by_record_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_get_config(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
+    @cmd_settings_decorator
+    def complete_get_config(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-        return []
+    @cmd_settings_decorator
+    def complete_get_configs(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_get_configs(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
+    @cmd_settings_decorator
+    def complete_get_datastore_info(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-        return []
+    @cmd_settings_decorator
+    def complete_get_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_get_datastore_info(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-
-        return []
-
-    def complete_get_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
-
-    def complete_get_entity_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_entity_by_record_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     @cmd_settings_decorator
     def complete_get_license(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
-        # TODO
-        # if cmd_settings := self.cmd_settings_completes(text, line):
-        #     return cmd_settings
-
-        # return []
-        # print("in complete_get_license", flush=True)
-        # print(f"\t{kwargs = }", flush=True)
-        # if kwargs["comp_settings"]:
-        #     print("Yes got kwargs", flush=True)
         return kwargs["cmd_settings"]
 
-        # return []
+    @cmd_settings_decorator
+    def complete_get_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_get_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_stats(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_get_stats(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
+    @cmd_settings_decorator
+    def complete_get_template_config(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-        return []
+    @cmd_settings_decorator
+    def complete_get_version(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_get_template_config(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
+    @cmd_settings_decorator
+    def complete_get_virtual_entity_by_record_id(
+        self, text: str, line: str, begidx: int, endidx: int, **kwargs
+    ) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-        return []
+    @cmd_settings_decorator
+    def complete_how_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_get_version(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
+    @cmd_settings_decorator
+    def complete_preprocess_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-        return []
+    @cmd_settings_decorator
+    def complete_process_redo_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_get_virtual_entity_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_reevaluate_entity(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_how_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_reevaluate_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_preprocess_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.json_and_flags_completes(text, line, begidx, endidx)
-
-    def complete_process_redo_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
-
-    def complete_reevaluate_entity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
-
-    def complete_reevaluate_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
-
-    def complete_search_by_attributes(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_search_by_attributes(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
         # return self.json_and_flags_completes(text, line, begidx, endidx)
 
-    def complete_why_entities(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_why_entities(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_why_record_in_entity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_why_record_in_entity(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_why_records(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # TODO
-        if cmd_settings := self.cmd_settings_completes(text, line):
-            return cmd_settings
-        return self.flags_completes(text, line)
+    def complete_why_records(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     def complete_response_to_file(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if re.match("response_to_file +", line):
