@@ -13,7 +13,8 @@ from contextlib import suppress
 from typing import Any, Dict, List, Union
 
 from _tool_helpers import get_engine_config, print_error
-from senzing_core import SzAbstractFactory, SzError
+from senzing import SzError
+from senzing_core import SzAbstractFactoryCore
 
 PTABLE_AVAILABLE = False
 with suppress(ImportError):
@@ -40,7 +41,7 @@ class JsonlReader:
 def get_environment_config(settings: str) -> Dict[str, Any]:
     """# TODO"""
     try:
-        sz_factory = SzAbstractFactory(MODULE_NAME, settings)
+        sz_factory = SzAbstractFactoryCore(MODULE_NAME, settings)
         sz_configmgr = sz_factory.create_configmanager()
         config_id = sz_configmgr.get_default_config_id()
         config_str = sz_configmgr.get_config(config_id)
@@ -671,7 +672,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-c",
         "--iniFile",
-        help="optional path and file name of G2Module.ini to use",
+        help="optional path and file name of sz_engine_config.ini to use",
     )
 
     args = parser.parse_args()

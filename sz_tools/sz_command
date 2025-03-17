@@ -1,6 +1,6 @@
 #! /usr/bin/env python3
 
-""" # TODO """
+"""# TODO"""
 
 import argparse
 import cmd
@@ -24,9 +24,11 @@ from _tool_helpers import (
     do_help,
     do_history,
     do_shell,
+    get_calling_function_name,
     get_engine_config,
     get_engine_flag_names,
     get_engine_flags_as_int,
+    get_function_name,
     history_disabled,
     history_setup,
     print_debug,
@@ -38,7 +40,8 @@ from _tool_helpers import (
     response_to_clipboard,
     response_to_file,
 )
-from senzing_core import SzAbstractFactory, SzError
+from senzing import SzError
+from senzing_core import SzAbstractFactoryCore
 
 _WrappedFunc = TypeVar("_WrappedFunc", bound=Callable[..., Any])
 
@@ -68,6 +71,7 @@ SETTINGS_TO_CONFIG_MAP = {
     "colour": ["color_output", True],
     "nocolor": ["color_output", False],
     "nocolour": ["color_output", False],
+    "debug": ["debug_sdk_call", True],
     "debug_sdk": ["debug_sdk_call", True],
     "timer": ["timer", True],
     "page": ["page_output", True],
@@ -81,7 +85,7 @@ CMDS_NOT_TO_SET_LAST_COMMAND = [
 ]
 
 
-CONFIG_SETTINGS = {
+CONFIG_SETTINGS: Dict[str, Dict[str, Any]] = {
     "format_json": {
         "values": ["off", "on"],
         "description": "Format JSON responses",
@@ -110,10 +114,7 @@ CONFIG_SETTINGS = {
         "values": ["off", "on"],
         "description": "Display debug tracing from the Senzing engine",
     },
-    "history_file": {
-        "values": ["off", "on"],
-        "description": "Use a history file",
-    },
+    "history_file": {"values": ["off", "on"], "description": "Use a history file", "value": None},
 }
 
 # -------------------------------------------------------------------------
@@ -248,9 +249,7 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
         finally:
             if do_timer:
                 exec_time = time.perf_counter() - timer_start
-                print_info(
-                    f"Approximate execution time (s): {exec_time:.5f}",
-                )
+                print_info(f"Approximate execution time (s): {exec_time:.5f}", info_prefix=False)
 
         return result
 
@@ -306,7 +305,7 @@ class SzCmdShell(cmd.Cmd):
         verbose_logging = 1 if any([self.debug_reinit["verbose_logging"], self.config["debug_sz_engine"]]) else 0
 
         try:
-            self.sz_factory = SzAbstractFactory(
+            self.sz_factory = SzAbstractFactoryCore(
                 MODULE_NAME,
                 self.engine_settings,
                 verbose_logging=verbose_logging,
@@ -337,7 +336,6 @@ class SzCmdShell(cmd.Cmd):
             "do_find_interesting_entities_by_record_id",
             "do_get_redo_record",
             "do_get_feature",
-            "do_help",
             "do_hidden",
             "do_shell",
         )
@@ -357,7 +355,8 @@ class SzCmdShell(cmd.Cmd):
         self.last_command = ""
 
         # History file
-        self.history_file = pathlib.Path()
+        self.history_file: Union[None, pathlib.Path] = None
+        self.history_file_error = False
 
         # -------------------------------------------------------------------------
         # do_* method parsers
@@ -649,7 +648,7 @@ class SzCmdShell(cmd.Cmd):
         # doesn't modify the configuration so reinitialize. Update attributes from the new default configuration
         # for auto-completion
         if self.reinitialize:
-            print_info("Default configuration ID has changed, reinitializing...")
+            print_info("Default configuration ID has changed, reinitializing...", info_prefix=False)
             try:
                 config_id = self.sz_configmgr.get_default_config_id()
                 self.sz_factory.reinitialize(config_id)
@@ -670,7 +669,7 @@ class SzCmdShell(cmd.Cmd):
         if self.debug_reinit["prior_instance_reinitialized"]:
             print_response("Senzing engines were reinitialized due to a configuration change", color="success")
         else:
-            print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help")
+            print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help", info_prefix=False)
 
     # -------------------------------------------------------------------------
     # Non-interactive input methods
@@ -1049,7 +1048,7 @@ class SzCmdShell(cmd.Cmd):
 
         response = add_record(kwargs["flags"]) if "flags" in kwargs else add_record()
 
-        if response == "{}":
+        if not response:
             self.last_response = self.output_response("Record added", "success")
         else:
             self.last_response = self.output_response(response)
@@ -1094,7 +1093,7 @@ class SzCmdShell(cmd.Cmd):
 
         response = delete_record(kwargs["flags"]) if "flags" in kwargs else delete_record()
 
-        if response == "{}":
+        if not response:
             self.last_response = self.output_response("Record deleted.", "success")
         else:
             self.last_response = self.output_response(response)
@@ -1677,7 +1676,7 @@ class SzCmdShell(cmd.Cmd):
         )
 
         response = reevaluate(kwargs["flags"]) if "flags" in kwargs else reevaluate()
-        if response == "{}":
+        if not response:
             self.last_response = self.output_response("Entity reevaluated", "success")
         else:
             self.last_response = self.output_response(response)
@@ -1709,7 +1708,7 @@ class SzCmdShell(cmd.Cmd):
         )
 
         response = reevaluate(kwargs["flags"]) if "flags" in kwargs else reevaluate()
-        if response == "{}":
+        if not response:
             self.last_response = self.output_response("Record reevaluated", "success")
         else:
             self.last_response = self.output_response(response)
@@ -1931,6 +1930,11 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = response_reformat_json(self.last_response, self.per_cmd_config["color_output"])  # type: ignore[arg-type]
 
     def help_set(self):
+
+        # Some settings can have additional information, such as the history file name
+        # Get a list of any settings that have an extra 'value'
+        config_values = [element.get("value", "") for element in CONFIG_SETTINGS.values()]
+
         print(
             textwrap.dedent(
                 f"""\
@@ -1943,13 +1947,13 @@ class SzCmdShell(cmd.Cmd):
         )
         print(
             colorize_str(
-                f"    {'Setting':<17} {'Possible values':<34} {'Current':<10} {'Description'}",
+                f"    {'Setting':<17} {'Possible values':<34} {'Current':<10} {'Description':<51} {'Value' if any(config_values) else ''}",
                 "dim",
             )
         )
         print()
 
-        for setting, values_description in CONFIG_SETTINGS.items():
+        for idx, (setting, values_description) in enumerate(CONFIG_SETTINGS.items()):
             values = ", ".join(values_description["values"])
             current_value = self.config[setting]
             if current_value is True:
@@ -1960,7 +1964,9 @@ class SzCmdShell(cmd.Cmd):
             current_value = colorize_str(current_value, "bold")
 
             desc = colorize_str(values_description["description"], "dim")
-            print(f"    {setting:<17} {'[' + values + ']':<34} {current_value:<19} {desc}")
+            print(
+                f"    {setting:<17} {'[' + values + ']':<34} {current_value:<19} {desc:<61} {config_values[idx] if config_values[idx] else ''}"
+            )
         print()
 
     def do_set(self, line: str):
@@ -2016,18 +2022,27 @@ class SzCmdShell(cmd.Cmd):
             self.debug_reinit["reinitialize"] = True
             self.debug_reinit["debug_trace"] = True if value else False
 
+        # Enable or disable use of history file
+        if setting == "history_file":
+            if not self.history_file_error:
+                if self.history_file:
+                    if not value or value == "off":
+                        print_warning(
+                            "History file has been erased and won't be used unless re-enabled with the set command"
+                        )
+                        history_disabled(self.history_file)
+                        self.history_file = None
+                        CONFIG_SETTINGS["history_file"]["value"] = None
+                if value or value == "on":
+                    self.enable_history()
+            else:
+                print_warning("History file isn't available in this session due to a previous error")
+                return
+
         if isinstance(self.config[setting], bool):
             print_response(f"{setting} is now {'enabled' if value or value == 'on' else 'disabled'}", color="success")
         else:
             print_response(f"{setting} set to {value}", color="success")
-
-        # Enable or disable use of history file
-        if setting == "history_file":
-            if not value or value == "off":
-                print_warning("History file has been erased and won't be used unless re-enabled with the set command")
-                history_disabled(self.history_file)
-            if value or value == "on":
-                self.enable_history()
 
     # -----------------------------------------------------------------------------
     # Helper methods
@@ -2090,16 +2105,56 @@ class SzCmdShell(cmd.Cmd):
 
     def enable_history(self):
         """Attempt to create or use a history file for an interactive session"""
-        error_str, self.history_file = history_setup(MODULE_NAME)
-        # Non-empty string means error and msg was returned
-        if error_str:
-            print_warning(error_str)
+        self.history_file = history_setup(MODULE_NAME)
+        if self.history_file:
+            CONFIG_SETTINGS["history_file"]["value"] = self.history_file
+        else:
+            self.history_file_error = True
 
     # -------------------------------------------------------------------------
     # Auto completers
     # -------------------------------------------------------------------------
 
     # pylint: disable=[unused-argument]
+
+    @staticmethod
+    def cmd_settings_decorator(func):
+        @functools.wraps(func)
+        def wrapper_decorator(self, *args, **kwargs):
+            comps = []
+            func_name = func.__name__.lstrip("complete_")
+            line = args[1]
+            line_parse = shlex.split(line)
+            num_args = 0
+            num_args_required = 0
+            text = args[0]
+
+            # # Not all do_ commands have arguments, e.g., get_license(), collect command arguments if it has any
+            if self.subparsers.choices.get(func_name):
+                for action in self.subparsers.choices[func_name]._actions:  # pylint: disable=protected-access
+                    if isinstance(action, argparse._StoreAction):  # pylint: disable=protected-access
+                        num_args += 1
+                        if action.required:
+                            num_args_required += 1
+
+            # Check if have the required number of arguments specified and there is a space or the last element
+            # in line_parse fully or partially matches command settings in PER_CMD_SETTINGS
+            # The check on -f is to prevent command settings being suggested when autocompleting flags
+            if (
+                len(line_parse) - 1 >= num_args_required
+                and (
+                    line[-1:] == " "
+                    or any(line_parse[-1].startswith(c[: len(line_parse[-1])]) for c in PER_CMD_SETTINGS)
+                )
+                and line_parse[-1] != "-f"
+            ):
+                comps = [s for s in PER_CMD_SETTINGS if s.lower().startswith(text.lower()) and s not in line_parse]
+
+            # Set kwargs to be available in the wrapper function
+            kwargs["cmd_settings"] = comps
+            return func(self, *args, **kwargs)
+
+        return wrapper_decorator
 
     # Auto complete engine flags from self.szengineflags
     def flags_completes(self, text: str, line: str) -> List[str]:
@@ -2160,11 +2215,19 @@ class SzCmdShell(cmd.Cmd):
 
         return completes
 
-    def complete_add_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.json_and_flags_completes(text, line, begidx, endidx)
+    @cmd_settings_decorator
+    def complete_add_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_delete_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_check_datastore_performance(
+        self, text: str, line: str, begidx: int, endidx: int, **kwargs
+    ) -> List[str]:
+        return kwargs["cmd_settings"]
+
+    @cmd_settings_decorator
+    def complete_delete_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     def complete_export_csv_entity_report(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if re.match("export_csv_entity_report +", line) and not re.match("export_csv_entity_report +.* +", line):
@@ -2182,67 +2245,115 @@ class SzCmdShell(cmd.Cmd):
             return self.flags_completes(text, line)
         return []
 
+    @cmd_settings_decorator
     def complete_find_interesting_entities_by_entity_id(
-        self, text: str, line: str, begidx: int, endidx: int
+        self, text: str, line: str, begidx: int, endidx: int, **kwargs
     ) -> List[str]:
-        return self.flags_completes(text, line)
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
+    @cmd_settings_decorator
     def complete_find_interesting_entities_by_record_id(
-        self, text: str, line: str, begidx: int, endidx: int
+        self, text: str, line: str, begidx: int, endidx: int, **kwargs
     ) -> List[str]:
-        return self.flags_completes(text, line)
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_find_network_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_find_network_by_entity_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_find_network_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_find_network_by_record_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_find_path_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_find_path_by_entity_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_find_path_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_find_path_by_record_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_get_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_config(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_get_entity_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_configs(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_get_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_datastore_info(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_get_virtual_entity_by_record_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_how_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_entity_by_record_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_preprocess_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.json_and_flags_completes(text, line, begidx, endidx)
+    @cmd_settings_decorator
+    def complete_get_license(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_process_redo_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_reevaluate_entity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_stats(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_reevaluate_record(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_template_config(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_search_by_attributes(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        # return self.flags_completes(text, line)
-        return self.json_and_flags_completes(text, line, begidx, endidx)
+    @cmd_settings_decorator
+    def complete_get_version(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return kwargs["cmd_settings"]
 
-    def complete_why_record_in_entity(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_get_virtual_entity_by_record_id(
+        self, text: str, line: str, begidx: int, endidx: int, **kwargs
+    ) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_why_entities(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_how_entity_by_entity_id(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
-    def complete_why_records(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
-        return self.flags_completes(text, line)
+    @cmd_settings_decorator
+    def complete_preprocess_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
+
+    @cmd_settings_decorator
+    def complete_process_redo_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
+
+    @cmd_settings_decorator
+    def complete_reevaluate_entity(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
+
+    @cmd_settings_decorator
+    def complete_reevaluate_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
+
+    @cmd_settings_decorator
+    def complete_search_by_attributes(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
+        # return self.json_and_flags_completes(text, line, begidx, endidx)
+
+    @cmd_settings_decorator
+    def complete_why_entities(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
+
+    @cmd_settings_decorator
+    def complete_why_record_in_entity(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
+
+    def complete_why_records(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     def complete_response_to_file(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:
         if re.match("response_to_file +", line):
@@ -2269,7 +2380,7 @@ def parse_cli_args() -> argparse.Namespace:
     arg_parser.add_argument(
         "-c",
         "--ini-file",
-        help="optional path and file name of G2Module.ini to use",
+        help="optional path and file name of sz_engine_config.ini to use",
     )
     non_interactive_group = arg_parser.add_mutually_exclusive_group()
     non_interactive_group.add_argument(

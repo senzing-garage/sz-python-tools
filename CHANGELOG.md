@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.13] - 2025-03-06
+
+### Added in 0.0.13
+
+- Autocomplete for per command settings 
+
+### Fixed in 0.0.13
+
+- Fix error when trying to write a command history file in a container without write permissions
+
+## [0.0.12] - 2025-02-14
+
+### Added in 0.0.12
+
+- New commands for V3 to V4 migrations in sz_configtool
+- New sz_audit, sz_explorer and sz_snapshot
+- New helper function
+- Code added to sz_file_loader for testing retryable errors
+
+## [0.0.11] - 2025-02-11
+
+### Changed in 0.0.11
+
+- Change G2Module.ini to sz_engine_config.ini 
+- Improvements to some output
+
+## [0.0.10] - 2025-02-08
+
+### Fixed in 0.0.10
+
+- With info commands in sz_command detect "" instead of "{}" when with info not requested
+- Revert sz_engine_config.ini to G2Module.ini in helpers until V4 builds have made the change
+
+## [0.0.9] - 2025-02-05
+
+### Added in 0.0.9
+
+- New sz_audit, sz_explorer and sz_snapshot
+
+### Changed in 0.0.9
+
+- Continued initial V4 work
+
+## [0.0.8] - 2025-01-29
+
+### Fixed in 0.0.8
+
+- Closing ) was missing
+
+## [0.0.7] - 2025-01-28
+
+### Changed in 0.0.7
+
+- Continued initial V4 work
+- Align to new SDK and abstract 
+
 ## [0.0.6] - 2024-12-20
 
 ### Changed in 0.0.6

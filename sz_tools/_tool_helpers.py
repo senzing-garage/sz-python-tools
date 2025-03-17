@@ -21,9 +21,9 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from signal import SIGALRM, alarm, signal
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, TypeVar, Union
 
-from senzing_core import SzEngineFlags
+from senzing import SzEngineFlags, SzError, constants
 
 READLINE_AVAIL = False
 with suppress(ImportError):
@@ -52,12 +52,12 @@ with suppress(ImportError):
     PYCLIP_AVAIL = True
 
 if TYPE_CHECKING:
-    from sz_command import SzCmdShell
-    from sz_configtool import SzCfgShell
+    from .sz_command import SzCmdShell
+    from .sz_configtool import SzCfgShell
 
-# TODO Change to sz when changed in builds
-CONFIG_FILE = "G2Module.ini"
+CONFIG_FILE = "sz_engine_config.ini"
 
+TSzEngineFlags = TypeVar("TSzEngineFlags", bound="SzEngineFlags")  # pylint: disable=C0103
 
 # -------------------------------------------------------------------------
 # Helper classes
@@ -290,7 +290,7 @@ class Colors:
 
 def check_environment() -> None:
     """# TODO"""
-    # Error if can't locate a G2Module.ini or SENZING_ENGINE_CONFIGURATION_JSON
+    # Error if can't locate a sz_engine_config.ini or SENZING_ENGINE_CONFIGURATION_JSON
     if "SENZING_ETC_PATH" not in os.environ and "SENZING_ROOT" not in os.environ:
         # Check if set or not and that it's not set to null
         secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
@@ -418,6 +418,18 @@ def get_engine_config(ini_file_name: Union[str, None] = None) -> str:
 # -------------------------------------------------------------------------
 
 
+def combine_engine_flags(flags: Union[List[TSzEngineFlags], List[str]]) -> int:
+    """ORs together all flags in a list of strings or engine flag members"""
+    result = constants.SZ_WITHOUT_INFO
+    try:
+        for flag in flags:
+            result = result | SzEngineFlags[flag.upper()].value if isinstance(flag, str) else flag.value
+    except (AttributeError, KeyError) as err:
+        raise SzError(f"{err} is not a valid engine flag") from err
+
+    return result
+
+
 def get_engine_flag_names() -> List[str]:
     """# TODO"""
     return list(SzEngineFlags.__members__.keys())
@@ -433,7 +445,9 @@ def get_engine_flags_as_int(flags: List[str]) -> int:
         return int(flags[0])
 
     # Named engine flag(s) used, combine and return the int value
-    return SzEngineFlags.combine_flags(flags)
+    # TODO
+    # return SzEngineFlags.combine_flags(flags)
+    return combine_engine_flags(flags)
 
 
 # -------------------------------------------------------------------------
@@ -563,9 +577,12 @@ def print_error(
         sys.exit(1)
 
 
-def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
+def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True, info_prefix=True) -> None:
     """# TODO"""
-    print(colorize_output(f"\n{msg}", "info", output_color), end=end_str)
+    if info_prefix:
+        print(f"\n{colorize_output('INFO:', 'info', output_color)} {msg}", end=end_str)
+    else:
+        print(colorize_output(f"\n{msg}", "info", output_color), end=end_str)
 
 
 def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
@@ -715,27 +732,41 @@ def do_history() -> None:
     print()
 
 
-def history_setup(module_name: str) -> Tuple[str, Path]:
+def history_setup(module_name: str) -> Union[None, Path]:
     """Attempt to setup history file"""
-    history_error = ""
-    history_file = Path(f"~/.{module_name}_history").expanduser()
+    history_file: Union[None, Path] = None
+    history_files = [Path(f"~/.{module_name}_history").expanduser(), Path(f"/tmp/.{module_name}_history")]
+    history_errors = []
 
     if not READLINE_AVAIL:
-        history_error = "History file won't be used, python readline or atexit module isn't available"
+        print_warning("History can't be used for this session, Python readline or atexit module(s) aren't available")
+        return None
 
-    # Try and open history file, also create it if it doesn't exist
-    if not history_error:
+    # Try and open history file, create it if it doesn't exist
+    for history_file in history_files:
         try:
             with open(history_file, "a", encoding="utf-8"):
                 pass
         except OSError as err:
-            history_error = f"History file won't be used for this session: {err}"
+            history_errors.append(f"Error trying to use the history file {history_file} for this session: {err}")
+        else:
+            break
 
+    # 1 file from history files could succeed
+    if len(history_errors) < len(history_files):
         # Read the history file and setup exit handlers to write on exit
         readline.read_history_file(history_file)
         atexit.register(history_write_file, history_file)
 
-    return (history_error, history_file)
+    # If no files succeeded show errors
+    if len(history_errors) == len(history_files):
+        history_file = None
+        if not in_docker():
+            for error in history_errors:
+                print_warning(error, end_str="\n")
+            print_info("History will be available in this session but will not be saved")
+
+    return history_file
 
 
 def history_write_file(file: Path) -> None:
@@ -860,6 +891,32 @@ def get_char() -> str:
         termios.tcsetattr(file_desc, termios.TCSAFLUSH, orig)
 
 
+def get_char_with_prompt(prompt, valid_responses=None):
+    """# TODO"""
+    print(prompt, end="", flush=True)
+    response = ""
+    while True:
+        char = get_char()
+        if char == "\n":
+            break
+        response += char.upper()
+        if not valid_responses:
+            break
+        possibles = [x for x in valid_responses if x.startswith(response)]
+        if not possibles:
+            if len(response) > 1:
+                sys.stdout.write(f"\x1b[{len(response)-1}D")  # back up (n) spaces
+                sys.stdout.write("\x1b[K")  # Clear to end of line and return
+                sys.stdout.flush()
+            response = ""
+            continue
+        if len(possibles) == 1:
+            break
+        print(char, end="", flush=True)
+    print()
+    return response
+
+
 def get_char_with_timeout(time_out: int) -> str:
     """# TODO"""
 
@@ -900,3 +957,24 @@ def startup_message(logger: logging.Logger, module_name: str, pause_time: int = 
     # lines = [line for line in message.split("\n")]
 
     time.sleep(1)
+
+
+# -------------------------------------------------------------------------
+# Function helpers
+# -------------------------------------------------------------------------
+def get_function_name() -> str:
+    return sys._getframe(1).f_code.co_name
+
+
+def get_calling_function_name() -> str:
+    return sys._getframe(1).f_back.f_code.co_name
+
+
+# -------------------------------------------------------------------------
+# Docker helpers
+# -------------------------------------------------------------------------
+
+
+def in_docker():
+    cgroup = Path("/proc/self/cgroup")
+    return Path("/.dockerenv").is_file() or (cgroup.is_file() and "docker" in cgroup.read_text())

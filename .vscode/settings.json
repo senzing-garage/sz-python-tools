@@ -3,8 +3,8 @@
     "python.testing.pytestEnabled": true,
     "terminal.integrated.env.linux": {
         // "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python/src:/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src:/home/ant/Work/Senzing/git/sz-sdk-python-abstract/src/senzing_abstract",
-        // "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python-core/src:/home/ant/Work/Senzing/git/sz-sdk-python-core/src/senzing:./sz_tools",
-        "PYTHONPATH": "./sz_tools",
+        "PYTHONPATH": ".:/home/ant/Work/Senzing/git/sz-sdk-python-core/src:/home/ant/Work/Senzing/git/sz-sdk-python-core/src/senzing:./sz_tools",
+        // "PYTHONPATH": "./sz_tools",
         "LD_LIBRARY_PATH": "/opt/senzing/er/lib/",
         // "SENZING_ENGINE_CONFIGURATION_JSON": "{\"PIPELINE\":{\"CONFIGPATH\":\"/etc/opt/senzing\",\"RESOURCEPATH\":\"/opt/senzing/er/resources\",\"SUPPORTPATH\":\"/opt/senzing/data\"},\"SQL\":{\"CONNECTION\":\"sqlite3://na:na@/tmp/sqlite/G2C.db\"}}"
         "SENZING_ENGINE_CONFIGURATION_JSON": "{\"PIPELINE\":{\"CONFIGPATH\":\"/etc/opt/senzing\",\"RESOURCEPATH\":\"/opt/senzing/er/resources\",\"SUPPORTPATH\":\"/opt/senzing/data\"},\"SQL\":{\"CONNECTION\":\"sqlite3://na:na@/tmp/sqlite/G2C.db\"}, \"LOGGING\":{\"CONFIG\":\"console://stdout/?style=jsonl *.TRCE;*.CRIT;*.ERR\"}}"
@@ -25,6 +25,26 @@
         "/home/ant/Work/Senzing/git/sz-sdk-python/src",
         "/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing"
     ],
+    "workbench.colorCustomizations": {
+        "activityBar.activeBackground": "#3399ff",
+        "activityBar.background": "#3399ff",
+        "activityBar.foreground": "#15202b",
+        "activityBar.inactiveForeground": "#15202b99",
+        "activityBarBadge.background": "#bf0060",
+        "activityBarBadge.foreground": "#e7e7e7",
+        "commandCenter.border": "#e7e7e799",
+        "sash.hoverBorder": "#3399ff",
+        "statusBar.background": "#007fff",
+        "statusBar.foreground": "#e7e7e7",
+        "statusBarItem.hoverBackground": "#3399ff",
+        "statusBarItem.remoteBackground": "#007fff",
+        "statusBarItem.remoteForeground": "#e7e7e7",
+        "titleBar.activeBackground": "#007fff",
+        "titleBar.activeForeground": "#e7e7e7",
+        "titleBar.inactiveBackground": "#007fff99",
+        "titleBar.inactiveForeground": "#e7e7e799"
+    },
+    "peacock.remoteColor": "#007fff",
     // "pylint.args": [
     // " \"--init-hook='import sys; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src\\\")'; sys.path.append(\\\"/home/ant/Work/Senzing/git/sz-sdk-python/src/senzing\\\")'\""
     // " \"--init-hook='import sys; sys.path.append(\\\"${workspaceFolder}/src\\\")'\""    ],
