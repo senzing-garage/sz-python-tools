@@ -173,7 +173,7 @@ cython_debug/
 # VSCode
 # .vscode/
 
-# Synology NAS files
+# Mac hidden file for folders custom attributes
 .DS_Store
 
 # Typical names for tools output files such as snapshot, export, etc
