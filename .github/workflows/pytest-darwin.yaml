@@ -47,7 +47,7 @@ jobs:
           python -m pip install typing_extensions
 
       - name: Install Senzing SDK
-        uses: senzing-factory/github-action-install-senzing-sdk@v1
+        uses: senzing-factory/github-action-install-senzing-sdk@v3
         with:
           senzingsdk-version: ${{ matrix.senzingsdk-version }}
 
