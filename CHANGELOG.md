@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.13] - 2025-03-06
+
+### Added in 0.0.13
+
+- Autocomplete for per command settings 
+
+### Fixed in 0.0.13
+
+- Fix error when trying to write a command history file in a container without write permissions
+
 ## [0.0.12] - 2025-02-14
 
 ### Added in 0.0.12
