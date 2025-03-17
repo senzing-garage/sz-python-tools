@@ -49,7 +49,7 @@ jobs:
       - name: Install Senzing SDK
         uses: senzing-factory/github-action-install-senzing-sdk@v3
         with:
-          senzingsdk-version: ${{ matrix.senzingsdk-version }}
+          senzingsdk-repository-path: ${{ secrets.SENZING_OSX_BETA_REPOSITORY }}
 
       - name: Copy /etc files
         run: |
