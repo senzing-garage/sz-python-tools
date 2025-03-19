@@ -31,6 +31,7 @@ from _tool_helpers import (
     get_function_name,
     history_disabled,
     history_setup,
+    in_docker,
     print_debug,
     print_error,
     print_info,
@@ -291,14 +292,15 @@ class SzCmdShell(cmd.Cmd):
 
         # Display the can't read/write config message once, not at all in container
         self.config_error = False
-        docker_launched = os.getenv("SENZING_DOCKER_LAUNCHED")
-        self.docker_launched = True if docker_launched in ("y", "yes", "t", "true", "on", "1") else False
+        self.docker_launched = in_docker()
 
-        # Check if there is a config file and read it, if not create one
+        # Read the config file
         if not self.docker_launched and self.config_file_exists:
             self.read_config()
-        else:
-            self.write_config()
+
+        # Create config file if one doesn't exist and write it again if it exists. read_config() merges DEFAULT_CONFIG
+        # with the config file incase new config settings are added to DEFAULT_CONFIG in a new release of the tool
+        self.write_config()
 
         # Acquire Senzing engines and information
         # NOTE Don't change the ordering of the create_*() calls to the factory, for verbose_logging
@@ -567,11 +569,7 @@ class SzCmdShell(cmd.Cmd):
         )
 
         set_theme_parser = self.subparsers.add_parser("set_theme", usage=argparse.SUPPRESS)
-        set_theme_parser.add_argument(
-            "theme",
-            choices=self.themes,
-            nargs=1,
-        )
+        set_theme_parser.add_argument("theme", choices=self.themes, nargs=1)
 
     def get_config_attr_codes(self) -> List[str]:
         # TODO - Work in progress for JSON autocomplete
@@ -2083,11 +2081,9 @@ class SzCmdShell(cmd.Cmd):
     def read_config(self) -> None:
         try:
             with open(self.config_file, "r", encoding="utf-8") as config_read:
-                self.config = json.load(config_read)
+                self.config.update(json.load(config_read))
         except (OSError, json.JSONDecodeError) as err:
-            print_warning(
-                f"Error reading configuration file {self.config_file}: {err}",
-            )
+            print_warning(f"Error reading configuration from {self.config_file}: {err}")
 
     def write_config(self) -> None:
         if self.docker_launched:
@@ -2098,9 +2094,7 @@ class SzCmdShell(cmd.Cmd):
                 config_write.write(json.dumps(self.config, indent=2))
         except (OSError, json.JSONDecodeError) as err:
             if not self.config_error:
-                print_warning(
-                    f"Error saving configuration to {self.config_file}: {err}",
-                )
+                print_warning(f"Error writing configuration to {self.config_file}: {err}")
                 self.config_error = not self.config_error
 
     def enable_history(self):

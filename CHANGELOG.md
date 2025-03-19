@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.14] - 2025-03-19
+
+### Changed in 0.0.14
+
+- Improved handling of config file reading/writing & default values
+
 ## [0.0.13] - 2025-03-06
 
 ### Added in 0.0.13
