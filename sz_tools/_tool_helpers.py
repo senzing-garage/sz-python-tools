@@ -932,6 +932,7 @@ def get_char_with_timeout(time_out: int) -> str:
         except TimedOut:
             return ""
         finally:
+            alarm(0)
             signal(SIGALRM, current_handler)
 
 
