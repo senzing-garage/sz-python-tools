@@ -599,40 +599,30 @@ class SzCfgShell(cmd.Cmd):
 
     # ===== command loop section =====
 
-    def load_config(self, default_config_id=None):
-        # Get the current configuration from the Senzing database
-        if not default_config_id:
-            # default_config_id = bytearray()
-            # self.sz_configmgr.getDefaultConfigID(default_config_id)
-            default_config_id = self.sz_configmgr.get_default_config_id()
+    def load_config(self, config_id=None):
+        # Get the current configuration from the Senzing database if not specified
+        if not config_id:
+            config_id = self.sz_configmgr.get_default_config_id()
 
-        # TODO Why is this being tested twice?
         # If a default config isn't found, create a new default configuration
-        if not default_config_id:
-            colorize_msg("Adding default config to new database", "warning")
+        if not config_id:
             config_handle = self.sz_config.create_config()
-            # config_default = bytearray()
-            # self.sz_config.save(config_handle, config_default)
             default_config = self.sz_config.export_config(config_handle)
-            # config_string = config_default.decode()
 
             # Persist new default config to Senzing Repository
             try:
-                # addconfig_id = bytearray()
-                # self.sz_configmgr.addConfig(config_string, 'New default configuration added by G2ConfigTool.',
-                # addconfig_id)
                 config_id = self.sz_configmgr.add_config(
-                    default_config, "New default configuration added by G2ConfigTool."
+                    default_config,
+                    f"New default configuration added by f{MODULE_NAME}.",
                 )
-                # self.sz_configmgr.setDefaultConfigID(addconfig_id)
                 self.sz_configmgr.set_default_config_id(config_id)
             except SzError:
                 raise
 
-            colorize_msg("Default config added!", "success")
+            colorize_msg("No configuration in the database, default config has been created", "success")
             self.sz_factory.reinitialize(config_id)
 
-        current_config = self.sz_configmgr.get_config(default_config_id)
+        current_config = self.sz_configmgr.get_config(config_id)
         self.config_data = json.loads(current_config)
         self.config_updated = False
 
@@ -720,7 +710,6 @@ class SzCfgShell(cmd.Cmd):
                 self.do_save(self)
             else:
                 colorize_msg("Configuration changes were not saved!", "warning")
-        # print()
         return True
 
     def do_exit(self, arg):
@@ -759,7 +748,6 @@ class SzCfgShell(cmd.Cmd):
         Syntax:
             getDefaultConfigID
         """
-        # response = bytearray()
         try:
             config_id = self.sz_configmgr.get_default_config_id()
             colorize_msg(config_id, "success")
@@ -775,7 +763,6 @@ class SzCfgShell(cmd.Cmd):
         """
         arg = self.check_arg_for_output_format("record", arg)
         try:
-            # response = bytearray()
             config_list = self.sz_configmgr.get_configs()
             self.print_json_record(json.loads(config_list)["CONFIGS"])
         except SzError as err:
