@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.16] - 2025-03-28
+
+### Fixed in 0.0.16
+
+- Exception raised in sz_configtool when no config fresh database and trying to create a default config
+
 ## [0.0.15] - 2025-03-27
 
 ### Fixed in 0.0.15
