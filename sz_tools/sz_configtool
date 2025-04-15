@@ -6229,6 +6229,12 @@ def main() -> None:
     cmd_obj = SzCfgShell(cli_args, engine_config)
 
     if cli_args.file_to_process:
+        try:
+            with open(cli_args.file_to_process, "r", encoding="utf-8") as _:
+                pass
+        except OSError as err:
+            print(f"\n{err}")
+            sys.exit(1)
         cmd_obj.fileloop()
         return
 

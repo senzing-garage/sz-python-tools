@@ -121,14 +121,6 @@ CONFIG_SETTINGS: Dict[str, Dict[str, Any]] = {
     "history_file": {"values": ["off", "on"], "description": "Use a history file", "value": None},
 }
 
-# -------------------------------------------------------------------------
-# Metadata
-# -------------------------------------------------------------------------
-
-__all__ = ["SzCmdShell"]
-__version__ = "0.0.1"  # See https://www.python.org/dev/peps/pep-0396/
-__date__ = "2024-06-13"
-__updated__ = "2024-06-13"
 
 # Due to the way the Cmd module works, don't want doc strings on everything
 # pylint: disable=missing-function-docstring

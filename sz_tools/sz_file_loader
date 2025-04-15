@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 
-
 import argparse
+import atexit
 import concurrent.futures
 import itertools
 import logging
@@ -19,6 +19,7 @@ from types import FrameType
 from typing import Any, List, TextIO, Tuple, TypeVar, Union
 
 from _tool_helpers import (
+    check_file_exists,
     get_char_with_timeout,
     get_engine_config,
     get_max_futures_workers,
@@ -40,11 +41,6 @@ try:
     import orjson as json
 except ModuleNotFoundError:
     import json  # type: ignore[no-redef]
-
-# TODO
-__version__ = "1.3.0"  # See https://www.python.org/dev/peps/pep-0396/
-__date__ = "2022-11-29"
-__updated__ = "2023-12-19"
 
 LOG_FORMAT = "%(asctime)s - %(levelname)s:  %(message)s"
 LONG_RECORD = 300
@@ -78,7 +74,7 @@ T = TypeVar("T")
 
 
 errors_file = f"{MODULE_NAME}_errors_{START_TS}.log"
-with_info_file = f"{MODULE_NAME}_withInfo_{START_TS}.jsonl"
+with_info_file = f"{MODULE_NAME}_with_info_{START_TS}.jsonl"
 # If running in a Docker container use /data/, prior file_loader uses this as volume mount for data input/output files
 if in_docker():
     if pathlib.Path("/data").exists():
@@ -105,22 +101,22 @@ except IOError as err_outer:
 shutdown = Event()
 
 
-class CustomArgumentParser(argparse.ArgumentParser):
-    """Custom argparse class to remove the errors file if CLI help or usage is displayed"""
+def files_clean_up() -> None:
+    """TODO"""
+    if check_file_exists(errors_file) and pathlib.Path(errors_file).stat().st_size == 0:
+        pathlib.Path(errors_file).unlink()
 
-    def print_help(self, file=None):
-        pathlib.Path(errors_file).unlink(missing_ok=True)
-        return super().print_help(file)
+    if check_file_exists(with_info_file) and pathlib.Path(with_info_file).stat().st_size == 0:
+        pathlib.Path(with_info_file).unlink()
 
-    def print_usage(self, file=None):
-        pathlib.Path(errors_file).unlink(missing_ok=True)
-        return super().print_usage(file)
+
+atexit.register(files_clean_up)
 
 
 def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     """# TODO"""
     # TODO - Change github link
-    arg_parser = CustomArgumentParser(
+    arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description="Utility to load Senzing JSON records and process redo records",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -585,10 +581,9 @@ def startup_info(
             time.sleep(5)
 
 
-# TODO - No type error on -> str when returning None also?
-def add_record(engine: SzEngine, rec_to_add: str, with_info: bool) -> str:
+def add_record(engine: SzEngine, rec_to_add: str, with_info: bool) -> Union[None, str]:
     """Add a single record, returning with info details if requested"""
-    # Return None if a blank line was read to prevent blank lines throwing errors when trying to json.loads()
+    # Return "" if a blank line was read to prevent blank lines throwing errors when trying to json.loads()
     rec_to_add = rec_to_add.strip()
     if not rec_to_add:
         return None
@@ -630,7 +625,7 @@ def prime_redo_records(engine: SzEngine, quantity: int) -> List[str]:
 
 
 def process_redo_record(engine: SzEngine, record: str, with_info: bool) -> str:
-    """Process a single redo record, returning with info details if --info or SENZING_WITHINFO was specified"""
+    """Process a single redo record, returning with info details if --info"""
     if with_info:
         response = engine.process_redo_record(record, SzEngineFlags.SZ_WITH_INFO)
         return response
@@ -728,6 +723,7 @@ def load_and_redo(
         return False
 
     error_recs = 0
+    load_blank_lines = 0
     load_errors = 0
     load_success = 0
     load_time = 0.0
@@ -810,7 +806,8 @@ def load_and_redo(
                         error_recs += 1
                         logger.info("")
                         logger.error(
-                            "%s - Operation: %s - Record: %s",
+                            "%s%s - Operation: %s - Record: %s",
+                            "" if console_handle.formatter._fmt == LOG_FORMAT else "ERROR: ",
                             err,
                             MODE_TEXT[mode.__name__]["except_msg"],
                             futures[f][0].strip(),
@@ -828,12 +825,17 @@ def load_and_redo(
                         if add_future and not shutdown.is_set():
                             more_recs = add_new_future()
 
-                        # Write out with info result if it was requested
-                        if result:
-                            with_info_out.write(f"{result}\n")
+                        # If loading and None the line in the source was blank
+                        if mode.__name__ == "add_record" and result is None:
+                            load_blank_lines += 1
+                        else:
+                            # Write out with info result if it was requested
+                            if result:
+                                with_info_out.write(f"{result}\n")
 
-                        success_recs += 1
-                        if success_recs % recs_per_sec_output_frequency == 0:
+                            success_recs += 1
+
+                        if success_recs > 0 and success_recs % recs_per_sec_output_frequency == 0:
                             prev_time = record_stats(
                                 success_recs,
                                 error_recs,
@@ -900,6 +902,7 @@ def load_and_redo(
         "errors_file": (str(pathlib.Path(errors_file).resolve()) if (load_errors + error_recs) > 0 else None),
         "with_info": (str(pathlib.Path(with_info_file).resolve()) if with_info else None),
         "elapsed_time_total": load_time + redo_time,
+        "blank_lines": load_blank_lines,
         "load_stats": {
             "success_recs": load_success,
             "error_recs": load_errors,
@@ -932,6 +935,7 @@ def per_result(cli_args: argparse.Namespace, result: dict[str, Any]) -> None:
         else:
             did_shuf = "Yes" if result["did_shuff"] else "No"
             logger.info("Source file shuffled:       %s", did_shuf)
+        logger.info("Source file blank lines:    %s", result["blank_lines"])
     logger.info(
         "With info file:             %s",
         result["with_info"] if result["with_info"] else "Not requested",
@@ -973,6 +977,7 @@ def summary_results(
     shuffle_no_delete = cli_args.shuffleNoDelete
 
     elapsed_time_total = 0
+    load_blank_lines_total = 0
     load_error_total = 0
     load_success_total = 0
     load_time_total = 0
@@ -983,6 +988,7 @@ def summary_results(
     for result in overall_results.values():
         load_success_total += result["load_stats"]["success_recs"]
         load_error_total += result["load_stats"]["error_recs"]
+        load_blank_lines_total += result["blank_lines"]
         load_time_total += result["load_stats"]["elapsed_time"]
         redo_success_total += result["redo_stats"]["success_recs"]
         redo_error_total += result["redo_stats"]["error_recs"]
@@ -994,7 +1000,7 @@ def summary_results(
     logger.info("---------------")
     logger.info("")
     logger.info("Files processed:  %s", len(overall_results))
-
+    logger.info("Empty lines:      %s", load_blank_lines_total)
     if shuffle_no_delete:
         logger.info(
             "Files shuffled:   %s",
@@ -1030,12 +1036,12 @@ def main() -> None:
 
     signal.signal(signal.SIGINT, signal_int)
 
-    errors_total = 0
     ingest_file_shuff = None
     overall_results: dict[str, dict[str, Any]] = {}
 
     cli_args = parse_cli_args()
 
+    # TODO
     for ingest_file in cli_args.file:
         try:
             with open(ingest_file, "r", encoding="utf-8") as _:
@@ -1122,17 +1128,6 @@ def main() -> None:
     # If processed >1 files show overall stats
     if len(overall_results) > 1:
         summary_results(cli_args, overall_results)
-
-    # Check if there were any errors for load or redo to determine if errors file should be deleted
-    for result in overall_results.values():
-        errors_total += result["load_stats"]["error_recs"]
-        errors_total += result["redo_stats"]["error_recs"]
-
-    if not errors_total:
-        pathlib.Path(errors_file).unlink(missing_ok=True)
-
-    if not cli_args.withinfo:
-        pathlib.Path(with_info_file).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
