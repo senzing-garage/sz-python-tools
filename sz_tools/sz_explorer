@@ -281,7 +281,7 @@ class eda_table:
         else:  # default
             table_object.horizontal_char = "\u2500"
             table_object.vertical_char = "\u2502"
-            table_object.junction_char = "\u253C"
+            table_object.junction_char = "\u253c"
 
         if no_lines:
             table_object.border = False
@@ -1081,8 +1081,13 @@ class EdaSdkWrapper:
             self.sz_diagnostic = self.sz_factory.create_diagnostic()
             sz_product = self.sz_factory.create_product()
             self.sdk_version = json.loads(sz_product.get_version())
+            # TODO -
+            # sz_configmgr = self.sz_factory.create_configmanager()
+            # sz_config_data = json.loads(sz_configmgr.get_config(sz_configmgr.get_default_config_id()))
             sz_configmgr = self.sz_factory.create_configmanager()
-            sz_config_data = json.loads(sz_configmgr.get_config(sz_configmgr.get_default_config_id()))
+            sz_config = sz_configmgr.create_config_from_config_id(sz_configmgr.get_default_config_id())
+            sz_config_data = json.loads(sz_config.export())
+
         except SzError as err:
             raise Exception(err)
 

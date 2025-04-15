@@ -1,5 +1,5 @@
 #! /usr/bin/env python3
-"""# TODO """
+"""# TODO"""
 
 import argparse
 import pathlib
@@ -58,21 +58,31 @@ def main() -> None:
 
     # Apply a default configuration
     try:
-        sz_config = sz_abstract_factory.create_config()
-        config_handle = sz_config.create_config()
-        new_config = sz_config.export_config(config_handle)
-        sz_config.close_config(config_handle)
+        # TODO -
+        # sz_config = sz_abstract_factory.create_config()
+        # config_handle = sz_config.create_config()
+        # new_config = sz_config.export_config(config_handle)
+        # sz_config.close_config(config_handle)
+        config_template = sz_config_mgr.create_config_from_template()
+        default_config = config_template.export()
     except SzError as err:
         print_error(f"Could not get a template configuration: {err}", exit_=True)
 
     # Save configuration JSON into Senzing database.
     try:
-        new_config_id = sz_config_mgr.add_config(new_config, f"Configuration added by {MODULE_NAME}")
+        # TODO -
+        # new_config_id = sz_config_mgr.add_config(new_config, f"Configuration added by {MODULE_NAME}")
+        new_config_id = sz_config_mgr.register_config(
+            default_config,
+            f"New default configuration added by {MODULE_NAME}.",
+        )
     except SzError as err:
         print_error(f"Failed to add configuration to the datastore: {err}", exit_=True)
 
     # Set the default configuration ID.
     try:
+        # TODO -
+        # sz_config_mgr.set_default_config_id(new_config_id)
         sz_config_mgr.set_default_config_id(new_config_id)
     except SzError as err:
         print_error(f"Failed to set configuration as default: {err}", exit_=True)

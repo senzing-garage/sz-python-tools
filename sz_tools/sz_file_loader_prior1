@@ -23,7 +23,6 @@ from _tool_helpers import (
     get_engine_config,
     get_max_futures_workers,
     human_readable_bytes,
-    in_docker,
 )
 from senzing import (
     SzConfigManager,
@@ -71,7 +70,7 @@ SHUFF_NO_DEL_TAG = "_-_SzShuffNoDel_-_"
 SHUFF_TAG = "_-_SzShuff_-_"
 SHUFF_GLOB_TAG = "_-_SzShuff*"
 SHUFF_TIMEOUT = 30
-# TODO
+# TODO -
 # WORK_STATS_INTERVAL = 60
 
 T = TypeVar("T")
@@ -79,8 +78,10 @@ T = TypeVar("T")
 
 errors_file = f"{MODULE_NAME}_errors_{START_TS}.log"
 with_info_file = f"{MODULE_NAME}_withInfo_{START_TS}.jsonl"
-# If running in a Docker container use /data/, prior file_loader uses this as volume mount for data input/output files
-if in_docker():
+# If running in a container use /data/
+if os.getenv("SENZING_DOCKER_LAUNCHED"):
+    # TODO Quick fix for JB, still work in progress
+    # TODO Prior file_loader uses /data for Docker as volume mount for data input/output files
     if pathlib.Path("/data").exists():
         errors_file = f"/data/{errors_file}"
         with_info_file = f"/data/{with_info_file}"
@@ -105,22 +106,10 @@ except IOError as err_outer:
 shutdown = Event()
 
 
-class CustomArgumentParser(argparse.ArgumentParser):
-    """Custom argparse class to remove the errors file if CLI help or usage is displayed"""
-
-    def print_help(self, file=None):
-        pathlib.Path(errors_file).unlink(missing_ok=True)
-        return super().print_help(file)
-
-    def print_usage(self, file=None):
-        pathlib.Path(errors_file).unlink(missing_ok=True)
-        return super().print_usage(file)
-
-
 def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     """# TODO"""
     # TODO - Change github link
-    arg_parser = CustomArgumentParser(
+    arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description="Utility to load Senzing JSON records and process redo records",
         formatter_class=argparse.RawTextHelpFormatter,
@@ -585,7 +574,7 @@ def startup_info(
             time.sleep(5)
 
 
-# TODO - No type error on -> str when returning None also?
+# TODO - No lint error on -> str when returning None also?
 def add_record(engine: SzEngine, rec_to_add: str, with_info: bool) -> str:
     """Add a single record, returning with info details if requested"""
     # Return None if a blank line was read to prevent blank lines throwing errors when trying to json.loads()
