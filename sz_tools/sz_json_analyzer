@@ -44,8 +44,6 @@ def get_environment_config(settings: str) -> Dict[str, Any]:
         sz_factory = SzAbstractFactoryCore(MODULE_NAME, settings)
         sz_configmgr = sz_factory.create_configmanager()
         config_id = sz_configmgr.get_default_config_id()
-        # TODO -
-        # config_str = sz_configmgr.get_config(config_id)
         sz_config = sz_configmgr.create_config_from_config_id(config_id)
         config_json: Dict[str, Any] = json.loads(sz_config.export())
     except SzError as err:

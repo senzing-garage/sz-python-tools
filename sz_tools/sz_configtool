@@ -126,10 +126,6 @@ class SzCfgShell(cmd.Cmd):
             print(err)
             sys.exit(1)
 
-        # TODO -
-        # self.sz_config = self.sz_factory.create_config()
-        # self.sz_configmgr = self.sz_factory.create_configmanager()
-
         # Used to change the theme and for setting cmd prompt, use the default colors set by the terminal
         self.themes = Colors.AVAILABLE_THEMES
         Colors.set_theme("TERMINAL")
@@ -608,19 +604,10 @@ class SzCfgShell(cmd.Cmd):
 
         # If a default config isn't found, create a new default configuration
         if not config_id:
-            # TODO -
-            # config_handle = self.sz_config.create_config()
-            # default_config = self.sz_config.export_config(config_handle)
             sz_config = self.sz_configmgr.create_config_from_template()
             default_config = sz_config.export()
             # Persist new default config to Senzing Repository
             try:
-                # TODO -
-                # config_id = self.sz_configmgr.add_config(
-                #     default_config,
-                #     f"New default configuration added by f{MODULE_NAME}.",
-                # )
-                # self.sz_configmgr.set_default_config_id(config_id)
                 config_id = self.sz_configmgr.register_config(
                     default_config,
                     f"New default configuration added by {MODULE_NAME}.",
@@ -632,8 +619,6 @@ class SzCfgShell(cmd.Cmd):
             colorize_msg("No configuration in the database, default config has been created", "success")
             self.sz_factory.reinitialize(config_id)
 
-        # TODO -
-        # current_config = self.sz_configmgr.get_config(config_id)
         sz_config = self.sz_configmgr.create_config_from_config_id(config_id)
         current_config = sz_config.export()
         self.config_data = json.loads(current_config)
@@ -738,8 +723,6 @@ class SzCfgShell(cmd.Cmd):
                     return
 
             try:
-                # TODO -
-                # new_config_id = self.sz_configmgr.add_config(json.dumps(self.config_data), f"Updated by {MODULE_NAME}")
                 new_config_id = self.sz_configmgr.register_config(
                     json.dumps(self.config_data),
                     f"Updated by {MODULE_NAME}",
@@ -829,8 +812,6 @@ class SzCfgShell(cmd.Cmd):
         else:
             config_id = arg_list[1]
             try:
-                # TODO -
-                # response = bytearray()
                 response = self.sz_configmgr.create_config_from_config_id(config_id)
                 json_data = json.loads(response)
             except SzError as err:
