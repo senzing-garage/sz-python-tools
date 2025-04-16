@@ -44,8 +44,8 @@ def get_environment_config(settings: str) -> Dict[str, Any]:
         sz_factory = SzAbstractFactoryCore(MODULE_NAME, settings)
         sz_configmgr = sz_factory.create_configmanager()
         config_id = sz_configmgr.get_default_config_id()
-        config_str = sz_configmgr.get_config(config_id)
-        config_json: Dict[str, Any] = json.loads(config_str)
+        sz_config = sz_configmgr.create_config_from_config_id(config_id)
+        config_json: Dict[str, Any] = json.loads(sz_config.export())
     except SzError as err:
         print(f"\nERROR: {err}")
         sys.exit(1)
@@ -562,7 +562,7 @@ def format_pretty_table(table_rows):
     table_object = prettytable.PrettyTable()
     table_object.horizontal_char = "\u2500"
     table_object.vertical_char = "\u2502"
-    table_object.junction_char = "\u253C"
+    table_object.junction_char = "\u253c"
 
     colors = {
         "MAPPED": "\033[38;5;70m",

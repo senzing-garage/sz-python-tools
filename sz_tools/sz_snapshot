@@ -154,7 +154,6 @@ class SnapshotReader:
 
         self.sz_db_uri = kwargs.get("sz_db_uri")
         self.sdk_version = kwargs.get("sdk_version")
-        self.sz_config_data = kwargs.get("sz_config_data")
         self.dsrc_lookup = {x["DSRC_ID"]: x for x in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
         self.dsrc_code_lookup = {x["DSRC_CODE"]: x for x in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
         self.errule_lookup = {x["ERRULE_ID"]: x for x in sz_config_data["G2_CONFIG"]["CFG_ERRULE"]}
@@ -572,7 +571,7 @@ def database_snapshot(sz_dbo, kwargs):
             " max(b.RES_ENT_ID) "
             "from OBS_ENT a "
             "join RES_ENT_OKEY b on b.OBS_ENT_ID = a.OBS_ENT_ID "
-            "where a.DSRC_ID = " + dsrc_id_filter
+            "where a.DSRC_ID = " + str(dsrc_id_filter)
         )
         min_entity_id, max_entity_id = sz_dbo.fetchRow(sz_dbo.sqlExec(max_sql))
         entity_sql = (
@@ -811,7 +810,8 @@ if __name__ == "__main__":
         sz_engine = sz_factory.create_engine()
         sz_product = sz_factory.create_product()
         sdk_version = json.loads(sz_product.get_version())
-        sz_config_data = json.loads(sz_configmgr.get_config(sz_configmgr.get_default_config_id()))
+        sz_config = sz_configmgr.create_config_from_config_id(sz_configmgr.get_default_config_id())
+        sz_config_data = json.loads(sz_config.export())
         sz_db_uri = json.loads(engine_config)["SQL"]["CONNECTION"]
     except SzError:
         print_exception_info()
@@ -839,12 +839,13 @@ if __name__ == "__main__":
 
     dsrc_id_filter = None
     if args.dsrc_filter:
+        dsrc_filter = args.dsrc_filter.upper()
         dsrc_code_lookup = {item["DSRC_CODE"]: item for item in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
-        if not dsrc_code_lookup.get(args.dsrc_filter):
+        if not dsrc_code_lookup.get(dsrc_filter):
             logging.error("Data source code %s is not valid", args.dsrc_filter)
             sys.exit(1)
         else:
-            dsrc_id_filter = dsrc_code_lookup[args.dsrc_filter]["DSRC_ID"]
+            dsrc_id_filter = dsrc_code_lookup[dsrc_filter]["DSRC_ID"]
 
     if os.path.splitext(args.output_file_root)[1] == ".json":
         args.output_file_root = os.path.splitext(args.output_file_root)[0]

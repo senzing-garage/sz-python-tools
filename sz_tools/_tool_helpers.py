@@ -977,5 +977,10 @@ def get_calling_function_name() -> str:
 
 
 def in_docker():
+    """Attempt to detect if running in a Docker container. Using the env var is ideal, other methods aren't foolproof"""
     cgroup = Path("/proc/self/cgroup")
-    return Path("/.dockerenv").is_file() or (cgroup.is_file() and "docker" in cgroup.read_text())
+    return (
+        bool(os.getenv("SENZING_DOCKER_LAUNCHED"))
+        or Path("/.dockerenv").is_file()
+        or (cgroup.is_file() and "docker" in cgroup.read_text())
+    )

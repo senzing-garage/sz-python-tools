@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.17] - 2025-04-15
+
+### Added in 0.0.17
+
+- Various improvements to sz_file_loader
+
+### Changed in 0.0.17
+
+- Modifications for new szconfig and szconfigmgr
+
+### Fixed in 0.0.17
+
+- Various fixes to sz_file_loader
+- Data source filter not working for sz_snapshot
+
 ## [0.0.16] - 2025-03-28
 
 ### Fixed in 0.0.16

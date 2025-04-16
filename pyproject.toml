@@ -22,6 +22,9 @@ max-line-length = 120
 profile = "black"
 src_paths = ["examples", "src", "tests"]
 
+[tool.mypy]
+exclude = ['.venv', 'g2_tools']
+
 [[tool.mypy.overrides]]
 module = "senzing_abstract.szengineflags.*"
 ignore_missing_imports = "true"
