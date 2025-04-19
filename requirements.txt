@@ -1,2 +1,2 @@
 senzing==0.2.2
-senzing-core==0.3.5
+senzing-core==0.3.7
