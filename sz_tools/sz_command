@@ -2038,7 +2038,7 @@ class SzCmdShell(cmd.Cmd):
         self.write_config()
 
         # Update theme and command prompt if theme is changed
-        if setting == "theme" or setting == "color_output":
+        if setting in ("theme", "color_output"):
             self.prompt = colorize_cmd_prompt(self.prompt_str, self.prompt_color, self.config["color_output"])  # type: ignore[arg-type]
             if setting == "theme":
                 Colors.set_theme(value)
@@ -2046,7 +2046,7 @@ class SzCmdShell(cmd.Cmd):
         # Reinitialize the Cmd module object and Senzing objects if engine logging is requested, checked in postcmd
         if setting == "debug_sz_engine":
             self.debug_reinit["reinitialize"] = True
-            self.debug_reinit["debug_trace"] = True if value else False
+            self.debug_reinit["debug_trace"] = bool(value)
 
         # Enable or disable use of history file
         if setting == "history_file":
