@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.18] - 2025-04-22
+
+### Added in 0.0.18
+
+- why_search
+
 ## [0.0.17] - 2025-04-15
 
 ### Added in 0.0.17
