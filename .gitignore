@@ -173,6 +173,7 @@ cython_debug/
 # VSCode
 .vscode/
 
+
 # Mac hidden file for folders custom attributes
 .DS_Store
 
