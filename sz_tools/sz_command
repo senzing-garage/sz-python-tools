@@ -24,11 +24,9 @@ from _tool_helpers import (
     do_help,
     do_history,
     do_shell,
-    get_calling_function_name,
     get_engine_config,
     get_engine_flag_names,
     get_engine_flags_as_int,
-    get_function_name,
     history_disabled,
     history_setup,
     in_docker,
@@ -529,7 +527,7 @@ class SzCmdShell(cmd.Cmd):
 
         search_by_attributes_parser = self.subparsers.add_parser("search_by_attributes", usage=argparse.SUPPRESS)
         search_by_attributes_parser.add_argument("attributes")
-        search_by_attributes_parser.add_argument("search_profile", default="SEARCH", nargs="?")
+        search_by_attributes_parser.add_argument("search_profile", default="SEARCH", nargs="?", type=str.upper)
         search_by_attributes_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         why_entities_parser = self.subparsers.add_parser("why_entities", usage=argparse.SUPPRESS)
@@ -548,6 +546,12 @@ class SzCmdShell(cmd.Cmd):
         why_records_parser.add_argument("data_source_code_2")
         why_records_parser.add_argument("record_id_2")
         why_records_parser.add_argument("-f", "--flags", nargs="+", required=False)
+
+        why_search_parser = self.subparsers.add_parser("why_search", usage=argparse.SUPPRESS)
+        why_search_parser.add_argument("attributes")
+        why_search_parser.add_argument("entity_id", type=int)
+        why_search_parser.add_argument("search_profile", default="SEARCH", nargs="?", type=str.upper)
+        why_search_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         # Utility parsers
 
@@ -1704,9 +1708,6 @@ class SzCmdShell(cmd.Cmd):
 
     @do_methods_decorator
     def do_search_by_attributes(self, **kwargs: Any) -> None:
-        # search_by_attributes ATTRIBUTES [SEARCH_PROFILE] [-f FLAG ...]
-        # search_by_attributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' SEARCH -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
-        # SEARCH_PROFILE = Search profile to use (defaults to SEARCH)
         """
         Search for entities
 
@@ -1827,6 +1828,42 @@ class SzCmdShell(cmd.Cmd):
         )
 
         response = why_records(kwargs["flags"]) if "flags" in kwargs else why_records()
+        self.last_response = self.output_response(response)
+
+    @do_methods_decorator
+    def do_why_search(self, **kwargs: Any) -> None:
+        """
+        Determine why search attributes relate to an existing entity
+
+        Syntax:
+            why_search attributes entity_id [-f FLAG ...]
+
+        Examples:
+            why_search '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' 1
+            why_search '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' 1 -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
+
+        Arguments:
+            attributes = Senzing mapped JSON containing the attributes to search on
+            entity_id = Identifier for an entity
+            flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
+
+        Notes:
+            - Engine flag details https://docs.senzing.com/flags/index.html"""
+
+        if "flags" in kwargs:
+            response = self.sz_engine.why_search(
+                kwargs["parsed_args"].attributes,
+                kwargs["parsed_args"].entity_id,
+                kwargs["flags"],
+                kwargs["parsed_args"].search_profile,
+            )
+        else:
+            response = self.sz_engine.why_search(
+                kwargs["parsed_args"].attributes,
+                kwargs["parsed_args"].entity_id,
+                search_profile=kwargs["parsed_args"].search_profile,
+            )
+
         self.last_response = self.output_response(response)
 
     # -----------------------------------------------------------------------------
@@ -2337,7 +2374,12 @@ class SzCmdShell(cmd.Cmd):
     def complete_why_record_in_entity(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
         return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
+    @cmd_settings_decorator
     def complete_why_records(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+        return self.flags_completes(text, line) + kwargs["cmd_settings"]
+
+    @cmd_settings_decorator
+    def complete_why_search(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
         return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     def complete_response_to_file(self, text: str, line: str, begidx: int, endidx: int) -> List[str]:

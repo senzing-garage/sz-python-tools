@@ -171,7 +171,7 @@ cython_debug/
 .history
 
 # VSCode
-# .vscode/
+.vscode/
 
 # Mac hidden file for folders custom attributes
 .DS_Store
@@ -180,3 +180,4 @@ cython_debug/
 sz_tools/snap*.json
 sz_tools/export*.csv
 sz_tools/export*.json
+sz_tools/sz_file_loader_*
