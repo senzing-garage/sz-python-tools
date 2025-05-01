@@ -1,0 +1,392 @@
+#! /usr/bin/env python3
+"""Upgrade a V3 or V4 Senzing SDK project"""
+
+import argparse
+import json
+import shutil
+import sys
+from contextlib import suppress
+from pathlib import Path
+from time import sleep
+from typing import Any
+
+INPUT_CONFS = ("y", "Y", "yes", "YES")
+SZ_SYS_PATH = Path("/opt/senzing/er")
+MODULE_NAME = Path(__file__).stem
+PROJ_BUILD = "g2BuildVersion.json"
+SYS_BUILD = SZ_SYS_PATH / "szBuildVersion.json"
+V3_BACKUP_PATH = "v3_upgrade_backups"
+UPGRADE_URL = "https://www.senzing.com/docs/4_beta/index.html"
+
+V3_BACKUP_PROJ = {
+    "bin": {"files": ["g2dbencrypt", "g2saltadm", "g2ssadm"], "excludes": []},
+    "etc": {"files": ["senzing_governor.py"], "excludes": []},
+    "lib": {"files": ["libSpaceTimeBoxStandardizer.so", "libG2Hasher.so", "libG2SSAdm.so"], "excludes": []},
+    "python": {"files": [], "excludes": []},
+    "resources/templates": {"files": ["setupEnv"], "excludes": []},
+    "setupEnv": {"files": [], "excludes": []},
+    "g2BuildVersion.json": {"files": [], "excludes": []},
+}
+
+V3_REMOVE_FROM_PROJ = {
+    "bin": {"files": ["*"], "excludes": ["bin"]},
+    "data": {"files": [], "excludes": []},
+    "etc": {"files": ["senzing_governor.py"], "excludes": []},
+    # "g2BuildVersion.json": {"files": [], "excludes": []},
+    "lib": {
+        "files": [
+            "g2.jar",
+            "libG2.so",
+            "libG2Hasher.so",
+            "libG2SSAdm.so",
+            "libg2CompJavaScoreSet.so",
+            "libg2DistinctFeatJava.so",
+            "libg2EFeatJava.so",
+            "libg2JVMPlugin.so",
+            "libg2StdJava.so",
+            "libmariadbplugin.so",
+            "libSpaceTimeBoxStandardizer.so",
+        ],
+        "excludes": ["lib"],
+    },
+    "python": {"files": ["*"], "excludes": []},
+    "resources/config": {"files": ["g2core-configuration-upgrade-*.gtc"], "excludes": []},
+    "resources/schema": {"files": ["g2core-schema-*-create.sql", "g2core-schema-*-upgrade-*.sql"], "excludes": []},
+    "resources/templates": {
+        "files": [
+            "G2C.db*",
+            "G2Module.ini",
+            "custom*.txt",
+            "defaultGNRCP.config",
+            "g2config.json",
+            "senzing_governor.py",
+            "setupEnv",
+            "stb.config",
+        ],
+        "excludes": [],
+    },
+    "sdk": {"files": ["*"], "excludes": ["sdk"]},
+    "setupEnv": {"files": [], "excludes": []},
+}
+
+V3_COPY_TO_PROJ = {
+    "LICENSE": {"files": [], "excludes": []},
+    "NOTICES": {"files": [], "excludes": []},
+    "README.1ST": {"files": [], "excludes": []},
+    "bin": {"files": ["*"], "excludes": ["sz_create_project", "sz_update_project"]},
+    "/opt/senzing/data": {"files": ["*"], "excludes": []},
+    "lib": {"files": ["*"], "excludes": []},
+    "resources": {"files": ["*"], "excludes": []},
+    "sdk": {"files": ["*"], "excludes": []},
+    "szBuildVersion.json": {"files": [], "excludes": []},
+}
+
+
+V3_RENAME_IN_PROJ = {
+    "etc": {"from": "G2Module.ini", "to": "sz_engine_config.ini"},
+}
+
+
+V3_RESET_PERMISSIONS = {
+    ".": {
+        "dir_pint": 0,
+        "file_pint": 0o660,
+        "files": ["LICENSE", "NOTICES", "README.1ST", "szBuildVersion.json"],
+        "excludes": ["setupEnv"],
+        "recursive": False,
+    },
+    "setupEnv": {"dir_pint": 0, "file_pint": 0o770, "files": [], "excludes": [], "recursive": False},
+    "bin": {
+        "dir_pint": 0o770,
+        "file_pint": 0o770,
+        "files": ["*"],
+        "excludes": ["__pycache__", "_sz_database.py", "_tool_helpers.py"],
+        "recursive": False,
+    },
+    "data": {"dir_pint": 0o770, "file_pint": 0o660, "files": ["*"], "excludes": [], "recursive": True},
+    "lib": {"dir_pint": 0o770, "file_pint": 0o660, "files": ["*"], "excludes": [], "recursive": False},
+    "resources": {"dir_pint": 0o770, "file_pint": 0o660, "files": ["*"], "excludes": ["setupEnv"], "recursive": True},
+    "resources/templates/setupEnv": {
+        "dir_pint": 0,
+        "file_pint": 0o770,
+        "files": [],
+        "excludes": [],
+        "recursive": False,
+    },
+    "sdk": {"dir_pint": 0o770, "file_pint": 0o660, "files": ["*"], "excludes": [], "recursive": True},
+    "v3_upgrade_backups": {"dir_pint": 0o770, "file_pint": 0, "files": [], "excludes": [], "recursive": False},
+}
+
+# pylint: disable=W0106
+
+
+def parse_cli_args() -> argparse.Namespace:
+    """Parse the CLI arguments"""
+    arg_parser = argparse.ArgumentParser(
+        description="Update an existing Senzing project to the system installed version of Senzing."
+    )
+    arg_parser.add_argument(
+        "project_path",
+        metavar="path",
+        help="path of the project to update",
+    )
+    arg_parser.add_argument(
+        "-f",
+        "--force",
+        dest="force_mode",
+        default=False,
+        action="store_true",
+        help="upgrade without prompts. WARNING: Use with caution, ensure you have a backup of the project",
+    )
+    return arg_parser.parse_args()
+
+
+def dir_listing(path: Path) -> list[Path]:
+    """Get a listing of the specified path to check for files or directories"""
+    try:
+        listing = list(path.iterdir())
+    except OSError as err:
+        if type(err).__name__ == "NotADirectoryError":
+            print(f"\nERROR: {path} is not a directory, expecting one")
+        print(f"\nERROR: {err}")
+        sys.exit(1)
+
+    return listing
+
+
+def pre_check(path: Path, proj_build_file: Path, sys_build_file: Path, listing: list[Path]) -> tuple[str, str]:
+    """Check not trying to overwrite the Senzing system install, that path is a project and versions are correct"""
+    if not SZ_SYS_PATH.exists():
+        print(f"\nERROR: Couldn't locate Senzing SDK system install at {SZ_SYS_PATH}")
+        sys.exit(1)
+
+    if path.samefile(SZ_SYS_PATH):
+        print(f"\nERROR: {path} is the Senzing system installation path and not a Senzing project")
+        sys.exit(1)
+
+    if proj_build_file not in listing:
+        print(f"\nERROR: {path} isn't a Senzing project, expected it to contain the file {proj_build_file.name}")
+        sys.exit(1)
+
+    try:
+        proj_version = get_build_version(proj_build_file)
+        sys_version = get_build_version(sys_build_file)
+    except OSError as err:
+        print(f"\nERROR: Trying to read {proj_build_file} and {sys_build_file}: {err}")
+        sys.exit(1)
+
+    if int(proj_version[:1]) not in (3, 4) or sys_version[:1] != "4":
+        print(
+            f"\nERROR: {MODULE_NAME} updates from V3, or V4.x to V4.y, project version: {proj_version} installed Senzing SDK version: {sys_version}"
+        )
+        sys.exit(1)
+
+    return (proj_version, sys_version)
+
+
+def get_build_version(path: Path) -> str:
+    """Retrieve the build version from a build file"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        version = data["VERSION"]
+    except (OSError, json.JSONDecodeError) as err:
+        print(f"\nERROR: Couldn't get the version information from {path}: {err}")
+        sys.exit(1)
+    except KeyError as err:
+        print(f"\nERROR: Couldn't retrieve {err} from {path}")
+        sys.exit(1)
+
+    return version
+
+
+def remove_dir(dir_: Path, excludes: list[Path]):
+    """Recursively remove a directory"""
+    try:
+        for path in dir_.iterdir():
+            if path in excludes:
+                continue
+            path.unlink(missing_ok=True) if (path.is_file() or path.is_symlink()) else remove_dir(path, excludes)
+
+        if not excludes:
+            with suppress(FileNotFoundError):
+                dir_.rmdir()
+    except OSError as err:
+        raise err
+
+
+def remove_files_dirs(to_remove: dict[str, Any], target_dir: Path):
+    """Remove files/directories that are no longer required"""
+    for r_path, r_dict in to_remove.items():
+        target: Path = target_dir / r_path
+        files = r_dict["files"]
+        excludes = [target / e for e in r_dict["excludes"]]
+
+        try:
+            if target.is_file() or target.is_symlink():
+                target.unlink(missing_ok=True)
+
+            if target.is_dir() and not files or (files and files[0] == "*"):
+                remove_dir(target, excludes)
+
+            if target.is_dir() and files and files[0] != "*":
+                target_files = []
+                for f in files:
+                    target_files.append(target / f) if "*" not in f else target_files.extend(list(target.glob(f)))
+
+                for target_file in target_files:
+                    target_file.unlink(missing_ok=True)
+        except OSError as err:
+            raise OSError(f"ERROR: Couldn't delete a file or directory: {err}") from err
+
+
+def copy_files_dirs(to_copy: dict[str, Any], source_dir: Path, target_dir: Path):
+    """Copy files/directories within and to tne project"""
+    for c_path, c_dict in to_copy.items():
+        excludes = c_dict["excludes"]
+        files = c_dict["files"]
+        source: Path = source_dir / c_path
+        target: Path = target_dir / c_path
+
+        if c_path.startswith("/"):
+            source = Path(c_path)
+            try:
+                target = target_dir / source.relative_to(SZ_SYS_PATH)
+            except ValueError:
+                target = target_dir / target.name
+
+        try:
+            if source.is_file():
+                shutil.copy(
+                    source,
+                    target,
+                )
+
+            if source.is_dir() and not files or (files and files[0] == "*"):
+                shutil.copytree(source, target, ignore=shutil.ignore_patterns(*excludes), dirs_exist_ok=True)
+
+            if source.is_dir() and files and files[0] != "*":
+                target.mkdir(exist_ok=True, parents=True)
+                for source_file in [source / f for f in files]:
+                    shutil.copy(source_file, target / source_file.name)
+        except OSError as err:
+            raise OSError(f"ERROR: Couldn't copy a file or directory: {err}") from err
+
+
+def rename_files(to_rename: dict[str, dict[str, str]], target_dir: Path):
+    """Rename existing project files that had a name change"""
+
+    try:
+        for r_path, r_dict in to_rename.items():
+            current = target_dir / r_path / r_dict["from"]
+            new = target_dir / r_path / r_dict["to"]
+            with suppress(FileNotFoundError):
+                current.rename(new)
+    except OSError as err:
+        raise OSError(f"ERROR: Couldn't rename a file or directory: {err}") from err
+
+
+def setup_env(proj_path: Path):
+    """Create a new setupEnv and replace place holders with paths for the project"""
+    try:
+        shutil.copy(proj_path / "resources/templates/setupEnv", proj_path)
+        setup_path = proj_path / "setupEnv"
+
+        with open(setup_path, "r", encoding="utf-8") as in_:
+            data = in_.read()
+
+        data = data.replace("${SENZING_DIR}", str(proj_path)).replace("${SENZING_CONFIG_PATH}", str(proj_path / "etc"))
+
+        with open(setup_path, "w", encoding="utf-8") as out:
+            out.write(data)
+    except OSError as err:
+        raise OSError(f"ERROR: Couldn't create a new setupEnv file: {err}") from err
+
+
+def set_permissions(proj_path: Path, permissions: dict[str, dict[str, Any]]):
+    """
+    Reset permissions for files and dirs copied to the projector, or dirs removed and replaced
+    completely e.g., data/
+    """
+    try:
+        for p_path, p_dict in permissions.items():
+            dir_pint = p_dict["dir_pint"]
+            file_pint = p_dict["file_pint"]
+            files = p_dict["files"]
+            recursive = p_dict["recursive"]
+            target = proj_path if p_path.startswith(".") else proj_path / p_path
+            excludes = [target / e for e in p_dict["excludes"]]
+
+            if target.is_file():
+                target.chmod(file_pint)
+
+            if target.is_dir() and dir_pint != 0:
+                target.chmod(dir_pint)
+                d_chmods = (
+                    [d for d in target.glob("*") if d.is_dir() and not d.is_symlink() and d not in excludes]
+                    if not recursive
+                    else [d for d in target.rglob("*") if d.is_dir() and not d.is_symlink() and d not in excludes]
+                )
+                for dir_ in d_chmods:
+                    dir_.chmod(dir_pint)
+
+            if target.is_dir() and (files and files[0] == "*"):
+                f_chmods = (
+                    [f for f in target.glob("*") if f.is_file() and not f.is_symlink() and f not in excludes]
+                    if not recursive
+                    else [f for f in target.rglob("*") if f.is_file() and not f.is_symlink() and f not in excludes]
+                )
+                for file in f_chmods:
+                    Path(target / file).chmod(file_pint)
+
+            if target.is_dir() and files and files[0] != "*":
+                for file in files:
+                    Path(target / file).chmod(file_pint)
+    except OSError as err:
+        raise OSError(f"ERROR: Couldn't set a permission: {err}") from err
+
+
+def main() -> None:
+    """main"""
+    cli_args = parse_cli_args()
+    proj_path = Path(cli_args.project_path).resolve()
+    proj_ver, sys_ver = pre_check(proj_path, proj_path / PROJ_BUILD, SZ_SYS_PATH / SYS_BUILD, dir_listing(proj_path))
+
+    if not cli_args.force_mode:
+        print(f"\nWARNING: If you don't have a backup of the project ({proj_path}), create one before completing this!")
+        sleep(3)
+        if input(f"\nContinue updating the project from version {proj_ver} to {sys_ver}? (y/n) ") not in INPUT_CONFS:
+            sys.exit(0)
+        print("\nUpdating...")
+    else:
+        print(f"\nUpdating project from version {proj_ver} to {sys_ver}...")
+
+    try:
+        # Backup some of the V3 project files
+        if proj_ver[:1] == "3":
+            v3_backup_path = proj_path / V3_BACKUP_PATH
+            v3_backup_path.mkdir(exist_ok=True)
+            copy_files_dirs(V3_BACKUP_PROJ, proj_path, v3_backup_path)
+
+        rename_files(V3_RENAME_IN_PROJ, proj_path)
+        remove_files_dirs(V3_REMOVE_FROM_PROJ, proj_path)
+        copy_files_dirs(V3_COPY_TO_PROJ, SZ_SYS_PATH, proj_path)
+        setup_env(proj_path)
+        set_permissions(proj_path, V3_RESET_PERMISSIONS)
+    except OSError as err:
+        shutil.copytree(v3_backup_path, proj_path, dirs_exist_ok=True)
+        print(f"\n{err}")
+        print(
+            "\nIf the error is file or directory permission related, run again with a user with appropriate privileges"
+        )
+        print(
+            "\nIf the error is missing file or directory, check senzingsdk-setup, senzingsdk-tools, and senzingsdk-poc are installed"
+        )
+    else:
+        # Remove if no errors so re-running can find the file
+        proj_path.joinpath(PROJ_BUILD).unlink(missing_ok=True)
+        print(f"\nProject successfully updated. Refer to {UPGRADE_URL} for additional upgrade instructions")
+
+
+if __name__ == "__main__":
+    main()
