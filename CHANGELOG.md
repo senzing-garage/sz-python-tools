@@ -7,11 +7,29 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.19] - 2025-05-01
+
+### Added in 0.0.19
+
+- sz_update_project
+- sz_file_loader sanity checks for user supplied paths and files
+- sz_file_loader make file permissions for error, with info and shuffled files more restrictive
+- sz_file_loader new arguments to specify paths for created files
+
+### Fixed in 0.0.19
+
+- sz_command issue with a decorator on Python 3.9
+
+### Changed in 0.0.19
+
+- sz_file_loader exit earlier if unrecoverable error occurs
+- sz_file_loader improvements to use in Docker container
+
 ## [0.0.18] - 2025-04-22
 
 ### Added in 0.0.18
 
-- why_search
+- sz_command added why_search
 
 ## [0.0.17] - 2025-04-15
 

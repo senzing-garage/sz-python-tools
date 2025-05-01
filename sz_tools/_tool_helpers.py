@@ -19,9 +19,10 @@ import time
 import tty
 from contextlib import suppress
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
 from signal import SIGALRM, alarm, signal
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Tuple, TypeVar, Union
 
 from senzing import SzEngineFlags, SzError, constants
 
@@ -451,8 +452,33 @@ def get_engine_flags_as_int(flags: List[str]) -> int:
 
 
 # -------------------------------------------------------------------------
-# File helper functions
+# File/Path helper functions
 # -------------------------------------------------------------------------
+
+
+def check_path_writeable(path: Union[Path, str]):
+    """TODO"""
+    if isinstance(path, str):
+        path = Path(path)
+
+    try:
+        test_file = path / "sz_test_file"
+        test_file.touch(exist_ok=True)
+        test_file.unlink()
+    except OSError as err:
+        raise err
+
+
+def check_path_exists(path: Union[Path, str]) -> bool:
+    """TODO"""
+
+    if isinstance(path, str):
+        path = Path(path)
+
+    if not path.exists():
+        return False
+
+    return True
 
 
 def check_file_exists(file_name: Union[Path, str]) -> bool:
@@ -877,6 +903,32 @@ def human_readable_bytes(bytes_: int) -> str:
 # -------------------------------------------------------------------------
 # Input helpers
 # -------------------------------------------------------------------------
+
+
+def case_combinations(strings: Iterable[str]) -> List[str]:
+    """# TODO"""
+    combos = []
+
+    try:
+        for string in strings:
+            combos.extend(list({"".join(sc) for sc in product(*zip(string.upper(), string.lower()))}))
+    except AttributeError as err:
+        raise AttributeError(f"expected string(s): {err}") from err
+    except TypeError as err:
+        raise err
+
+    return combos
+
+
+def prompt_confirm(msg: str, confirm_values: Iterable[str] = ("y", "yes")) -> bool:
+    """# TODO"""
+
+    case_combos = case_combinations(confirm_values)
+    response = input(msg).strip()
+    if response not in case_combos:
+        return False
+
+    return True
 
 
 def get_char() -> str:
