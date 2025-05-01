@@ -6,20 +6,22 @@ import concurrent.futures
 import itertools
 import logging
 import os
-import pathlib
 import signal
 import subprocess
 import sys
 import textwrap
 import time
+from collections import namedtuple
 from contextlib import suppress
 from datetime import datetime
+from pathlib import Path
 from threading import Event
 from types import FrameType
-from typing import Any, List, TextIO, Tuple, TypeVar, Union
+from typing import Any, Iterable, List, TextIO, Tuple, TypeVar, Union
 
 from _tool_helpers import (
     check_file_exists,
+    check_path_writeable,
     get_char_with_timeout,
     get_engine_config,
     get_max_futures_workers,
@@ -34,17 +36,36 @@ from senzing import (
     SzError,
     SzProduct,
     SzRetryableError,
+    SzUnrecoverableError,
 )
 from senzing_core import SzAbstractFactoryCore
 
 try:
-    import orjson as json
-except ModuleNotFoundError:
-    import json  # type: ignore[no-redef]
+    import orjson
 
-LOG_FORMAT = "%(asctime)s - %(levelname)s:  %(message)s"
+    # def _json_dumps(object_: Any) -> str:
+    # return orjson.dumps(object_).decode("utf-8")
+
+    def _json_loads(object_: Any) -> Any:
+        return orjson.loads(object_)
+
+    JSONDecodeError = orjson.JSONDecodeError
+    # JSONEncodeError = orjson.JSONEncodeError
+
+except ImportError:
+    import json
+
+    # def _json_dumps(object_: Any) -> str:
+    #     return json.dumps(object_, ensure_ascii=False)
+
+    def _json_loads(object_: Any) -> Any:
+        return json.loads(object_)
+
+    JSONDecodeError = json.JSONDecodeError
+
+
+LOG_FORMAT = "%(asctime)s - %(levelname)s: %(message)s"
 LONG_RECORD = 300
-# Text to substitute in output depending on the mode
 MODE_TEXT = {
     "add_record": {
         "start_msg": "Starting to load with",
@@ -61,67 +82,62 @@ MODE_TEXT = {
         "stats_msg": "redos",
     },
 }
-MODULE_NAME = pathlib.Path(__file__).stem
+MODULE_NAME = Path(__file__).stem
 START_TS = str(datetime.now().strftime("%Y%m%d_%H%M%S"))
-SHUFF_NO_DEL_TAG = "_-_SzShuffNoDel_-_"
-SHUFF_TAG = "_-_SzShuff_-_"
-SHUFF_GLOB_TAG = "_-_SzShuff*"
+SHUFF_NO_DEL_TAG = "_sz_shuff_no_del_"
+SHUFF_TAG = "_sz_shuff_"
+SHUFF_GLOB_TAG = "_sz_shuff*"
 SHUFF_TIMEOUT = 30
-# TODO
-# WORK_STATS_INTERVAL = 60
 
 T = TypeVar("T")
 
 
-errors_file = f"{MODULE_NAME}_errors_{START_TS}.log"
-with_info_file = f"{MODULE_NAME}_with_info_{START_TS}.jsonl"
-# If running in a Docker container use /data/, prior file_loader uses this as volume mount for data input/output files
-if in_docker():
-    if pathlib.Path("/data").exists():
-        errors_file = f"/data/{errors_file}"
-        with_info_file = f"/data/{with_info_file}"
+class ConsoleErrorFormatter(logging.Formatter):
+    """Custom logging formatting for console output"""
+
+    def format_exception(self, exc_info):
+        """Format errors and warnings to the console prefixed with ERROR|WARNING:"""
+        return repr(super().formatException(exc_info))
+
+    def format(self, record):
+        f_record = super().format(record)
+        if record.levelname in ("ERROR", "WARNING"):
+            return f"{record.levelname}: {f_record}"
+
+        return f_record
 
 
 try:
-    logger = logging.getLogger(pathlib.Path(sys.argv[0]).stem)
-    console_handle = logging.StreamHandler(stream=sys.stdout)
-    console_handle.setLevel(logging.INFO)
-    file_handle = logging.FileHandler(errors_file, "w")
-    file_handle.setLevel(logging.ERROR)
+    logger = logging.getLogger(Path(sys.argv[0]).stem)
     logger.setLevel(logging.INFO)
     logger.propagate = False
-    console_handle.setFormatter(logging.Formatter(""))
-    file_handle.setFormatter(logging.Formatter(LOG_FORMAT))
+    console_handle = logging.StreamHandler(stream=sys.stdout)
+    console_handle.setLevel(logging.INFO)
+    console_handle.setFormatter(ConsoleErrorFormatter(""))
     logger.addHandler(console_handle)
-    logger.addHandler(file_handle)
-except IOError as err_outer:
-    print(err_outer)
+except OSError as err_outer:
+    print(f"\nERROR: Couldn't create logger: {err_outer}")
     sys.exit(1)
 
 shutdown = Event()
 
 
-def files_clean_up() -> None:
+def files_clean_up(errors_file: Path, with_info_file: Path) -> None:
     """TODO"""
-    if check_file_exists(errors_file) and pathlib.Path(errors_file).stat().st_size == 0:
-        pathlib.Path(errors_file).unlink()
+    if check_file_exists(errors_file) and errors_file.stat().st_size == 0:
+        errors_file.unlink()
 
-    if check_file_exists(with_info_file) and pathlib.Path(with_info_file).stat().st_size == 0:
-        pathlib.Path(with_info_file).unlink()
-
-
-atexit.register(files_clean_up)
+    if check_file_exists(with_info_file) and with_info_file.stat().st_size == 0:
+        with_info_file.unlink()
 
 
-def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
-    """# TODO"""
-    # TODO - Change github link
+def parse_cli_args() -> argparse.Namespace:
+    """TODO"""
     arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
-        description="Utility to load Senzing JSON records and process redo records",
+        description="Utility to load Senzing mapped JSON records and process redo records",
         formatter_class=argparse.RawTextHelpFormatter,
     )
-
     arg_parser.add_argument(
         "-f",
         "--file",
@@ -130,7 +146,7 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
         nargs="*",
         help=textwrap.dedent(
             """\
-            Path and name of file to load.
+            Path and name of file to load
 
             Default: None, skip loading but still process redo records
 
@@ -139,10 +155,11 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     )
     arg_parser.add_argument(
         "-c",
-        "--iniFile",
+        "--config-file",
+        dest="config_file",
         help=textwrap.dedent(
             """\
-            Optional path and file name of sz_engine_config.ini to use.
+            Optional path and file name of sz_engine_config.ini to use
 
             Default: None
             Env Var: SENZING_ENGINE_CONFIGURATION_JSON
@@ -152,12 +169,13 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     )
     arg_parser.add_argument(
         "-w",
-        "--withinfo",
+        "--with-info",
         action="store_true",
         default=False,
+        dest="with_info",
         help=textwrap.dedent(
             """\
-            Produce with info messages and write to a file.
+            Produce with info messages and write to a file
 
             Default: False
 
@@ -166,12 +184,13 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     )
     arg_parser.add_argument(
         "-t",
-        "--debugTrace",
+        "--debug-trace",
         action="store_true",
         default=False,
+        dest="debug_trace",
         help=textwrap.dedent(
             """\
-            Output debug trace information.
+            Output debug trace information
 
             Default: False
 
@@ -180,13 +199,14 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     )
     arg_parser.add_argument(
         "-nt",
-        "--numThreads",
+        "--num-threads",
         default=0,
+        dest="num_threads",
         metavar="num_threads",
         type=int,
         help=textwrap.dedent(
             """\
-            Total number of worker threads performing load.
+            Total number of worker threads performing load
 
             Default: Calculated
 
@@ -195,13 +215,14 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     )
     arg_parser.add_argument(
         "-n",
-        "--noRedo",
+        "--no-redo",
         action="store_true",
         default=False,
+        dest="no_redo",
         help=textwrap.dedent(
             f"""\
             Disable redo processing.
-            Another instance of {MODULE_NAME} can be run in redo only mode or redo can be processed after ingestion.
+            Another instance of {MODULE_NAME} can be run in redo only mode or redo can be processed after ingestion
 
             Default: False
 
@@ -209,95 +230,142 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
         ),
     )
     arg_parser.add_argument(
-        "-sfi",
-        "--shuffFilesIgnore",
-        action="store_true",
-        default=False,
+        "-wp",
+        "--withinfo-path",
+        default="",
+        dest="withinfo_path",
+        metavar="path",
         help=textwrap.dedent(
-            """\
-            Skip checking for previously shuffled files to use and prompting to use them.
+            f"""\
+            Alternative path for the with info file
+
+            Default: {Path.cwd()}
 
             """
         ),
     )
     arg_parser.add_argument(
-        "-sfr",
-        "--shuffFileRedirect",
-        default=None,
+        "-ep",
+        "--errors-path",
+        default="",
+        dest="errors_path",
         metavar="path",
-        nargs=1,
         help=textwrap.dedent(
-            """\
-            Alternative path to output shuffled file to, useful for performance and device space.
+            f"""\
+            Alternative path for the errors file
 
-            Default: Same path as original file.
-            
+            Default: {Path.cwd()}
+
             """
         ),
     )
-    # Both -ns and -snd shouldn't be used together
+    arg_parser.add_argument(
+        "-sp",
+        "--shuffle-path",
+        default="",
+        dest="shuffle_path",
+        metavar="path",
+        help=textwrap.dedent(
+            """\
+            Alternative path for the shuffled file
+
+            Default: Same path as file to load
+
+            """
+        ),
+    )
+    arg_parser.add_argument(
+        "-rp",
+        "--redirect-path",
+        default="",
+        dest="redirect_path",
+        metavar="path",
+        help=textwrap.dedent(
+            f"""\
+            Alternative path for the errors, shuffle and with info file. Overrides -ep, -wp and -sp
+
+            Default: {Path.cwd()}
+
+            """
+        ),
+    )
+    arg_parser.add_argument(
+        "-sfi",
+        "--shuff-files-ignore",
+        action="store_true",
+        default=False,
+        dest="shuff_files_ignore",
+        help=textwrap.dedent(
+            """\
+            Skip checking for previously shuffled files and prompting to use them
+
+            """
+        ),
+    )
     no_shuff_no_del = arg_parser.add_mutually_exclusive_group()
     no_shuff_no_del.add_argument(
         "-ns",
-        "--noShuffle",
+        "--no-shuffle",
         action="store_true",
         default=False,
+        dest="no_shuffle",
         help=textwrap.dedent(
             """\
-            Don\'t shuffle input file(s).
-            Shuffling improves performance and shouldn\'t be disabled unless input file(s) are pre-shuffled.
+            Don\'t shuffle input file(s)
+            Shuffling improves performance and shouldn\'t be disabled unless input file(s) are pre-shuffled
 
             """
         ),
     )
     no_shuff_no_del.add_argument(
         "-snd",
-        "--shuffleNoDelete",
+        "--shuffle-no-delete",
         action="store_true",
         default=False,
+        dest="shuffle_no_delete",
         help=textwrap.dedent(
             f"""\
             Don\'t delete shuffled file(s) after {MODULE_NAME} shuffles them.
-            Adds {SHUFF_NO_DEL_TAG} and timestamp to the shuffled file. {MODULE_NAME} can detect and reuse shuffled files.
+            Adds {SHUFF_NO_DEL_TAG} and timestamp to the shuffled file. {MODULE_NAME} can detect and reuse shuffled files
 
             """
         ),
     )
     arg_parser.add_argument(
         "-l",
-        "--loggingOutput",
+        "--logging-output",
         action="store_true",
         default=False,
+        dest="logging_output",
         help=textwrap.dedent(
             """\
-            Use logging style output to stdout
+            Use logging style output
 
             """
         ),
     )
-    # Args for testing
-    # Disable DS Perf
+    # For testing
     arg_parser.add_argument(
         "-sdsp",
-        "--skipDSPerf",
+        "--skip-ds-perf",
         action="store_true",
         default=False,
+        dest="skip_ds_perf",
         help=argparse.SUPPRESS,
     )
-    # Frequency to output processing and redo rate
     arg_parser.add_argument(
-        "-rof",
-        "--recordsPerSecOutputFrequency",
+        "-rf",
+        "--records-frequency",
         default=1000,
+        dest="records_frequency",
         type=int,
         help=argparse.SUPPRESS,
     )
-
-    # Frequency to output workload stats in seconds
     arg_parser.add_argument(
-        "-sof",
-        "--statsOutputFrequency",
+        "-sf",
+        "--stats-frequency",
         default=120,
+        dest="stats_frequency",
         type=int,
         help=argparse.SUPPRESS,
     )
@@ -305,25 +373,26 @@ def parse_cli_args() -> dict[str, Union[bool, int, list[str], None, str]]:
     return arg_parser.parse_args()
 
 
-def check_ingest_file(in_file: pathlib.Path) -> bool:
-    """# TODO"""
-    json_errors = 0
-    json_good = 0
-    lines = []
-    try:
-        with open(in_file, "r", encoding="utf-8-sig") as file_:
-            for _ in range(1, 101):
-                read_line = file_.readline().strip()
-                if read_line:
-                    lines.append(read_line)
-            # Test if JSON
+def check_ingest_files(files: list[str]):
+    """TODO"""
+    for file in files:
+        json_errors = 0
+        json_good = 0
+        lines = []
+        try:
+            with open(file, "r", encoding="utf-8-sig") as ingest_file:
+                for _ in range(1, 101):
+                    read_line = ingest_file.readline().strip()
+                    if read_line:
+                        lines.append(read_line)
+
             for line in lines:
                 try:
-                    _ = json.loads(line)
+                    _ = _json_loads(line)
                     json_good += 1
-                except json.JSONDecodeError:
+                except JSONDecodeError:
                     json_errors += 1
-                    # TODO Work in progress...
+                    # TODO
                     # try:
                     #     csv_sample = file_.read(5000)
                     #     csv_header = csv.Sniffer().has_header(csv_sample)
@@ -336,77 +405,132 @@ def check_ingest_file(in_file: pathlib.Path) -> bool:
                     #         print(row)
                     # except Exception as err:
                     #     print(f"{err = }")
+        except OSError as err:
+            logger.info("")
+            logger.error(err)
+            sys.exit(1)
 
-    except IOError as err:
-        logger.error("Problem reading file %s: ", err)
-        return False
+        if (json_errors > json_good) and json_good == 0:
+            logger.info("")
+            logger.error("File to ingest doesn't appear to be JSON. CSV files are not currently supported")
+            sys.exit(1)
 
-    if (json_errors > json_good) and json_good == 0:
-        logger.error("File to ingest doesn't appear to be JSON. CSV files are not currently supported")
+
+def docker_redirects(
+    files_list: list[str],
+    redirects,
+    # redirect_path: str,
+    # errors_path: str,
+    # withinfo_path: str,
+    # shuffle_path: str,
+) -> tuple[Any, Any, Any]:
+    """TODO"""
+    errors_path = redirects.errors_path
+    withinfo_path = redirects.withinfo_path
+    shuffle_path = redirects.shuffle_path
+
+    try:
+        check_path_writeable(Path.cwd())
+    except OSError:
+        logger.info("")
+        logger.info("Docker Checks")
+        logger.info("-------------")
+        logger.info("")
+        logger.info("Detected running in Docker, CWD (%s) isn't writeable, checking redirect paths...", Path.cwd())
+
+        # No file to get a path from and no redirects, if there are errors or with info for redo can't write
+        if not files_list and not any(redirects):
+            logger.info("No file to ingest, can't try and use its path to write error, shuffled, or with info files to")
+            logger.info(
+                "Specify -rp (or -ep, -wp, -sp) with a mount path to write error, shuffled, or with info files to, e.g., "
+            )
+            logger.info("")
+            logger.info(
+                "  docker run -u $UID -v ${PWD}:/my_data -e SENZING_ENGINE_CONFIGURATION_JSON senzing/sz_file_loader -f /my_data/customers.json -rp /my_data"
+            )
+            sys.exit(1)
+
+        # Got overriding redirect path for all output files
+        if redirects.redirect_path:
+            logger.info("-rp specified, error, shuffled, and with info files will be written to the path specified")
+
+        # No file to get a path from and no redirect, did get either -ep or -wp
+        if not files_list and not redirects.redirect_path and any((errors_path, withinfo_path, shuffle_path)):
+            logger.info("Setting missing error or with info output path to specified -ep or -wp")
+            if not errors_path:
+                errors_path = withinfo_path or shuffle_path
+            if not withinfo_path:
+                withinfo_path = errors_path or shuffle_path
+
+        # Have a file but not another redirect
+        if files_list and not any(redirects):
+            file_parent = str(Path(files_list[0]).parent.resolve())
+            logger.info(
+                "Setting missing error, with info, shuffled files output paths to ingest file path, any of -ep, -wp, -sp, -rp not specified"
+            )
+            if not errors_path:
+                errors_path = file_parent
+            if not withinfo_path:
+                withinfo_path = file_parent
+            if not shuffle_path:
+                shuffle_path = file_parent
+
+        logger.info("")
+
+    return (errors_path, withinfo_path, shuffle_path)
+
+
+def check_redirect_paths(paths: Iterable[str]):
+    """TODO"""
+    try:
+        for p in paths:
+            if not p:
+                continue
+            check_path_writeable(p)
+    except OSError as err:
+        logger.info("")
+        logger.error("Unable to write test file to redirect path: %s", err)
         sys.exit(1)
-
-    return True
 
 
 def shuffle_ingest_file(
-    cli_args: argparse.Namespace,
-    ingest_file: pathlib.Path,
-) -> pathlib.Path:
+    cli_args: argparse.Namespace, ingest_file: Path, shuffle_path: Union[Path, str]
+) -> Union[None, Path]:
     """Shuffle a source file to reduce contention and improve performance"""
-    ingest_file = ingest_file.resolve()
-    ingest_file_str = str(ingest_file)
-
     # If source file was previously shuffled don't do it again
-    if SHUFF_NO_DEL_TAG in ingest_file_str or SHUFF_TAG in ingest_file_str:
+    if any(match in str(ingest_file) for match in [SHUFF_NO_DEL_TAG, SHUFF_TAG]):
         logger.info("")
-        logger.info("Skipping shuffling, source file previously shuffled, file name contains '_-_SzShuff_'")
+        logger.info("Skipping shuffling, source file previously shuffled, file name contains %s", SHUFF_GLOB_TAG)
         return ingest_file
 
-    # Modify ingest file name to indicate it is a shuffled version of the original
-    # Add timestamp to shuffled files that shouldn't be deleted (-snd / --shuffleNoDelete)
-    shuff_file_suffix = (
-        SHUFF_NO_DEL_TAG + datetime.now().strftime("%Y%m%d_%H-%M-%S") if cli_args.shuffleNoDelete else SHUFF_TAG
-    )
-    shuff_file = pathlib.Path(f"{ingest_file}{shuff_file_suffix}")
-    shuff_file_path = shuff_file.parent
-    shuff_file_name = shuff_file.name
+    # Add timestamp to shuffled file that shouldn't be deleted
+    suffix = SHUFF_NO_DEL_TAG + datetime.now().strftime("%Y%m%d_%H-%M-%S") if cli_args.shuffle_no_delete else SHUFF_TAG
+    shuff_file = Path(f"{ingest_file}{suffix}")
     shuff_file_glob = f"{ingest_file.name}{SHUFF_GLOB_TAG}"
 
-    # If redirecting the shuffled file to a new path (-sfr / --shuffFileRedirect)
-    if cli_args.shuffFileRedirect:
-        redirect_path = pathlib.Path(cli_args.shuffFileRedirect[0]).resolve()
-        # Test the path to redirect to
-        try:
-            test_file = "SzTestTouch"
-            test_touch = redirect_path.joinpath(test_file)
-            test_touch.touch()
-            test_touch.unlink()
-        except IOError as err:
-            logger.error("Error writing to the path for the shuffled source file redirection")
-            logger.error(str(err).replace(test_file, ""))
-            sys.exit(1)
-
-        shuff_file = redirect_path / shuff_file_name
+    # Redirecting the shuffled file to a new path
+    if shuffle_path:
+        if isinstance(shuffle_path, str):
+            shuffle_path = Path(shuffle_path)
+        shuff_file = shuffle_path / shuff_file.name
 
     # Look for previously shuffled files in original path
-    if not cli_args.shuffFilesIgnore:
-        prior_shuf_files = [p.resolve() for p in shuff_file_path.glob(shuff_file_glob)]
+    if not cli_args.shuff_files_ignore:
+        prior_shuf_files = [p.resolve() for p in ingest_file.parent.glob(shuff_file_glob)]
         # If redirecting the shuffle file look for previously shuffled files there too
-        if cli_args.shuffFileRedirect:
-            prior_shuf_files.extend([p.resolve() for p in redirect_path.glob(shuff_file_glob)])
+        if shuffle_path:
+            prior_shuf_files.extend([p.resolve() for p in shuffle_path.glob(shuff_file_glob)])
 
         if prior_shuf_files:
             logger.info("")
             logger.info("Found previously shuffled files matching %s: ", ingest_file.name)
-
             prior_shuf_files.sort()
             for psf in prior_shuf_files:
-                file_size = pathlib.Path(psf).stat().st_size
-                logger.info("  - %s    %s", psf, human_readable_bytes(file_size))
+                logger.info("  - %s    %s", psf, human_readable_bytes(Path(psf).stat().st_size))
 
             logger.info("")
             logger.info("The files above may not contain the same data as the input file!")
-            logger.info("If quitting to use an above file ensure the previously shuffled file is what you expect!")
+            logger.info("If quitting to use an above file, ensure the previously shuffled file is what you expect!")
             logger.info("")
             logger.info(
                 "To quit and use a previously shuffled file hit <Enter>. To continue, wait %s seconds or type c",
@@ -429,20 +553,24 @@ def shuffle_ingest_file(
     logger.info("Shuffling to: %s", shuff_file)
     shuf_cmd = "gshuf" if sys.platform == "darwin" else "shuf"
     cmd = f"{shuf_cmd} {ingest_file} > {shuff_file}"
-    # TODO Add back if/when supporting CSV
+    # TODO
     # if sourceDict["FILE_FORMAT"] not in ("JSON", "UMF"):
     #     cmd = f"head -n1 {file_path} > {shuf_file_path} && tail -n+2 {file_path} | shuf >> {shuf_file_path}"
 
     try:
         _ = subprocess.run([cmd], capture_output=True, check=True, shell=True)
     except subprocess.CalledProcessError as err:
-        logger.warning("")
+        logger.info("")
         logger.warning("Shuffling source file failed:")
-        logger.warning("  %s", err)
-        logger.warning("Continuing without shuffling...")
-        logger.warning("If performance appears low, fix the error or shuffle the file manually")
+        logger.warning("  Command: %s", cmd)
+        logger.warning("  Error: %s", err.__dict__["stderr"].decode())
+        logger.warning(
+            "Continuing without shuffling. If performance appears low, fix the error or shuffle the file manually and restart the load"
+        )
         time.sleep(5)
-        return ingest_file
+        return None
+
+    shuff_file.chmod(ingest_file.stat().st_mode)
 
     return shuff_file
 
@@ -450,28 +578,26 @@ def shuffle_ingest_file(
 def get_sz_engines(
     sz_factory: SzAbstractFactoryCore,
 ) -> Tuple[SzEngine, SzDiagnostic, SzProduct, SzConfigManager]:
-    """# TODO"""
+    """TODO"""
     try:
         sz_engine = sz_factory.create_engine()
         sz_diag = sz_factory.create_diagnostic()
         sz_product = sz_factory.create_product()
         sz_configmgr = sz_factory.create_configmanager()
     except SzError as err:
-        logger.error(err)
-        sys.exit(1)
+        raise err
 
     return (sz_engine, sz_diag, sz_product, sz_configmgr)
 
 
 def prime_sz_engine(sz_engine: SzEngine) -> None:
-    """#TODO"""
+    """TODO"""
     logger.info("")
     logger.info("Priming Senzing engine...")
     try:
         sz_engine.prime_engine()
     except SzError as err:
-        logger.error(err)
-        sys.exit(1)
+        raise err
 
 
 def env_convert_boolean(env_var: str, cli_arg: bool) -> bool:
@@ -496,14 +622,13 @@ def startup_info(
 ) -> None:
     """Fetch and display information at startup."""
     try:
-        lic_info = json.loads(product.get_license())
-        ver_info = json.loads(product.get_version())
-        config_list = json.loads(configmgr.get_configs())
+        lic_info = _json_loads(product.get_license())
+        ver_info = _json_loads(product.get_version())
+        config_list = _json_loads(configmgr.get_configs())
         active_cfg_id = engine.get_active_config_id()
-        ds_info = json.loads(diag.get_datastore_info())
+        ds_info = _json_loads(diag.get_datastore_info())
     except SzError as err:
-        logger.error("Failed to get startup information: %s", err)
-        sys.exit(1)
+        raise err
 
     # Get details for the currently active config ID
     active_cfg_details = [details for details in config_list["CONFIGS"] if details["CONFIG_ID"] == active_cfg_id]
@@ -553,10 +678,10 @@ def startup_info(
 
         logger.info("")
         logger.info("Datastore Performance")
-        logger.info("--------------------")
+        logger.info("---------------------")
         logger.info("")
 
-        ds_perf = json.loads(diag.check_datastore_performance(3))
+        ds_perf = _json_loads(diag.check_datastore_performance(3))
         num_recs_inserted = ds_perf.get("numRecordsInserted", None)
         if num_recs_inserted:
             insert_time = ds_perf["insertTime"]
@@ -588,7 +713,7 @@ def add_record(engine: SzEngine, rec_to_add: str, with_info: bool) -> Union[None
     if not rec_to_add:
         return None
 
-    record_dict = json.loads(rec_to_add)
+    record_dict = _json_loads(rec_to_add)
     data_source = record_dict.get("DATA_SOURCE", "")
     record_id = record_dict.get("RECORD_ID", "")
 
@@ -670,7 +795,7 @@ def long_running_check(
             duration = time_now - payload[1]
             if duration > LONG_RECORD:
                 num_stuck += 1
-                stuck_record = json.loads(payload[0])
+                stuck_record = _json_loads(payload[0])
                 logger.warning(
                     "Long running record (%s): %s - %s",
                     f"{duration / 60:.3g}",
@@ -693,11 +818,13 @@ def signal_int(sig_num: int, stack_frame: FrameType) -> None:  # pylint: disable
 
 def load_and_redo(
     cli_args: argparse.Namespace,
+    errors_file: Path,
+    with_info_file: Path,
     sz_engine: SzEngine,
     with_info_out: TextIO,
     file_to_process: Union[None, TextIO] = None,
-    ingest_file: Union[pathlib.Path, None] = None,
-    ingest_file_shuff: Union[pathlib.Path, None] = None,
+    ingest_file: Union[Path, None] = None,
+    ingest_file_shuff: Union[Path, None] = None,
 ) -> dict[str, Any]:
     """Load records and process redo records after loading is complete"""
 
@@ -727,16 +854,16 @@ def load_and_redo(
     load_errors = 0
     load_success = 0
     load_time = 0.0
-    no_redo = cli_args.noRedo
-    num_workers = cli_args.numThreads
+    no_redo = cli_args.no_redo
+    num_workers = cli_args.num_threads
     redo_errors = 0
     redo_success = 0
     redo_time = 0.0
-    with_info = cli_args.withinfo
-    no_shuffle = cli_args.noShuffle
-    recs_per_sec_output_frequency = cli_args.recordsPerSecOutputFrequency
-    shuffle_no_delete = cli_args.shuffleNoDelete
-    stats_output_frequency = cli_args.statsOutputFrequency
+    with_info = cli_args.with_info
+    no_shuffle = cli_args.no_shuffle
+    recs_per_sec_output_frequency = cli_args.records_frequency
+    shuffle_no_delete = cli_args.shuffle_no_delete
+    stats_output_frequency = cli_args.stats_frequency
 
     # Test the max number of workers ThreadPoolExecutor allocates to use in sizing actual workers to request
     max_workers = num_workers if num_workers else get_max_futures_workers()
@@ -787,7 +914,7 @@ def load_and_redo(
                     try:
                         result = f.result()
                     # TODO - Test on OS & SG load with redo when engine fixed for process_redo_record()
-                    # TODO         Consider if need to collect and retry later
+                    # TODO - Collect and retry later?
                     # # If caught a retryable error resubmit the record to try again
                     # except SzRetryableError as err:
                     #     logger.info("")
@@ -801,25 +928,19 @@ def load_and_redo(
                     #     more_recs = add_new_future(futures[f][0].strip())
                     except (
                         SzError,
-                        json.JSONDecodeError,
+                        JSONDecodeError,
                     ) as err:
                         error_recs += 1
                         logger.info("")
                         logger.error(
-                            "%s%s - Operation: %s - Record: %s",
-                            "" if console_handle.formatter._fmt == LOG_FORMAT else "ERROR: ",
+                            "%s - Operation: %s - Record: %s",
                             err,
                             MODE_TEXT[mode.__name__]["except_msg"],
                             futures[f][0].strip(),
                         )
                         logger.info("")
 
-                        # Shutdown if Sz error can't be determined or is fatal
-                        if err.__class__.__name__ in (
-                            "SzError",
-                            "SzUnhandledError",
-                            "SzUnrecoverableError",
-                        ):
+                        if SzUnrecoverableError in type(err).mro():
                             shutdown.set()
                     else:
                         if add_future and not shutdown.is_set():
@@ -846,20 +967,8 @@ def load_and_redo(
                         del futures[f]
 
                 # Early errors check to catch mapping errors, missing dsrc_code, etc
-                if error_recs == max_workers:
-                    logger.info("")
-                    logger.error(
-                        "All initial %s records failed! Stopping processing, please review the errors file.",
-                        f"{max_workers:,}",
-                    )
-                    logger.info("")
+                if error_recs == max_workers and success_recs == 0:
                     shutdown.set()
-                # if success_recs <= 100 and error_recs > 50:
-                #     logger.critical(
-                #         f"Shutting down - {success_recs = } - {error_recs = }"
-                #     )
-                #     print(f"{len(futures) = }")
-                #     do_shutdown = True
 
                 # Wait until futures are complete if finishing up
                 if (shutdown.is_set() or not more_recs) and len(futures) == 0:
@@ -874,7 +983,6 @@ def load_and_redo(
                     long_check_time = time_now
                     long_running_check(futures, time_now, max_workers)
 
-        # Get workload stats at the end
         if not shutdown.is_set():
             workload_stats(sz_engine)
 
@@ -898,9 +1006,9 @@ def load_and_redo(
     results = {
         "source_file": str(ingest_file) if ingest_file else None,
         "persisted_shuff_file": (ingest_file_shuff if shuffle_no_delete else None),
-        "did_shuff": True if not no_shuffle and ingest_file_shuff else False,
-        "errors_file": (str(pathlib.Path(errors_file).resolve()) if (load_errors + error_recs) > 0 else None),
-        "with_info": (str(pathlib.Path(with_info_file).resolve()) if with_info else None),
+        "did_shuff": bool(not no_shuffle and ingest_file_shuff),
+        "errors_file": (str(errors_file.resolve()) if (load_errors + error_recs) > 0 else None),
+        "with_info": (str(with_info_file.resolve()) if with_info else None),
         "elapsed_time_total": load_time + redo_time,
         "blank_lines": load_blank_lines,
         "load_stats": {
@@ -919,10 +1027,7 @@ def load_and_redo(
 
 
 def per_result(cli_args: argparse.Namespace, result: dict[str, Any]) -> None:
-    """# TODO"""
-    no_redo = cli_args.noRedo
-    shuffle_no_delete = cli_args.shuffleNoDelete
-
+    """TODO"""
     logger.info("")
     logger.info("Results")
     logger.info("-------")
@@ -930,7 +1035,7 @@ def per_result(cli_args: argparse.Namespace, result: dict[str, Any]) -> None:
 
     if result["source_file"]:
         logger.info("Source file:                %s", result["source_file"])
-        if shuffle_no_delete and result["persisted_shuff_file"]:
+        if cli_args.shuffle_no_delete and result["persisted_shuff_file"]:
             logger.info("Persisted shuffled file:    %s", result["persisted_shuff_file"])
         else:
             did_shuf = "Yes" if result["did_shuff"] else "No"
@@ -952,7 +1057,7 @@ def per_result(cli_args: argparse.Namespace, result: dict[str, Any]) -> None:
         logger.info("Loading elapsed time (m):   %s", f"{result['load_stats']['elapsed_time']:,.1f}")
 
     logger.info("")
-    if not no_redo:
+    if not cli_args.no_redo:
         logger.info("Successful redo records:    %s", f"{result['redo_stats']['success_recs']:,}")
         logger.info("Error redo records:         %s", f"{result['redo_stats']['error_recs']:,}")
         logger.info("Redo elapsed time (m):      %s", f"{result['redo_stats']['elapsed_time']:,.1f}")
@@ -960,7 +1065,7 @@ def per_result(cli_args: argparse.Namespace, result: dict[str, Any]) -> None:
         logger.info("Redo:                       %s", "Not requested")
     logger.info("")
 
-    if result["source_file"] and not no_redo:
+    if result["source_file"] and not cli_args.no_redo:
         logger.info(
             "Total elapsed time (m):     %s",
             f"{result['load_stats']['elapsed_time'] + result['redo_stats']['elapsed_time']:,.1f}",
@@ -972,10 +1077,7 @@ def summary_results(
     cli_args: argparse.Namespace,
     overall_results: dict[str, dict[str, Any]],
 ) -> None:
-    """# TODO"""
-    no_redo = cli_args.noRedo
-    shuffle_no_delete = cli_args.shuffleNoDelete
-
+    """TODO"""
     elapsed_time_total = 0
     load_blank_lines_total = 0
     load_error_total = 0
@@ -1001,7 +1103,7 @@ def summary_results(
     logger.info("")
     logger.info("Files processed:  %s", len(overall_results))
     logger.info("Empty lines:      %s", load_blank_lines_total)
-    if shuffle_no_delete:
+    if cli_args.shuffle_no_delete:
         logger.info(
             "Files shuffled:   %s",
             "Yes" if overall_results["1"]["did_shuff"] else "No",
@@ -1020,7 +1122,7 @@ def summary_results(
     logger.info("Load time (s):    %s", load_time_total)
     logger.info("")
 
-    if not no_redo:
+    if not cli_args.no_redo:
         logger.info("Redo records:     %s", redo_success_total)
         logger.info("Error records:    %s", redo_error_total)
         logger.info("Redo time (s):    %s", redo_time_total)
@@ -1031,101 +1133,130 @@ def summary_results(
     logger.info("")
 
 
-def main() -> None:
-    """# TODO"""
-
+def main():
+    """main"""
     signal.signal(signal.SIGINT, signal_int)
 
-    ingest_file_shuff = None
-    overall_results: dict[str, dict[str, Any]] = {}
-
     cli_args = parse_cli_args()
-
-    # TODO
-    for ingest_file in cli_args.file:
-        try:
-            with open(ingest_file, "r", encoding="utf-8") as _:
-                pass
-        except OSError as err:
-            logger.error("")
-            logger.error(err)
-            sys.exit(1)
-
-    if not cli_args.file and cli_args.noRedo:
-        logger.error("\nNo input file and redo processing disabled, nothing to do!")
+    if not cli_args.file and cli_args.no_redo:
+        logger.info("")
+        logger.error("No input file and redo processing disabled, nothing to do!")
         sys.exit(1)
 
-    if cli_args.loggingOutput:
-        console_handle.setFormatter(logging.Formatter(LOG_FORMAT))
+    errors_file = Path(f"{MODULE_NAME}_errors_{START_TS}.log")
+    errors_path = cli_args.errors_path
+    files_list = cli_args.file
+    overall_results: dict[str, dict[str, Any]] = {}
+    redirect_path = cli_args.redirect_path
+    shuffle_path = cli_args.shuffle_path
+    with_info_file = Path(f"{MODULE_NAME}_with_info_{START_TS}.jsonl")
+    withinfo_path = cli_args.withinfo_path
+    Redirects = namedtuple("Redirects", "errors_path redirect_path withinfo_path shuffle_path")
+    redirects = Redirects(errors_path, redirect_path, withinfo_path, shuffle_path)
 
-    # Check an engine configuration can be located
-    engine_config = get_engine_config(cli_args.iniFile)
+    if in_docker():
+        errors_path, withinfo_path, shuffle_path = docker_redirects(
+            files_list,
+            redirects,
+        )
 
+    if redirect_path:
+        errors_file = Path(redirect_path) / errors_file.name
+        with_info_file = Path(redirect_path) / with_info_file.name
+        shuffle_path = Path(shuffle_path) if shuffle_path else shuffle_path
+    else:
+        if errors_path:
+            errors_file = Path(errors_path) / errors_file
+        if withinfo_path:
+            with_info_file = Path(withinfo_path) / with_info_file
+
+    check_ingest_files(files_list)
+    check_redirect_paths((redirects))
+
+    atexit.register(files_clean_up, errors_file, with_info_file)
+
+    # Have errors file if redirected, add file handler to logger and chmod
     try:
-        sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config, verbose_logging=cli_args.debugTrace)
+        if cli_args.logging_output:
+            console_handle.setFormatter(logging.Formatter(LOG_FORMAT))
+        file_handle = logging.FileHandler(errors_file, "w")
+        file_handle.setLevel(logging.ERROR)
+        file_handle.setFormatter(logging.Formatter(LOG_FORMAT))
+        logger.addHandler(file_handle)
+        errors_file.chmod(0o660)
+    except OSError as err:
+        print(f"\nERROR: Couldn't create logger file: {err}")
+        sys.exit(1)
+
+    # Create engines and display startup information
+    try:
+        engine_config = get_engine_config(cli_args.config_file)
+        sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config, verbose_logging=cli_args.debug_trace)
+        sz_engine, sz_diag, sz_product, sz_configmgr = get_sz_engines(sz_factory)
+        startup_info(sz_engine, sz_diag, sz_configmgr, sz_product, cli_args.skip_ds_perf)
+        prime_sz_engine(sz_engine)
     except SzError as err:
         logger.error(err)
         sys.exit(1)
 
-    sz_engine, sz_diag, sz_product, sz_configmgr = get_sz_engines(sz_factory)
-
-    startup_info(sz_engine, sz_diag, sz_configmgr, sz_product, cli_args.skipDSPerf)
-    prime_sz_engine(sz_engine)
-
+    # Start loading any file(s) specified
     with open(with_info_file, "w", encoding="utf-8") as with_info_out:
-        # Process file(s) if specified
-        if cli_args.file:
-            for idx, ingest_file in enumerate(cli_args.file, start=1):
-                ingest_file = pathlib.Path(ingest_file)
-                ingest_file_shuff = None
-                ingest_file_size = ingest_file.stat().st_size
+        with_info_file.chmod(0o660)
 
-                if idx > 1:
-                    logger.info("")
-                    logger.info("")
+        for idx, ingest_file in enumerate(files_list, start=1):
+            ingest_file = Path(ingest_file).resolve()
+            ingest_file_shuff = None
+
+            if idx > 1:
                 logger.info("")
-                logger.info("-" * 100)
-                logger.info("Processing: %s", ingest_file)
+            logger.info("")
+            logger.info("-" * 100)
+            logger.info("Processing: %s", ingest_file)
 
-                check_ingest_file(ingest_file)
+            if not cli_args.no_shuffle:
+                if ingest_file.stat().st_size > 50_000:
+                    ingest_file_shuff = shuffle_ingest_file(cli_args, ingest_file, shuffle_path)
+                else:
+                    logger.info("")
+                    logger.info("Not shuffling the file, small file size")
 
-                if not cli_args.noShuffle:
-                    if ingest_file_size > 50_000:
-                        ingest_file_shuff = shuffle_ingest_file(cli_args, ingest_file)
-                    else:
-                        logger.info("")
-                        logger.info("Not shuffling the file, small file size")
+            ingest_or_shuff_file = ingest_file_shuff if ingest_file_shuff else ingest_file
 
-                ingest_or_shuff_file = ingest_file_shuff if ingest_file_shuff else ingest_file
+            with open(ingest_or_shuff_file, "r", encoding="utf-8-sig") as file_to_process:
+                results = load_and_redo(
+                    cli_args,
+                    errors_file,
+                    with_info_file,
+                    sz_engine,
+                    with_info_out,
+                    file_to_process,
+                    ingest_file,
+                    ingest_file_shuff,
+                )
 
-                with open(ingest_or_shuff_file, "r", encoding="utf-8-sig") as file_to_process:
-                    results = load_and_redo(
-                        cli_args,
-                        sz_engine,
-                        with_info_out,
-                        file_to_process,
-                        ingest_file,
-                        ingest_file_shuff,
-                    )
+            per_result(cli_args, results)
+            overall_results[str(idx)] = results
 
-                per_result(cli_args, results)
-                overall_results[str(idx)] = results
+            if shutdown.is_set():
+                print("\nERROR: An error occurred that caused processing to stop, please check the error log file.")
+                break
 
-                # If shutdown is set stop processing further files
-                if shutdown.is_set():
-                    break
+            # Remove shuffled file if ingest file was shuffled and shuffle wasn't disabled
+            if (
+                ingest_file_shuff
+                and ingest_file != ingest_file_shuff
+                and not cli_args.shuffle_no_delete
+                and not cli_args.no_shuffle
+            ):
+                with suppress(OSError):
+                    Path.unlink(ingest_file_shuff)
 
-            # Remove shuffled file if ingest file was shuffled, don't want to keep it  and shuffle wasn't disabled
-            if ingest_file_shuff and not cli_args.shuffleNoDelete and not cli_args.noShuffle:
-                with suppress(IOError):
-                    pathlib.Path.unlink(ingest_file_shuff)
-        # Redo only
-        else:
-            results = load_and_redo(cli_args, sz_engine, with_info_out)
+        # If no files were specified perform redo
+        if not files_list and not cli_args.no_redo:
+            results = load_and_redo(cli_args, errors_file, with_info_file, sz_engine, with_info_out)
             per_result(cli_args, results)
             overall_results["redo_only"] = results
 
-    # If processed >1 files show overall stats
     if len(overall_results) > 1:
         summary_results(cli_args, overall_results)
 

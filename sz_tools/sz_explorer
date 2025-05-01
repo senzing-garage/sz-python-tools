@@ -2694,7 +2694,7 @@ class EdaCmd(cmd.Cmd):
 
         # Cmd module settings
         self.intro = "\nType help or ? to list commands.\n"
-        self.prompt_str = "szeda"
+        self.prompt_str = "szexp"
         self.prompt_color = "info"
         self.prompt = colorize_cmd_prompt(self.prompt_str, self.prompt_color)
 
