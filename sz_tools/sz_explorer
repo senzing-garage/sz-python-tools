@@ -265,28 +265,26 @@ class eda_table:
         self.title = ""
         self.columns = []
         self.rows = []
-        self.border_style = "default"
+        # self.border_style = "default"
 
     def hide_last_char(self, field_name):
         # INVISIBLE = "\033[08m"
         return field_name[0:-1] + "\033[08m" + field_name[-1] + "\033[0m"
 
     def render_table(self, **kwargs):
-        super_header = kwargs.get("super_header", False)
-        no_lines = kwargs.get("no_lines", False)
+        org_mode = kwargs.get("org_mode")
+        super_header = kwargs.get("super_header")
+        no_lines = kwargs.get("no_lines")
         side_header = kwargs.get("side_header")
         table_object = PrettyTable()
-        if self.border_style == "SINGLE":
-            table_object.set_style(SINGLE_BORDER)
-        else:  # default
+
+        if org_mode:
             table_object.horizontal_char = "\u2500"
             table_object.vertical_char = "\u2502"
             table_object.junction_char = "\u253c"
-
-        if no_lines:
-            table_object.border = False
-            table_object.preserve_internal_border = True
         else:
+            table_object.set_style(SINGLE_BORDER)
+        if not no_lines:
             table_object.hrules = ALL
 
         field_name_list = []
@@ -300,8 +298,9 @@ class eda_table:
                     "\n".join(Colors.apply(str(x), "column_header") for x in str(column_data["name"]).split("\n"))
                 )
         table_object.field_names = field_name_list
-        table_object.header = False
-        table_object.add_row(column_header_list)
+        if not no_lines:
+            table_object.header = False
+            table_object.add_row(column_header_list)
 
         total_row_cnt = 0
         for row in self.rows:
@@ -1206,6 +1205,12 @@ class EdaSdkWrapper:
             features_by_type[ftype_code] = []
             for distinct_feat_record in feature_data[ftype_code]:
                 distinct_usage_type = distinct_feat_record.get("USAGE_TYPE", "")
+                # search request does contain feat_desc_values
+                if not distinct_feat_record.get("FEAT_DESC_VALUES"):
+                    feat_record = distinct_feat_record.copy()
+                    distinct_feat_record["FEAT_DESC_VALUES"] = [
+                        feat_record,
+                    ]
                 for feat_record in distinct_feat_record["FEAT_DESC_VALUES"]:
                     feat_record["RECORD_COUNT"] = 0  # will be incremented later
                     feat_record["FTYPE_CODE"] = ftype_code
@@ -1320,9 +1325,9 @@ class EdaSdkWrapper:
         if "MATCH_KEY" in match_info:
             return match_info
         why_key = {
-            "MATCH_KEY": match_info["WHY_KEY"],
-            "ERRULE_CODE": match_info["WHY_ERRULE_CODE"],
-            "ANY_CANDIDATES": len(match_info["CANDIDATE_KEYS"]),
+            "MATCH_KEY": match_info.get("WHY_KEY", ""),
+            "ERRULE_CODE": match_info.get("WHY_ERRULE_CODE", ""),
+            "ANY_CANDIDATES": len(match_info.get("CANDIDATE_KEYS", [])),
         }
         return why_key
 
@@ -1521,6 +1526,20 @@ class EdaSdkWrapper:
 
         return how_data
 
+    def reorder_search_results(self, resolved_entities):
+        matched_list = []
+        for matched_entity in resolved_entities:
+            match_score = 0
+            feature_scores = matched_entity["MATCH_INFO"]["FEATURE_SCORES"]
+            for feature_code in feature_scores:
+                score_weight = 1 if feature_code == "NAME" else 0.5
+                best_score_record = sorted(feature_scores[feature_code], key=lambda x: x["SCORE"])[-1]
+                if best_score_record["SCORE"] >= 50:
+                    match_score += best_score_record["SCORE"] * score_weight
+            matched_entity["MATCH_SCORE"] = match_score
+            matched_list.append(matched_entity)
+        return sorted(matched_list, key=lambda k: k["MATCH_SCORE"], reverse=True)
+
     # display formatters
 
     def fmt_record_summary(self, record_summary, **kwargs):
@@ -1610,12 +1629,12 @@ class EdaSdkWrapper:
             stats += "~"
         if feature["SCORING_CAP_REACHED"] == "Y":
             stats += "!"
-        if feature["SUPPRESSED"] == "Y":
+        if feature.get("SUPPRESSED") == "Y":
             stats += "#"
         stats += str(feature["ENTITY_COUNT"]) + "]"
         return stats
 
-    def fmt_why_features(self, feat_list, **kwargs):
+    def fmt_why_features(self, why_key, feat_list, **kwargs):
         attr_limit = kwargs.get("attr_limit", 0)
         attr_width = kwargs.get("attr_width", 80)  # this attr_width cannot be 0 due to use of wrap_text
         display_list = []
@@ -1632,7 +1651,7 @@ class EdaSdkWrapper:
                     feat_color = "highlight2"
                 elif feature.get("SCORE_BUCKET") in ("SAME", "CLOSE"):
                     feat_color = "good"
-                elif "E" in feature.get("SCORE_BEHAVIOR", ""):
+                elif f"-{feature['FTYPE_CODE']}" in why_key:
                     feat_color = "bad"
                 else:
                     feat_color = "caution"
@@ -1706,6 +1725,8 @@ class EdaSdkWrapper:
         sep = kwargs.get("sep", "\n")
         colored_key = ""
         if match_data.get("MATCH_KEY"):
+            if match_data["MATCH_KEY"] == "n/a":
+                return ""
             colored_key = colorize_match_key(match_data["MATCH_KEY"])
         if match_data.get("ERRULE_CODE"):
             if ":" in match_data["ERRULE_CODE"]:
@@ -1945,7 +1966,8 @@ class EdaSdkWrapper:
         if entity_only_features:
             tbl.rows.insert(0, [colorize_dsrc("SENZING"), "\n".join(entity_only_features), ""])
 
-        report = tbl.render_table()
+        org_mode = show_relations_on_get == "tree"
+        report = tbl.render_table(org_mode=org_mode)
 
         if related_entity_count == 0 or show_relations_on_get == "none":
             # rel_count_str = f"{'No' if related_entity_count == 0 else related_entity_count}"
@@ -2255,9 +2277,10 @@ class EdaSdkWrapper:
         for ftype_code in sorted(set(ftype_codes_used), key=lambda k: self.ftype_code_order[k]):
             feat_row = [ftype_code]
             for _id in entity_list:
+                why_key = entity_data[_id]["MATCH_INFO"].get("WHY_KEY", "")
                 feat_list = entity_data[_id]["FEATURES"].get(ftype_code)
                 if feat_list:
-                    feat_row.append(self.fmt_why_features(feat_list, **kwargs))
+                    feat_row.append(self.fmt_why_features(why_key, feat_list, **kwargs))
                 else:
                     feat_row.append("")
             tbl.rows.append(feat_row)
@@ -2277,40 +2300,147 @@ class EdaSdkWrapper:
 
         tbl = eda_table()
         tbl.columns = [
-            {"name": "VIRTUAL_ID", "width": 25, "align": "left"},
-            {"name": "SCORES", "width": 25, "align": "left"},
+            {"name": colorize("VIRTUAL_ID", "dim"), "width": 25, "align": "left"},
             {"name": colorize_entity(virtual_id1), "width": kwargs["attr_width"], "align": "left"},
+            {"name": colorize("SCORES", "dim"), "width": 25, "align": "center"},
             {"name": colorize_entity(virtual_id2), "width": kwargs["attr_width"], "align": "left"},
         ]
         tbl.rows = [
             [
-                "DATA_SOURCES",
-                "",
+                colorize("DATA_SOURCES", "dim"),
                 self.fmt_record_list(step_data["ENTITY_LIST"][0]["RECORDS"], **kwargs),
-                self.fmt_record_list(step_data["ENTITY_LIST"][1]["RECORDS"], **kwargs),
-            ]
+                "",
+                self.fmt_record_list(step_data["ENTITY_LIST"][1]["RECORDS"], **kwargs),  # .replace("\n", " | ")[0:80],
+            ],
         ]
+        match_key = step_data["MATCH_INFO"].get("MATCH_KEY", "")
         feature_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"]
         for ftype_code in sorted(set(feature_scores), key=lambda k: self.ftype_code_order[k]):
             all_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"][ftype_code]
             best_score = sorted(all_scores, key=lambda x: x["SCORE"])[-1]
+            if (
+                best_score["ADDITIONAL_SCORES"].get("GNR_SN", 0) > 0
+                or best_score["ADDITIONAL_SCORES"].get("GNR_GN", 0) > 0
+            ):
+                score_value = "|".join(
+                    [
+                        str(best_score["ADDITIONAL_SCORES"]["GNR_GN"]),
+                        str(best_score["ADDITIONAL_SCORES"]["GNR_SN"]),
+                        str(best_score["ADDITIONAL_SCORES"]["GNR_FN"]),
+                    ]
+                )
+            else:
+                score_value = best_score["SCORE"]
+
             if best_score.get("SCORE_BUCKET") in ("SAME", "CLOSE"):
                 feat_color = "good"
-            elif "E" in best_score.get("SCORE_BEHAVIOR", ""):
+            elif f"-{ftype_code}" in match_key:
                 feat_color = "bad"
             else:
                 feat_color = "caution"
 
             tbl.rows.append(
                 [
-                    ftype_code,
-                    colorize(best_score["SCORE"], feat_color),
+                    colorize(ftype_code, "dim"),
                     best_score["INBOUND_FEAT_DESC"],
+                    colorize(score_value, feat_color),
                     best_score["CANDIDATE_FEAT_DESC"],
                 ]
             )
+        #     tbl.rows[0][0].append(colorize(ftype_code, "dim"))
+        #     tbl.rows[0][1].append(best_score["INBOUND_FEAT_DESC"])
+        #     tbl.rows[0][2].append(colorize(score_value, feat_color))
+        #     tbl.rows[0][3].append(best_score["CANDIDATE_FEAT_DESC"])
+
+        # for i in range(4):
+        #     tbl.rows[0][i] = "\n".join(tbl.rows[0][i])
 
         return tbl.render_table(no_lines=True)
+
+    def why_search(self, search_json, **kwargs):
+        if kwargs["search"] == 0:
+            search_flag_list = [
+                "SZ_SEARCH_INCLUDE_REQUEST_DETAILS",
+                "SZ_SEARCH_INCLUDE_ALL_CANDIDATES",
+                "SZ_INCLUDE_MATCH_KEY_DETAILS",
+                "SZ_WHY_ENTITIES_DEFAULT_FLAGS",
+            ]
+            try:
+                json_data = self.call_sdk("search_by_attributes", search_flag_list, json.dumps(search_json))
+            except SzError as err:
+                raise err from err
+            matched_list = sdk_wrapper.reorder_search_results(json_data.get("RESOLVED_ENTITIES", []))
+        else:
+            search_flag_list = [
+                "SZ_SEARCH_INCLUDE_REQUEST_DETAILS",
+                "SZ_INCLUDE_MATCH_KEY_DETAILS",
+                "SZ_INCLUDE_FEATURE_SCORES",
+                "SZ_WHY_ENTITIES_DEFAULT_FLAGS",
+            ]
+            try:
+                json_data = self.call_sdk("why_search", search_flag_list, [json.dumps(search_json), kwargs["search"]])
+            except SzError as err:
+                raise err from err
+            # modify why result to be compatible with a search response
+            matched_entity = {
+                "MATCH_INFO": json_data["WHY_RESULTS"][0]["MATCH_INFO"],
+                "ENTITY": {
+                    "RESOLVED_ENTITY": json_data["ENTITIES"][0]["RESOLVED_ENTITY"],
+                    "RELATED_ENTITIES": json_data["ENTITIES"][0]["RELATED_ENTITIES"],
+                },
+            }
+            matched_list = [matched_entity]
+
+        entities = {}
+        entity_data = json_data["SEARCH_REQUEST"]
+        search_records = [
+            {"DATA_SOURCE": "SEARCH", "RECORD_ID": json_data["SEARCH_REQUEST"].get("RECORD_ID", "request")}
+        ]
+        search_features = self.get_entity_features(entity_data["FEATURES"])["BY_ID"]
+        entities["n/a"] = {
+            "FEATURES": search_features,
+            "RECORDS": search_records,
+            "RELATIONS": {},
+            "MATCH_INFO": {"MATCH_KEY": "n/a"},
+        }
+
+        for resolved_entity_data in matched_list:
+            match_info = resolved_entity_data["MATCH_INFO"]
+            for feature in match_info["CANDIDATE_KEYS"]:
+                for feat_data in match_info["CANDIDATE_KEYS"][feature]:
+                    if feat_data["FEAT_ID"] in search_features:
+                        # print(search_features[feat_data["FEAT_ID"]])
+                        search_features[feat_data["FEAT_ID"]]["MATCH_SCORE"] = 100
+                        search_features[feat_data["FEAT_ID"]]["WAS_CANDIDATE"] = True
+            for feature in match_info["FEATURE_SCORES"]:
+                for feat_data in match_info["FEATURE_SCORES"][feature]:
+                    # input(json.dumps(feat_data, indent=4))
+                    if feat_data["INBOUND_FEAT_ID"] in search_features:
+                        match_score = feat_data["SCORE"]
+                        score_bucket = feat_data["SCORE_BUCKET"]
+                        search_features[feat_data["INBOUND_FEAT_ID"]]["WAS_SEARCH"] = match_score
+                        if match_score > search_features[feat_data["INBOUND_FEAT_ID"]].get("MATCH_SCORE", 0):
+                            search_features[feat_data["INBOUND_FEAT_ID"]]["MATCH_SCORE"] = match_score
+                            search_features[feat_data["INBOUND_FEAT_ID"]]["SCORE_BUCKET"] = score_bucket
+            entity_data = resolved_entity_data["ENTITY"]
+
+            entity_id = entity_data["RESOLVED_ENTITY"]["ENTITY_ID"]
+            entity_name = entity_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
+            entity_features = self.get_entity_features(entity_data["RESOLVED_ENTITY"]["FEATURES"])["BY_ID"]
+            records = entity_data["RESOLVED_ENTITY"]["RECORDS"]
+            relations = self.get_related_entities(entity_data["RELATED_ENTITIES"])["BY_ID"]
+            entities[entity_id] = {
+                "ENTITY_ID": entity_id,
+                "ENTITY_NAME": entity_name,
+                "FEATURES": entity_features,
+                "RECORDS": records,
+                "RELATIONS": relations,
+                "MATCH_INFO": match_info,
+            }
+
+        kwargs["report_title"] = "Why search"
+        kwargs["row1_title"] = "ENTITY_ID"
+        return self.why_display(entities, **kwargs)
 
     def why_records(self, entity_list, **kwargs):
         whyFlagList = [
@@ -2560,14 +2690,19 @@ class EdaSdkWrapper:
         result_key = {steps[k]["RESULT_ID"]: k for k in steps.keys()}
         root_node = eda_node("root")
         parent_nodes = []
+        if len(final_entities) == 1:
+            root_node.node_desc = "n/a"
+        else:
+            root_node.node_desc = colorize("Re-evalution needed! ", "bad")
         for final_entity in final_entities:
             final_id = final_entity["VIRTUAL_ENTITY_ID"]
             if len(final_entities) == 1:
                 final_node_msg = "final entity"
             else:
-                final_node_msg = f"final entity {len(parent_nodes)+1} of {len(final_entities)}"
+                final_node_msg = "final entity"
             final_node = eda_node(final_id)
             final_node.node_desc = f"{colorize_entity(final_id)} {final_node_msg}"
+            final_node.step_created = 0
             root_node.add_child(final_node)
             parent_nodes.append(final_node)
 
@@ -2575,11 +2710,15 @@ class EdaSdkWrapper:
             current_node = parent_nodes[-1]
             result_id = current_node.node_id
             if result_id not in result_key:
-                current_node.node_desc += " and was orphaned!"
+                current_node.node_desc
                 parent_nodes.pop()
                 continue
+
+            earliest_step = 0
             while True:
                 step_num = result_key[result_id]
+                if step_num < earliest_step or earliest_step == 0:
+                    earliest_step = step_num
                 step_data = steps[step_num]
                 step_node = eda_node(step_num)
                 step_desc = step_data["STEP_TYPE"]
@@ -2587,25 +2726,36 @@ class EdaSdkWrapper:
                 result_id_str = colorize_entity(result_id)
                 step_node.node_desc = f"Step {step_num}: {step_desc} on {match_key_desc} to create {result_id_str}"
                 step_node.node_text = self.how_tree_display(steps[step_num], **kwargs)
-
                 current_node.add_child(step_node)
                 if step_data["STEP_TYPE"] == "Combine virtual entities":
+                    current_node.children = sorted(current_node.children, key=lambda k: k.step_created)
                     parent_nodes.pop()  # done with this parent
                     for virtual_entity in steps[step_num]["ENTITY_LIST"]:
                         interim_id = virtual_entity["VIRTUAL_ID"]
                         interim_node = eda_node(interim_id)
                         interim_node.node_desc = f"{colorize_entity(interim_id)} interim entity"
+                        interim_node.step_created = step_num
                         current_node.add_child(interim_node)
                         parent_nodes.append(interim_node)
                     break
                 if step_data["STEP_TYPE"] == "Create virtual entity":
+                    current_node.children = sorted(current_node.children, key=lambda k: k.node_desc)
                     parent_nodes.pop()  # end of the line
                     break
                 else:  # its an add record to virtual ID
                     result_id = step_data["ENTITY_LIST"][1]["VIRTUAL_ID"]
+            current_node.step_created = earliest_step
 
         if len(final_entities) == 1:
             root_node = root_node.children[0]
+        else:
+            ordered_nodes = []
+            for node in sorted(root_node.children, key=lambda k: k.step_created):
+                node.node_desc += f" {len(ordered_nodes)+1} of {len(final_entities)}"
+                if len(node.children) == 0:
+                    node.node_desc += " was orphaned!"
+                ordered_nodes.append(node)
+            root_node.children = ordered_nodes
         return root_node.render_tree()
 
     def how_columnar(self, how_data, **kwargs):
@@ -2626,8 +2776,8 @@ class EdaSdkWrapper:
         # entities, how_data = self.why_how(entity_id)
         kwargs["report_title"] = f"How for entity: {colorize_entity(entity_id)}"
         kwargs["row1_title"] = "VIRTUAL_ID"
-        reevaluation_msg = how_data["SUMMARY"]["REEVALUATION_MSG"]
-        kwargs["report_title"] += colorize(reevaluation_msg, "bad") if reevaluation_msg else ""
+        if how_data["SUMMARY"]["REEVALUATION_MSG"]:
+            kwargs["report_title"] += " " + colorize(how_data["SUMMARY"]["REEVALUATION_MSG"], "bad")
 
         return self.why_display(entities, **kwargs)
 
@@ -2694,7 +2844,7 @@ class EdaCmd(cmd.Cmd):
 
         # Cmd module settings
         self.intro = "\nType help or ? to list commands.\n"
-        self.prompt_str = "szexp"
+        self.prompt_str = "szeda"
         self.prompt_color = "info"
         self.prompt = colorize_cmd_prompt(self.prompt_str, self.prompt_color)
 
@@ -2736,6 +2886,7 @@ class EdaCmd(cmd.Cmd):
         self.do_set(f"color_scheme {self.current_settings['color_scheme']}")
 
         self.last_entity_id = 0
+        self.last_search_request = []
         self.last_search_result = []
 
         self.eda_reports = EdaReports(default_how_view=self.current_settings["default_how_view"])
@@ -2799,6 +2950,10 @@ class EdaCmd(cmd.Cmd):
     def do_exit(self, arg):
         self.do_quit(self)
         return True
+
+    def do_clear(self, arg):
+        os.system("clear")
+        eda_splash()
 
     def do_help(self, help_topic):
         if not help_topic:
@@ -3235,9 +3390,13 @@ class EdaCmd(cmd.Cmd):
         if feature_list:
             kwarg_dict["feature_list"] = feature_list
         if "search" in kwarg_dict:
-            if not self.last_search_result:
+            if not self.last_search_request:
                 raise Exception("There is no prior search")
-            elif kwarg_dict["search"] != 0 and kwarg_dict["search"] > len(self.last_search_result):
+            elif (
+                kwarg_dict["search"] != 0
+                and kwarg_dict["search"] > len(self.last_search_result)
+                and kwarg_dict.get("called_by", "") != "why"
+            ):
                 raise Exception("Invalid search index")
 
         arg_str = " ".join(remaining_tokens)
@@ -3284,8 +3443,8 @@ class EdaCmd(cmd.Cmd):
                         str_split = [x.strip() for x in search_str.split("=")]
                         parm_data["FEATURES"].append({str_split[0].upper(): str_split[1]})
                     else:
-                        parm_data["FEATURES"].append({"NAME_FULL": search_str})
-                        parm_data["FEATURES"].append({"NAME_ORG": search_str})
+                        parm_data["FEATURES"].append({"ASFULL_NAME_FULL": search_str})
+                        parm_data["FEATURES"].append({"ASORG_NAME_ORG": search_str})
         except (ValueError, KeyError) as err:
             print_message(f"Invalid json parameter: {err}", "error")
             return
@@ -3308,7 +3467,7 @@ class EdaCmd(cmd.Cmd):
         except SzError as err:
             print_message(err, "error")
             return
-
+        self.last_search_request = search_json
         tbl = eda_table()
         tbl.title = "Search Results"
         tbl.columns = [
@@ -3320,49 +3479,30 @@ class EdaCmd(cmd.Cmd):
             {"name": "Match Score", "width": 15, "align": "center"},
             {"name": "Relationships", "width": 15, "align": "left"},
         ]
-        matched_list = []
-        for matched_entity in json_data["RESOLVED_ENTITIES"]:
-            entity_data = matched_entity["ENTITY"]["RESOLVED_ENTITY"]
-            feature_scores = matched_entity["MATCH_INFO"]["FEATURE_SCORES"]
-            match_score = 0
-            for feature_code in matched_entity["MATCH_INFO"]["FEATURE_SCORES"].keys():
-                score_weight = 1 if feature_code == "NAME" else 0.5
-                best_score_record = sorted(feature_scores[feature_code], key=lambda x: x["SCORE"])[-1]
-                if best_score_record["SCORE"] >= 50:
-                    match_score += best_score_record["SCORE"] * score_weight
-
-            relationships = matched_entity["ENTITY"]["RELATED_ENTITIES"]
-            disclosed_count = len([x for x in relationships if x["IS_DISCLOSED"] > 0])
-            derived_count = len(relationships) - disclosed_count
-            matched_list.append(
-                {
-                    "ENTITY_ID": entity_data["ENTITY_ID"],
-                    "ENTITY_NAME": entity_data["ENTITY_NAME"],
-                    "RECORDS": entity_data["RECORDS"],
-                    "MATCH_SCORE": match_score,
-                    "MATCH_INFO": matched_entity["MATCH_INFO"],
-                    "REL_COUNTS": {"derived": derived_count, "disclosed": disclosed_count},
-                }
-            )
-
         tbl.rows = []
         search_index = 0
         self.last_search_result = []
-        for matched_entity in sorted(matched_list, key=lambda k: k["MATCH_SCORE"], reverse=True):
+        matched_list = sdk_wrapper.reorder_search_results(json_data["RESOLVED_ENTITIES"])
+        for matched_entity in matched_list:
             search_index += 1
-            rels = "\n".join([f"{v} {colorize(k, 'dim')}" for k, v in matched_entity["REL_COUNTS"].items() if v > 0])
+            entity_data = matched_entity["ENTITY"]["RESOLVED_ENTITY"]
+            relationships = matched_entity["ENTITY"]["RELATED_ENTITIES"]
+            disclosed_count = len([x for x in relationships if x["IS_DISCLOSED"] > 0])
+            derived_count = len(relationships) - disclosed_count
+            rel_str = f"{derived_count} {colorize('derived', 'dim')}" if derived_count else ""
+            rel_str += f"{disclosed_count} {colorize('disclosed', 'dim')}" if disclosed_count else ""
             tbl.rows.append(
                 [
                     colorize(search_index, "dim"),
-                    colorize_entity(matched_entity["ENTITY_ID"]),
-                    matched_entity["ENTITY_NAME"],
-                    sdk_wrapper.fmt_record_list(matched_entity["RECORDS"]),
+                    colorize_entity(entity_data["ENTITY_ID"]),
+                    entity_data["ENTITY_NAME"],
+                    sdk_wrapper.fmt_record_list(entity_data["RECORDS"]),
                     sdk_wrapper.fmt_match_key(matched_entity["MATCH_INFO"]),
                     matched_entity["MATCH_SCORE"],
-                    rels,
+                    rel_str,
                 ]
             )
-            self.last_search_result.append(str(matched_entity["ENTITY_ID"]))
+            self.last_search_result.append(str(entity_data["ENTITY_ID"]))
 
         if len(matched_list) > 0:
             tbl.title = f"{len(matched_list)} entities found..."
@@ -3632,16 +3772,12 @@ class EdaCmd(cmd.Cmd):
             self.help_why()
             return
         try:
+            kwargs["called_by"] = "why"
             arg, kwargs = self.kwargs_from_arg(arg, kwargs)
         except Exception as ex:
             print_message(ex, "error")
             return
-        if "search" in kwargs:
-            if kwargs["search"] == 0:
-                entity_list = [str(x) for x in self.last_search_result]
-            else:
-                entity_list = [str(self.last_search_result[kwargs["search"] - 1])]
-        elif "," in arg:
+        if "," in arg:
             entity_list = arg.split(",")
         else:
             entity_list = arg.split()
@@ -3650,7 +3786,9 @@ class EdaCmd(cmd.Cmd):
             return
         sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
         try:
-            if len(entity_list) == 1:
+            if "search" in kwargs:
+                view_report(sdk_wrapper.why_search(self.last_search_request, **kwargs))
+            elif len(entity_list) == 1:
                 if "how_view" not in kwargs:
                     kwargs["how_view"] = self.current_settings["default_how_view"]
                 self.do_how(entity_list[0], **kwargs)
@@ -3865,6 +4003,14 @@ def debug_print(_value, _desc="some variable"):
     get_char_with_prompt("press any key...")
 
 
+def eda_splash():
+    splash = Colors.apply("\n  ____|  __ \\     \\    \n", "DIM")
+    splash += Colors.apply("  __|    |   |   _ \\   ", "DIM") + "Senzing\n"
+    splash += Colors.apply("  |      |   |  ___ \\  ", "DIM") + "Exploratory Data Analysis\n"
+    splash += Colors.apply(" _____| ____/ _/    _\\ \n", "DIM")
+    print(splash)
+
+
 if __name__ == "__main__":
     appPath = os.path.dirname(os.path.abspath(sys.argv[0]))
 
@@ -3914,11 +4060,7 @@ if __name__ == "__main__":
         print_message("Audit json file not found", "error")
         sys.exit(1)
 
-    splash = Colors.apply("\n  ____|  __ \\     \\    \n", "DIM")
-    splash += Colors.apply("  __|    |   |   _ \\   ", "DIM") + "Senzing\n"
-    splash += Colors.apply("  |      |   |  ___ \\  ", "DIM") + "Exploratory Data Analysis\n"
-    splash += Colors.apply(" _____| ____/ _/    _\\ \n", "DIM")
-    print(splash)
+    eda_splash()
 
     engine_config = get_engine_config(args.config_file_name)
     try:

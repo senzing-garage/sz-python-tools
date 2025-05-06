@@ -6049,7 +6049,7 @@ class SzCfgShell(cmd.Cmd):
 
     def do_updateFeatureVersion(self, arg):
         self.do_setFeature(arg)
-        self.print_replacement(sys._getframe(0).f_code.co_name, "do_Feature")
+        self.print_replacement(sys._getframe(0).f_code.co_name, "do_setFeature")
 
     # ===== Class Utils =====
 
