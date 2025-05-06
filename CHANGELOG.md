@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.20] - 2025-05-06
+
+### Added in 0.0.20
+
+- sz_explorer addition of why search
+- sz_explorer adjustments to how grids and order
+
+### Fixed in 0.0.20
+
+- sz_configtool documentation updates
+
 ## [0.0.19] - 2025-05-01
 
 ### Added in 0.0.19
