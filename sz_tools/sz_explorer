@@ -1634,7 +1634,7 @@ class EdaSdkWrapper:
         stats += str(feature["ENTITY_COUNT"]) + "]"
         return stats
 
-    def fmt_why_features(self, feat_list, **kwargs):
+    def fmt_why_features(self, why_key, feat_list, **kwargs):
         attr_limit = kwargs.get("attr_limit", 0)
         attr_width = kwargs.get("attr_width", 80)  # this attr_width cannot be 0 due to use of wrap_text
         display_list = []
@@ -1651,16 +1651,12 @@ class EdaSdkWrapper:
                     feat_color = "highlight2"
                 elif feature.get("SCORE_BUCKET") in ("SAME", "CLOSE"):
                     feat_color = "good"
-                elif "E" in feature.get("SCORE_BEHAVIOR", ""):
+                elif f"-{feature['FTYPE_CODE']}" in why_key:
                     feat_color = "bad"
                 else:
                     feat_color = "caution"
             elif feature["FTYPE_CODE"] in self.senzing_features:
                 feat_color = "caution"
-
-            # if feature.get("WAS_SEARCH"):
-            #     print(json.dumps(feature, indent=4))
-            #     input(f"color: {feat_color}")
 
             if any(x in stats for x in ("~", "!", "#")):
                 feat_color += ",dim" if feat_color else "dim"
@@ -2281,9 +2277,10 @@ class EdaSdkWrapper:
         for ftype_code in sorted(set(ftype_codes_used), key=lambda k: self.ftype_code_order[k]):
             feat_row = [ftype_code]
             for _id in entity_list:
+                why_key = entity_data[_id]["MATCH_INFO"].get("WHY_KEY", "")
                 feat_list = entity_data[_id]["FEATURES"].get(ftype_code)
                 if feat_list:
-                    feat_row.append(self.fmt_why_features(feat_list, **kwargs))
+                    feat_row.append(self.fmt_why_features(why_key, feat_list, **kwargs))
                 else:
                     feat_row.append("")
             tbl.rows.append(feat_row)
@@ -2316,6 +2313,7 @@ class EdaSdkWrapper:
                 self.fmt_record_list(step_data["ENTITY_LIST"][1]["RECORDS"], **kwargs),  # .replace("\n", " | ")[0:80],
             ],
         ]
+        match_key = step_data["MATCH_INFO"].get("MATCH_KEY", "")
         feature_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"]
         for ftype_code in sorted(set(feature_scores), key=lambda k: self.ftype_code_order[k]):
             all_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"][ftype_code]
@@ -2336,7 +2334,7 @@ class EdaSdkWrapper:
 
             if best_score.get("SCORE_BUCKET") in ("SAME", "CLOSE"):
                 feat_color = "good"
-            elif "E" in best_score.get("SCORE_BEHAVIOR", ""):
+            elif f"-{ftype_code}" in match_key:
                 feat_color = "bad"
             else:
                 feat_color = "caution"
@@ -2345,7 +2343,7 @@ class EdaSdkWrapper:
                 [
                     colorize(ftype_code, "dim"),
                     best_score["INBOUND_FEAT_DESC"],
-                    colorize(best_score["SCORE"], feat_color),
+                    colorize(score_value, feat_color),
                     best_score["CANDIDATE_FEAT_DESC"],
                 ]
             )
@@ -2736,7 +2734,7 @@ class EdaSdkWrapper:
                         interim_id = virtual_entity["VIRTUAL_ID"]
                         interim_node = eda_node(interim_id)
                         interim_node.node_desc = f"{colorize_entity(interim_id)} interim entity"
-                        interim_data.step_created = step_num
+                        interim_node.step_created = step_num
                         current_node.add_child(interim_node)
                         parent_nodes.append(interim_node)
                     break
