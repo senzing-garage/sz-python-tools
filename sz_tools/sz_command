@@ -1628,7 +1628,6 @@ class SzCmdShell(cmd.Cmd):
 
         Examples:
             preprocess_record '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}'
-            preprocess_record '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}' -f SZ_RECORD_DEFAULT_FLAGS
 
         Arguments:
             record_definition = Senzing mapped JSON representation of a record
@@ -1712,7 +1711,7 @@ class SzCmdShell(cmd.Cmd):
         Search for entities
 
         Syntax:
-            search_by_attributes attributes [-f FLAG ...]
+            search_by_attributes attributes [search_profile] [-f FLAG ...]
 
         Examples:
             search_by_attributes '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}'
@@ -1720,6 +1719,7 @@ class SzCmdShell(cmd.Cmd):
 
         Arguments:
             attributes = Senzing mapped JSON containing the attributes to search on
+            search_profile = A configured search profile (don't specify for default)
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
@@ -1749,7 +1749,7 @@ class SzCmdShell(cmd.Cmd):
 
         Examples:
             why_entities 96 200011
-            why_entities 96 200011 -f SZ_WHY_ENTITY_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_RECORD_DEFINITION
+            why_entities 96 200011 -f SZ_WHY_ENTITIES_DEFAULT_FLAGS SZ_INCLUDE_MATCH_KEY_DETAILS
 
         Arguments:
             entity_id_1 = Identifier for first entity
@@ -1778,7 +1778,7 @@ class SzCmdShell(cmd.Cmd):
 
         Examples:
             why_record_in_entity reference 2121
-            why_record_in_entity reference 2121 -f SZ_WHY_ENTITY_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_RECORD_DEFINITION
+            why_record_in_entity reference 2121 -f SZ_WHY_RECORD_IN_ENTITY_DEFAULT_FLAGS SZ_INCLUDE_MATCH_KEY_DETAILS
 
         Arguments:
             data_source_code = Data source code
@@ -1807,7 +1807,7 @@ class SzCmdShell(cmd.Cmd):
 
         Examples:
             why_records reference 2121 watchlist 2092
-            why_records reference 2121 watchlist 2092 -f SZ_WHY_ENTITY_DEFAULT_FLAGS SZ_ENTITY_INCLUDE_RECORD_RECORD_DEFINITION
+            why_records reference 2121 watchlist 2092 -f SZ_WHY_RECORDS_DEFAULT_FLAGS SZ_INCLUDE_MATCH_KEY_DETAILS
 
         Arguments:
             data_source_code_1 = Data source code for first record
@@ -1840,7 +1840,7 @@ class SzCmdShell(cmd.Cmd):
 
         Examples:
             why_search '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' 1
-            why_search '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' 1 -f SZ_SEARCH_BY_ATTRIBUTES_MINIMAL_ALL
+            why_search '{"name_full":"Robert Smith", "date_of_birth":"11/12/1978"}' 1 -f SZ_WHY_SEARCH_DEFAULT_FLAGS SZ_INCLUDE_MATCH_KEY_DETAILS
 
         Arguments:
             attributes = Senzing mapped JSON containing the attributes to search on

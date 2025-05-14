@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.21] - 2025-05-14
+
+### Fixed in 0.0.21
+
+- Flag SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS was changed to SZ_ENTITY_INCLUDE_RECORD_FEATURES in the SDK, update in sz_explorer and sz_export
+- Update help examples in sz_command
+
 ## [0.0.20] - 2025-05-06
 
 ### Added in 0.0.20

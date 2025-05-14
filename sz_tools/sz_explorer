@@ -420,7 +420,7 @@ class EdaReports:
         return review_features
 
     def show_audit_sample(self, audit_records, use_color=True):
-        get_flag_list = ["SZ_ENTITY_INCLUDE_ALL_FEATURES", "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS"]
+        get_flag_list = ["SZ_ENTITY_INCLUDE_ALL_FEATURES", "SZ_ENTITY_INCLUDE_RECORD_FEATURES"]
         features_by_record = {}
         entity_list = set([x["NEWER_ID"] for x in audit_records])
         for entity_id in entity_list:
@@ -1406,7 +1406,7 @@ class EdaSdkWrapper:
             "SZ_ENTITY_INCLUDE_INTERNAL_FEATURES",
             "SZ_ENTITY_INCLUDE_FEATURE_STATS",
             "SZ_ENTITY_INCLUDE_RECORD_DATA",
-            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURES",
             "SZ_INCLUDE_MATCH_KEY_DETAILS",
         ]
         try:
@@ -1895,7 +1895,7 @@ class EdaSdkWrapper:
             "SZ_ENTITY_INCLUDE_RELATED_ENTITY_NAME",
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
             "SZ_ENTITY_INCLUDE_RELATED_RECORD_SUMMARY",
-            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURES",
             "SZ_ENTITY_INCLUDE_ALL_FEATURES",
             "SZ_ENTITY_INCLUDE_RECORD_UNMAPPED_DATA",
         ]
@@ -2114,7 +2114,7 @@ class EdaSdkWrapper:
             "SZ_ENTITY_INCLUDE_RELATED_ENTITY_NAME",
             "SZ_ENTITY_INCLUDE_RELATED_MATCHING_INFO",
             "SZ_ENTITY_INCLUDE_RELATED_RECORD_SUMMARY",
-            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURES",
             "SZ_ENTITY_INCLUDE_ALL_FEATURES",
             "SZ_ENTITY_INCLUDE_RECORD_UNMAPPED_DATA",
         ]
@@ -2445,7 +2445,7 @@ class EdaSdkWrapper:
     def why_records(self, entity_list, **kwargs):
         whyFlagList = [
             "SZ_WHY_ENTITIES_DEFAULT_FLAGS",
-            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURES",
             "SZ_INCLUDE_MATCH_KEY_DETAILS",
         ]
         try:
@@ -2538,7 +2538,7 @@ class EdaSdkWrapper:
             "SZ_ENTITY_INCLUDE_FEATURE_STATS",
             "SZ_ENTITY_INCLUDE_RECORD_DATA",
             "SZ_ENTITY_INCLUDE_RECORD_JSON_DATA",
-            "SZ_ENTITY_INCLUDE_RECORD_FEATURE_IDS",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURES",
             "SZ_ENTITY_INCLUDE_RECORD_UNMAPPED_DATA",
             "SZ_ENTITY_INCLUDE_ALL_RELATIONS",
             "SZ_ENTITY_INCLUDE_RELATED_ENTITY_NAME",
