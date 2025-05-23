@@ -1,7 +1,7 @@
 {
   "threshold": 7,
   "ignore": [
-    "g2_tools/**",
-    "sz_tools/**"
+    "**/g2_tools/**",
+    "**/sz_tools/**"
   ]
 }
