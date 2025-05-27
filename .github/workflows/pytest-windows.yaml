@@ -95,10 +95,10 @@ jobs:
     uses: senzing-factory/build-resources/.github/workflows/python-coverage-comment.yaml@v2
 
   slack-notification:
-    needs: [pytest-windows, coverage]
-    if: ${{ always() && contains(fromJSON('["failure", "cancelled"]'), needs.pytest-windows.outputs.status ) && contains(fromJSON('["failure", "cancelled"]'), needs.coverage.outputs.job-status ) && github.event_name == 'schedule' }}
+    needs: [pytest-windows]
+    if: ${{ always() && contains(fromJSON('["failure", "cancelled"]'), needs.pytest-windows.outputs.status ) && github.event_name == 'schedule' }}
     secrets:
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
     uses: senzing-factory/build-resources/.github/workflows/build-failure-slack-notification.yaml@v2
     with:
-      job-status: ${{ needs.pytest-windows.outputs.status && needs.coverage.outputs.job-status }}
+      job-status: ${{ needs.pytest-windows.outputs.status }}
