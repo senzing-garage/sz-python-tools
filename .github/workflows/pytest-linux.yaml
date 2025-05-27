@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: "15 7 * * *"
+    - cron: "15 7,17 * * *"
 
 env:
   LD_LIBRARY_PATH: /opt/senzing/er/lib
@@ -93,10 +93,10 @@ jobs:
     uses: senzing-factory/build-resources/.github/workflows/python-coverage-comment.yaml@v2
 
   slack-notification:
-    needs: [pytest-linux, coverage]
-    if: ${{ always() && contains(fromJSON('["failure", "cancelled"]'), needs.pytest-linux.outputs.status ) && contains(fromJSON('["failure", "cancelled"]'), needs.coverage.outputs.job-status ) && (github.ref_name == github.event.repository.default_branch || github.event_name == 'schedule') }}
+    needs: [pytest-linux]
+    if: ${{ always() && contains(fromJSON('["failure", "cancelled"]'), needs.pytest-linux.outputs.status ) && (github.ref_name == github.event.repository.default_branch || github.event_name == 'schedule') }}
     secrets:
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
     uses: senzing-factory/build-resources/.github/workflows/build-failure-slack-notification.yaml@v2
     with:
-      job-status: ${{ needs.pytest-linux.outputs.status && needs.coverage.outputs.job-status }}
+      job-status: ${{ needs.pytest-linux.outputs.status }}
