@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: "15 7 * * *"
+    - cron: "15 7,17 * * *"
 
 env:
   LD_LIBRARY_PATH: /opt/senzing/er/lib
