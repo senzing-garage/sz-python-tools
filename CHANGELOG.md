@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.22] - 2025-06-06
+
+### Fixed in 0.0.22
+
+- sz_file_loader thread pool could slowly drain with certain non-critical errors
+
 ## [0.0.21] - 2025-05-14
 
 ### Fixed in 0.0.21

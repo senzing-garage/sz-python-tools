@@ -943,9 +943,6 @@ def load_and_redo(
                         if SzUnrecoverableError in type(err).mro():
                             shutdown.set()
                     else:
-                        if add_future and not shutdown.is_set():
-                            more_recs = add_new_future()
-
                         # If loading and None the line in the source was blank
                         if mode.__name__ == "add_record" and result is None:
                             load_blank_lines += 1
@@ -964,6 +961,9 @@ def load_and_redo(
                                 MODE_TEXT[mode.__name__]["stats_msg"],
                             )
                     finally:
+                        if add_future and not shutdown.is_set():
+                            more_recs = add_new_future()
+                            
                         del futures[f]
 
                 # Early errors check to catch mapping errors, missing dsrc_code, etc
