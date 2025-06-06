@@ -34,9 +34,9 @@ LF = "\n"
 LFTAB = "\n\t"
 
 try:
-    from prettytable import ALL, SINGLE_BORDER, PrettyTable
-except ImportError:
-    print("\nPlease install the Python prettytable module (e.g. pip install prettytable)")
+    import prettytable
+except ImportError as ex:
+    print(f"\n{ex}\nPlease install the Python prettytable module (e.g. pip install prettytable)")
     sys.exit(1)
 
 
@@ -205,6 +205,7 @@ class eda_node(object):
         self.node_data = None
         self.children = []
         self.parents = []
+        self.counter1 = 0
 
     def add_child(self, obj):
         self.children.append(obj)
@@ -217,17 +218,17 @@ class eda_node(object):
         tree += self.node_desc + "\n"
         if self.node_text:
             tree += self.node_text + "\n"
-        parents = [{"node": self, "next_child": 0, "display_children": self.children}]
+        parents = [{"node": self, "display_children": self.children}]
         while parents:
-            if parents[-1]["next_child"] == len(parents[-1]["display_children"]):
+            if len(parents[-1]["display_children"]) == 0:
                 parents.pop()
                 continue
+            next_node = parents[-1]["display_children"][0]
+            parents[-1]["display_children"].pop(0)
 
-            next_node = parents[-1]["display_children"][parents[-1]["next_child"]]
-            parents[-1]["next_child"] += 1
             prefix = ""
             for i, _ in enumerate(parents):
-                last_child = parents[i]["next_child"] == len(parents[i]["display_children"])
+                last_child = len(parents[i]["display_children"]) == 0
                 if i < len(parents) - 1:  # prior level
                     prefix += "    " if last_child else "\u2502   "
                 else:
@@ -247,15 +248,9 @@ class eda_node(object):
                     tree += prefix + line + "\n"
 
             if next_node.children:
-                prior_parents = []
-                for i, _ in enumerate(parents):
-                    prior_parents.append(parents[i]["node"].node_id)
-                # don't display prior parents in this tree
-                display_children = []
-                for child in next_node.children:
-                    if child.node_id not in prior_parents:
-                        display_children.append(child)
-                parents.append({"node": next_node, "next_child": 0, "display_children": display_children})
+                prior_parents = [x["node"].node_id for x in parents]
+                display_children = [x for x in next_node.children if x.node_id not in prior_parents]
+                parents.append({"node": next_node, "display_children": display_children})
 
         return tree
 
@@ -276,16 +271,22 @@ class eda_table:
         super_header = kwargs.get("super_header")
         no_lines = kwargs.get("no_lines")
         side_header = kwargs.get("side_header")
-        table_object = PrettyTable()
+        table_object = prettytable.PrettyTable()
 
         if org_mode:
             table_object.horizontal_char = "\u2500"
             table_object.vertical_char = "\u2502"
             table_object.junction_char = "\u253c"
         else:
-            table_object.set_style(SINGLE_BORDER)
+            if hasattr(prettytable, "TableStyle"):
+                table_object.set_style(prettytable.TableStyle.SINGLE_BORDER)
+            else:
+                table_object.set_style(prettytable.SINGLE_BORDER)
         if not no_lines:
-            table_object.hrules = ALL
+            if hasattr(prettytable, "HRuleStyle"):
+                table_object.hrules = prettytable.HRuleStyle.ALL
+            else:
+                table_object.hrules = prettytable.ALL
 
         field_name_list = []
         column_header_list = []
@@ -1001,7 +1002,7 @@ class EdaReports:
                     report = sdk_wrapper.compare_entities(entity_list)
             view_report(report, no_scroll=True, extra_header=item_header)
 
-            valid_responses = ["P", "N", "G", "S", "Q", "E"]
+            valid_responses = ["P", "N", "G", "S", "Q", "E", "C"]
             if len(entity_list) == 1:
                 prompt = "Select (P)revious, (N)ext, (G)oto, (H)ow, (E)xport, (S)croll, (Q)uit..."
                 valid_responses += ["D", "H"]
@@ -1183,7 +1184,6 @@ class EdaSdkWrapper:
         parms = parms if isinstance(parms, list) else [parms]
         caller = inspect.stack()[1].function
         try:
-            # flags_int = SzEngineFlags.combine_flags(flags)
             flags_int = combine_engine_flags(flags)
             parms.append(flags_int)
             api_call = getattr(self.sz_engine, api_name)
@@ -1590,7 +1590,7 @@ class EdaSdkWrapper:
             line_cnt = 0
             if include_feature_code:
                 if ftype_code in self.senzing_features:
-                    colored_ftype = colorize(ftype_code, "caution") + ": "
+                    colored_ftype = colorize(ftype_code, "bad") + ": "
                 else:
                     colored_ftype = colorize_attr(ftype_code) + ": "
             else:
@@ -1646,7 +1646,7 @@ class EdaSdkWrapper:
             feat_desc = feature["FEAT_DESC"]
             stats = self.fmt_feature_stats(feature)
             feat_color = ""
-            if feature.get("MATCH_SCORE", 0) > 0:
+            if feature.get("MATCH_SCORE", -1) >= 0:
                 if feature.get("WAS_CANDIDATE"):  # always 100
                     feat_color = "highlight2"
                 elif feature.get("SCORE_BUCKET") in ("SAME", "CLOSE"):
@@ -1656,7 +1656,7 @@ class EdaSdkWrapper:
                 else:
                     feat_color = "caution"
             elif feature["FTYPE_CODE"] in self.senzing_features:
-                feat_color = "caution"
+                feat_color = "bad"
 
             if any(x in stats for x in ("~", "!", "#")):
                 feat_color += ",dim" if feat_color else "dim"
@@ -1962,7 +1962,7 @@ class EdaSdkWrapper:
         entity_only_features = []
         for feat_data in entity_features.values():
             if feat_data["RECORD_COUNT"] == 0:
-                entity_only_features.append(f"{colorize(feat_data['FTYPE_CODE'], 'caution')}: {feat_data['FEAT_DESC']}")
+                entity_only_features.append(f"{colorize(feat_data['FTYPE_CODE'], 'bad')}: {feat_data['FEAT_DESC']}")
         if entity_only_features:
             tbl.rows.insert(0, [colorize_dsrc("SENZING"), "\n".join(entity_only_features), ""])
 
@@ -2020,72 +2020,71 @@ class EdaSdkWrapper:
             raise err from err
 
         entities = self.get_resolved_entities(json_data["ENTITIES"])
-        if build_out_degree == 1:  # categorize and group
-            category_counts = {}
-            categories = {}
-            related_entities = entities[root_entity_id]["RELATIONSHIPS"]
-            for relation in sorted(
-                related_entities, key=lambda k: (k["MATCH_CATEGORY_SORT"], k["ERRULE_ID"], k["ENTITY_ID"])
-            ):
-                match_category = relation["MATCH_CATEGORY"]
-                match_key = relation["MATCH_KEY"]
-                if match_category not in categories:
-                    categories[match_category] = {}
-                    category_counts[match_category] = 1
-                else:
-                    category_counts[match_category] = 1
-                match_group = self.fmt_match_group(match_category, match_key)
-                if match_group not in categories[match_category]:
-                    categories[match_category][match_group] = [relation]
-                else:
-                    categories[match_category][match_group].append(relation)
 
-            root_node = eda_node(root_entity_id)
-            root_node.node_desc = self.fmt_entity_desc(entities[root_entity_id])
-            for category in categories:
-                category_node = eda_node(category)
-                category_desc = f"{self.match_category_desc[category]} ({category_counts[category]})"
-                category_node.node_desc = category_desc
-                root_node.add_child(category_node)
-                for group in categories[category]:
-                    group_node = eda_node(group)
-                    group_desc = f"{group} ({len(categories[category][group])})"
-                    group_node.node_desc = group_desc
-                    category_node.add_child(group_node)
-                    for relation in categories[category][group]:
-                        related_id = relation["ENTITY_ID"]
-                        rel_node = eda_node(related_id)
-                        rel_desc = self.fmt_entity_desc(entities[related_id])
-                        rel_desc += " " + self.fmt_match_key({"MATCH_KEY": relation["MATCH_KEY"]})
-                        rel_node.node_desc = rel_desc
-                        group_node.add_child(rel_node)
-        else:
-            input("NEVER GETS HERE")
-            tree_nodes = {}
-            for entity_id in entities:
-                if entity_id not in tree_nodes:
-                    tree_nodes[entity_id] = eda_node(entity_id)
-                    tree_nodes[entity_id].node_desc = self.fmt_entity_desc(entities[entity_id])
-                related_entities = entities[entity_id]["RELATIONSHIPS"]
-                for relation in sorted(
-                    related_entities, key=lambda k: (k["MATCH_CATEGORY_SORT"], k["ERRULE_ID"], k["ENTITY_ID"])
-                ):
-                    related_id = relation["ENTITY_ID"]
-                    if related_id not in entities:
-                        continue
-                    if related_id not in tree_nodes:
-                        tree_nodes[related_id] = eda_node(related_id)
-                        node_desc = self.fmt_entity_desc(entities[related_id])
-                        node_desc += " " + self.fmt_match_key({"MATCH_KEY": relation["MATCH_KEY"]})
-                        tree_nodes[related_id].node_desc = node_desc
+        related_entities = sorted(
+            entities[root_entity_id]["RELATIONSHIPS"],
+            key=lambda k: (k["MATCH_CATEGORY_SORT"], k["ERRULE_ID"], k["ENTITY_ID"]),
+        )
+        parents = [
+            {
+                "entity_id": root_entity_id,
+                "relationships": related_entities,
+            }
+        ]
+        tree_nodes = {}
+        while parents:
+            if len(parents[-1]["relationships"]) == 0:
+                parents.pop()
+                continue
+            entity_id = parents[-1]["entity_id"]
+            if entity_id not in tree_nodes:
+                tree_nodes[entity_id] = eda_node(entity_id)
+                tree_nodes[entity_id].node_desc = self.fmt_entity_desc(entities[entity_id])
 
-                    if related_id not in tree_nodes[entity_id].children:
-                        tree_nodes[entity_id].add_child(tree_nodes[related_id])
-                    else:
-                        print_message("Related_id was already added to child list", "warning")
+            relation = parents[-1]["relationships"][0]
+            parents[-1]["relationships"].pop(0)
+            related_id = relation["ENTITY_ID"]
+            if related_id not in entities or related_id in [x["entity_id"] for x in parents]:
+                continue
 
-            root_node = tree_nodes[root_entity_id]
-        return root_node.render_tree()
+            category = relation["MATCH_CATEGORY"]
+            group = self.fmt_match_group(category, relation["MATCH_KEY"])
+            category_node_id = f"{entity_id}-{category}"
+            group_node_id = f"{entity_id}-{category}-{group}"
+
+            if category_node_id not in tree_nodes:
+                tree_nodes[category_node_id] = eda_node(category_node_id)
+                tree_nodes[entity_id].add_child(tree_nodes[category_node_id])
+            tree_nodes[category_node_id].counter1 += 1
+            tree_nodes[category_node_id].node_desc = (
+                f"{self.match_category_desc[category]} ({tree_nodes[category_node_id].counter1 })"
+            )
+
+            if group_node_id not in tree_nodes:
+                tree_nodes[group_node_id] = eda_node(group_node_id)
+                tree_nodes[category_node_id].add_child(tree_nodes[group_node_id])
+            tree_nodes[group_node_id].counter1 += 1
+            tree_nodes[group_node_id].node_desc = f"{group} ({tree_nodes[group_node_id].counter1})"
+
+            if related_id not in tree_nodes:
+                rel_desc = self.fmt_entity_desc(entities[related_id])
+                rel_desc += " " + self.fmt_match_key({"MATCH_KEY": relation["MATCH_KEY"]})
+                tree_nodes[related_id] = eda_node(related_id)
+                tree_nodes[related_id].node_desc = rel_desc
+            tree_nodes[group_node_id].add_child(tree_nodes[related_id])
+
+            if len(entities[related_id]["RELATIONSHIPS"]) != 0:
+                related_entities = sorted(
+                    entities[related_id]["RELATIONSHIPS"],
+                    key=lambda k: (k["MATCH_CATEGORY_SORT"], k["ERRULE_ID"], k["ENTITY_ID"]),
+                )
+                parents.append(
+                    {
+                        "entity_id": related_id,
+                        "relationships": related_entities,
+                    }
+                )
+        return tree_nodes[root_entity_id].render_tree()
 
     def compare_relationships(self, entity_id, **kwargs):
         """compare an entity's relationships side by side"""
@@ -2252,7 +2251,7 @@ class EdaSdkWrapper:
             for lib_feat_id in features_by_id:
                 ftype_codes_used.append(features_by_id[lib_feat_id]["FTYPE_CODE"])
                 if lib_feat_id in scores_by_id:
-                    if scores_by_id[lib_feat_id].get("MATCH_SCORE"):
+                    if "MATCH_SCORE" in scores_by_id[lib_feat_id]:
                         features_by_id[lib_feat_id].update(scores_by_id[lib_feat_id])
             entity_data[_id]["FEATURES"] = self.regroup_by_type(features_by_id)
 
@@ -2277,7 +2276,11 @@ class EdaSdkWrapper:
         for ftype_code in sorted(set(ftype_codes_used), key=lambda k: self.ftype_code_order[k]):
             feat_row = [ftype_code]
             for _id in entity_list:
-                why_key = entity_data[_id]["MATCH_INFO"].get("WHY_KEY", "")
+                # why not many has multiple match_info_list, must append them altogether to get any minuses
+                if entity_data[_id].get("MATCH_INFO_LIST"):
+                    why_key = "+".join(x.get("MATCH_KEY", "") for x in entity_data[_id]["MATCH_INFO_LIST"])
+                else:
+                    why_key = entity_data[_id]["MATCH_INFO"].get("WHY_KEY", "")
                 feat_list = entity_data[_id]["FEATURES"].get(ftype_code)
                 if feat_list:
                     feat_row.append(self.fmt_why_features(why_key, feat_list, **kwargs))
@@ -2443,14 +2446,17 @@ class EdaSdkWrapper:
         return self.why_display(entities, **kwargs)
 
     def why_records(self, entity_list, **kwargs):
-        whyFlagList = [
-            "SZ_WHY_ENTITIES_DEFAULT_FLAGS",
+        why_flag_list = [
+            "SZ_ENTITY_DEFAULT_FLAGS",
+            "SZ_ENTITY_INCLUDE_INTERNAL_FEATURES",
+            "SZ_ENTITY_INCLUDE_FEATURE_STATS",
+            "SZ_INCLUDE_FEATURE_SCORES",
             "SZ_ENTITY_INCLUDE_RECORD_FEATURES",
             "SZ_INCLUDE_MATCH_KEY_DETAILS",
         ]
         try:
             parms = [entity_list[0], entity_list[1], entity_list[2], entity_list[3]]
-            json_data = self.call_sdk("why_records", whyFlagList, parms)
+            json_data = self.call_sdk("why_records", why_flag_list, parms)
         except SzError as err:
             raise err from err
 
@@ -2502,7 +2508,13 @@ class EdaSdkWrapper:
     def why_not(self, entity_list, **kwargs):
         entity_list = [int(x) for x in entity_list]
 
-        why_flag_list = ["SZ_WHY_ENTITIES_DEFAULT_FLAGS", "SZ_INCLUDE_MATCH_KEY_DETAILS"]
+        why_flag_list = [
+            "SZ_ENTITY_DEFAULT_FLAGS",
+            "SZ_ENTITY_INCLUDE_INTERNAL_FEATURES",
+            "SZ_ENTITY_INCLUDE_FEATURE_STATS",
+            "SZ_INCLUDE_FEATURE_SCORES",
+            "SZ_INCLUDE_MATCH_KEY_DETAILS",
+        ]
         try:
             parms = [entity_list[0], entity_list[1]]
             json_data = self.call_sdk("why_entities", why_flag_list, parms)
@@ -3402,6 +3414,153 @@ class EdaCmd(cmd.Cmd):
         arg_str = " ".join(remaining_tokens)
         return arg_str, kwarg_dict
 
+    def help_feature_search(self):
+        print(
+            textwrap.dedent(
+                f"""\
+
+        finds entities by feature description or id
+
+        {colorize('Syntax:', 'highlight2')}
+            featureSearch id = 123
+            featureSearch address = 123 first str
+            featureSearch name like anderson
+
+        {colorize('Warning:', 'bad')}
+            featureSearch is intended to be used during smallish POCs to help find entities by feature ID or description when they are not returned by search.
+            featureSearch can take a long time and return a lot of entities!
+
+        """
+            )
+        )
+
+    def do_feature_search(self, arg):
+        if not arg:
+            self.help_feature_search()
+            return
+        if not sz_dbo:
+            print_message("Direct database access required", "error")
+            return
+
+        arg = arg.replace("=", " = ")
+        ftype = operator = value = ""
+        for token in arg.split():
+            if not ftype:
+                ftype = token.upper()
+            elif not operator:
+                operator = token.upper()
+            else:
+                value += token + " "
+        value = value.strip()
+
+        if not ftype or not operator or not value:
+            print_message("Invalid syntax", "error")
+            return
+
+        if operator not in ("=", "LIKE"):
+            print_message('Operator can only be "=" or "like"', "error")
+            return
+
+        feat_select = "select LIB_FEAT_ID, FTYPE_ID, FEAT_DESC from LIB_FEAT "
+        stat_select = "select NUM_RES_ENT, NUM_RES_ENT_OOM, CANDIDATE_CAP_REACHED, SCORING_CAP_REACHED FROM RES_FEAT_STAT WHERE LIB_FEAT_ID = "
+
+        if ftype == "ID":
+            feat_select += f"where LIB_FEAT_ID = {value}"
+        elif ftype in sdk_wrapper.ftype_code_lookup:
+            ftype_id = sdk_wrapper.ftype_code_lookup[ftype]["FTYPE_ID"]
+            if operator == "LIKE":
+                if sz_dbo_uri.startswith("postgres"):
+                    operator = "ILIKE"  # makes case insensitive
+                elif sz_dbo_uri.startswith("sqlite"):
+                    sz_dbo.sqlExec("PRAGMA case_sensitive_like=OFF")
+                if "%" not in value:
+                    value = "%" + value + "%"
+            feat_select += f"where FTYPE_ID = {ftype_id} and FEAT_DESC {operator} '{value}'"
+        else:
+            print_message(f"{ftype} is not a feature", "error")
+            return
+
+        # print(feat_select)
+
+        tbl = eda_table()
+        tbl.columns = [
+            {"name": "\nID", "width": 5, "align": "center"},
+            {"name": "\nFeature", "width": 25, "align": "center"},
+            {"name": "\nDescription", "width": 75, "align": "left"},
+            {"name": "Estimated\nCount", "width": 10, "align": "center"},
+            {"name": "Generic\nCandidate", "width": 20, "align": "center"},
+            {"name": "Generic\nScoring", "width": 20, "align": "center"},
+        ]
+        tbl.rows = []
+        feat_cache = {}
+        feat_count = 0
+        for row in sz_dbo.fetchAllRows(sz_dbo.sqlExec(feat_select)):
+            feat_count += 1
+            feat_id = row[0]
+            ftype = sdk_wrapper.ftype_lookup[row[1]]["FTYPE_CODE"]
+            feat_desc = row[2]
+            feat_cache[feat_id] = feat_desc
+
+            stat_row = sz_dbo.fetchRow(sz_dbo.sqlExec(stat_select + f" {feat_id}"))
+            if not stat_row:
+                stat_row = [0, 0, "U", "U"]
+
+            tbl.rows.append(
+                [
+                    colorize(feat_id, "row_title"),
+                    colorize_attr(ftype),
+                    feat_desc,
+                    f"{stat_row[0] * stat_row[1]:,}",
+                    "Yes" if stat_row[2] == "Y" else "No",
+                    "Yes" if stat_row[3] == "Y" else "No",
+                ]
+            )
+
+        if feat_count == 0:
+            print_message("No features Found!", "error")
+            return
+
+        tbl.title = f"{feat_count:,} Features found"
+        report = tbl.render_table(super_header=True)
+
+        tbl1 = eda_table()
+        tbl1.columns = [
+            {"name": "Index", "width": 5, "align": "center"},
+            {"name": "Entity ID", "width": 15, "align": "center"},
+            {"name": "Entity Name", "width": 75, "align": "left"},
+            {"name": "Data Sources", "width": 50, "align": "left"},
+            {"name": "Feature", "width": 25, "align": "left"},
+            {"name": "Description", "width": 75, "align": "left"},
+        ]
+        get_flag_list = ["SZ_ENTITY_INCLUDE_ENTITY_NAME", "SZ_ENTITY_INCLUDE_RECORD_DATA"]
+        entity_cnt = 0
+        entity_cache = {}
+        tbl1.rows = []
+        for lib_feat_id, feat_desc in feat_cache.items():
+            sql = f"select distinct RES_ENT_ID from RES_FEAT_EKEY where LIB_FEAT_ID = {lib_feat_id} order by RES_ENT_ID"
+            for row in sz_dbo.fetchAllRows(sz_dbo.sqlExec(sql)):
+                entity_id = row[0]
+                if entity_id in entity_cache:
+                    continue
+                entity_cache[entity_id] = True
+                entity_cnt += 1
+                if entity_cnt <= 1000:
+                    json_data = sdk_wrapper.call_sdk("get_entity_by_entity_id", get_flag_list, entity_id)
+                    entity_name = json_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
+                    tbl1.rows.append(
+                        [
+                            colorize(entity_cnt, "row_title"),
+                            colorize_entity(entity_id),
+                            entity_name,
+                            sdk_wrapper.fmt_record_list(json_data["RESOLVED_ENTITY"]["RECORDS"]),
+                            colorize_attr(ftype),
+                            feat_desc,
+                        ]
+                    )
+        tbl1.title = f"{entity_cnt:,} Entities found"
+        report += "\n" + tbl1.render_table()
+        view_report(report)
+
     def help_search(self):
         print(
             textwrap.dedent(
@@ -3721,17 +3880,17 @@ class EdaCmd(cmd.Cmd):
             return
 
         root_entity_id = None
-        build_out_degree = 1
-        max_children = 25
+        kwargs["build_out_degree"] = 1
+        kwargs["max_children"] = 25
         arg_list = arg.split()
         if arg_list[-1].upper() == "ALL":
-            max_children = 10000
+            kwargs["max_children"] = 10000
             arg_list.pop(-1)
         if len(arg_list) in (1, 3):
             if arg_list[0].isdigit():
                 root_entity_id = int(arg_list[0])
             if len(arg_list) == 3 and arg_list[1].upper() == "DEGREE" and arg_list[2].isdigit():
-                build_out_degree = int(arg_list[2])
+                kwargs["build_out_degree"] = int(arg_list[2])
         if not root_entity_id:
             print_message("Invalid parameter: expected a numeric entity ID", "warning")
             return
@@ -4070,7 +4229,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     try:
-        sz_dbo = SzDatabase(json.loads(engine_config)["SQL"]["CONNECTION"])
+        sz_dbo_uri = json.loads(engine_config)["SQL"]["CONNECTION"]
+        sz_dbo = SzDatabase(sz_dbo_uri)
     except Exception as err:
         print_message(err, "warning")
         sz_dbo = None
