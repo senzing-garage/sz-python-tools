@@ -170,9 +170,11 @@ cython_debug/
 
 .history
 
-# VSCode
-.vscode/
-
+# Visual Studio code
+.vscode/*
+!.vscode/cspell.json
+*.code-workspace
+.history
 
 # Mac hidden file for folders custom attributes
 .DS_Store

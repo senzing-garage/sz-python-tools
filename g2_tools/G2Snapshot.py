@@ -76,16 +76,12 @@ def setup_entity_queue_db(thread_id, threadStop, entity_queue, resume_queue):
         with shutDown.get_lock():
             shutDown.value = 1
         return
-    process_entity_queue_db(
-        thread_id, threadStop, entity_queue, resume_queue, local_dbo
-    )
+    process_entity_queue_db(thread_id, threadStop, entity_queue, resume_queue, local_dbo)
     local_dbo.close()
 
 
 # -------------------------------------
-def process_entity_queue_db(
-    thread_id, threadStop, entity_queue, resume_queue, local_dbo
-):
+def process_entity_queue_db(thread_id, threadStop, entity_queue, resume_queue, local_dbo):
     while threadStop.value == 0:  # or entity_queue.empty() == False:
         queue_data = queue_read(entity_queue)
         if queue_data:
@@ -163,7 +159,7 @@ def get_resume_db(local_dbo, resolved_id):
         resume_rows.append(rowData)
     # print('   fetching entities took %s seconds' % str(round(time.time() - queryStartTime,2)))
 
-    # abondoned hack to only count the ambiguous entity
+    # abandoned hack to only count the ambiguous entity
     # ambiguousCount = 0
     if resume_rows and relationshipFilter in (2, 3):
         # queryStartTime = time.time()
@@ -181,7 +177,7 @@ def get_resume_db(local_dbo, resolved_id):
             resume_rows.append(rowData)
         # print('   fetching relationships took %s seconds' % str(round(time.time() - queryStartTime,2)))
 
-    # abndoned hack to determine if this is an ambiguous entity
+    # abandoned hack to determine if this is an ambiguous entity
     # if ambiguousCount and len(local_dbo.fetchAllRows(local_dbo.sqlExec(sqlAmbiguous, [resolved_id, ]))) > 0:
     #    resume_rows[0]['IS_AMBIGUOUS'] = 1
 
@@ -266,11 +262,7 @@ def process_resume(statPack, resume_rows, csvFileHandle):
         relatedID = str(rowData["RELATED_ENTITY_ID"])
         dataSource = rowData["DATA_SOURCE"]
         recordID = rowData["RECORD_ID"]
-        principle = (
-            f"{rowData['ERRULE_ID']}: {rowData['ERRULE_CODE']}"
-            if rowData["ERRULE_ID"]
-            else ""
-        )
+        principle = f"{rowData['ERRULE_ID']}: {rowData['ERRULE_CODE']}" if rowData["ERRULE_ID"] else ""
         matchKey = rowData["MATCH_KEY"]
 
         if relatedID == "0":
@@ -315,22 +307,12 @@ def process_resume(statPack, resume_rows, csvFileHandle):
             resumeData[relatedID]["dataSources"][dataSource]["count"] += 1
 
         principle_matchkey = f"{principle}||{matchKey}"
-        if (
-            principle
-            and principle_matchkey
-            not in resumeData[relatedID]["dataSources"][dataSource]["principles"]
-        ):
-            resumeData[relatedID]["dataSources"][dataSource]["principles"].append(
-                principle_matchkey
-            )
+        if principle and principle_matchkey not in resumeData[relatedID]["dataSources"][dataSource]["principles"]:
+            resumeData[relatedID]["dataSources"][dataSource]["principles"].append(principle_matchkey)
 
         if relatedID == "0" and principle:
             statUpdate = {
-                "PRINCIPLES_USED": {
-                    matchCategory: {
-                        principle: {matchKey: {"COUNT": 1, "SAMPLE": [entityID]}}
-                    }
-                }
+                "PRINCIPLES_USED": {matchCategory: {principle: {matchKey: {"COUNT": 1, "SAMPLE": [entityID]}}}}
             }
             updateStatpack2(statPack, statUpdate, sampleSize, randomIndex)
 
@@ -347,9 +329,7 @@ def process_resume(statPack, resume_rows, csvFileHandle):
         statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"] = []
     statPack["TEMP_ESB_STATS"][str_entitySize]["COUNT"] += 1
     if len(statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"]) < sampleSize:
-        statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"].append(
-            {"ENTITY_SIZE": entitySize, "ENTITY_ID": entityID}
-        )
+        statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"].append({"ENTITY_SIZE": entitySize, "ENTITY_ID": entityID})
     elif entityID % 10 == 0 and randomIndex != 0:
         statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"][randomIndex] = {
             "ENTITY_SIZE": entitySize,
@@ -359,9 +339,7 @@ def process_resume(statPack, resume_rows, csvFileHandle):
     # update multi-source report
     if len(resumeData["0"]["dataSources"].keys()) > 1:
         multiSourceKey = "|".join(sorted(resumeData["0"]["dataSources"].keys()))
-        statUpdate = {
-            "MULTI_SOURCE": {multiSourceKey: {"COUNT": 1, "SAMPLE": [entityID]}}
-        }
+        statUpdate = {"MULTI_SOURCE": {multiSourceKey: {"COUNT": 1, "SAMPLE": [entityID]}}}
         updateStatpack2(statPack, statUpdate, sampleSize, randomIndex)
 
     # resolved entity stats
@@ -395,14 +373,10 @@ def process_resume(statPack, resume_rows, csvFileHandle):
         )
 
         # this just updates entity and record count for the data source
-        statPack = updateStatpack(
-            statPack, dataSource1, None, None, 1, recordCount, 0, None, randomIndex
-        )
+        statPack = updateStatpack(statPack, dataSource1, None, None, 1, recordCount, 0, None, randomIndex)
 
         if recordCount == 1:
-            statPack = updateStatpack(
-                statPack, dataSource1, None, "SINGLE", 1, 0, 0, entityID, randomIndex
-            )
+            statPack = updateStatpack(statPack, dataSource1, None, "SINGLE", 1, 0, 0, entityID, randomIndex)
         else:
             statPack = updateStatpack(
                 statPack,
@@ -422,17 +396,13 @@ def process_resume(statPack, resume_rows, csvFileHandle):
             if dataSource2 == dataSource1:
                 continue
             if len(resumeData["0"]["dataSources"][dataSource2]["principles"]) == 1:
-                principle_matchkey = resumeData["0"]["dataSources"][dataSource2][
-                    "principles"
-                ][0]
+                principle_matchkey = resumeData["0"]["dataSources"][dataSource2]["principles"][0]
             elif len(resumeData["0"]["dataSources"][dataSource2]["principles"]) > 1:
                 principle_matchkey = "multiple||multiple"
             elif (
                 len(resumeData["0"]["dataSources"][dataSource1]["principles"]) == 1
             ):  # maybe the matchkey is on data source1
-                principle_matchkey = resumeData["0"]["dataSources"][dataSource1][
-                    "principles"
-                ][0]
+                principle_matchkey = resumeData["0"]["dataSources"][dataSource1]["principles"][0]
             else:
                 principle_matchkey = None
                 # continue
@@ -456,9 +426,7 @@ def process_resume(statPack, resume_rows, csvFileHandle):
             matchCategory = resumeData[relatedID]["matchCategory"]
             # statPack[categoryTotalStat[matchCategory]] += 1
             for dataSource2 in resumeData[relatedID]["dataSources"]:
-                principle_matchkey = resumeData[relatedID]["dataSources"][dataSource2][
-                    "principles"
-                ][0]
+                principle_matchkey = resumeData[relatedID]["dataSources"][dataSource2]["principles"][0]
                 # commented out to use target entity's record count
                 # recordCount = resumeData[relatedID]['dataSources'][dataSource2]
                 if dataSource2 == dataSource1:
@@ -534,10 +502,7 @@ def updateStatpack(
 
     if dataSource1 not in statPack["DATA_SOURCES"]:
         statPack = initDataSourceStats(statPack, dataSource1)
-    if (
-        dataSource2
-        and dataSource2 not in statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"]
-    ):
+    if dataSource2 and dataSource2 not in statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"]:
         statPack = initDataSourceStats(statPack, dataSource1, dataSource2)
 
     # special case for entity/record count at the data source level with no sample value
@@ -551,37 +516,21 @@ def updateStatpack(
         if recordCount == 0:  # --this is for single count
             statPack["DATA_SOURCES"][dataSource1][statPrefix + "_COUNT"] += entityCount
         else:
-            statPack["DATA_SOURCES"][dataSource1][
-                statPrefix + "_ENTITY_COUNT"
-            ] += entityCount
-            statPack["DATA_SOURCES"][dataSource1][
-                statPrefix + "_RECORD_COUNT"
-            ] += recordCount
+            statPack["DATA_SOURCES"][dataSource1][statPrefix + "_ENTITY_COUNT"] += entityCount
+            statPack["DATA_SOURCES"][dataSource1][statPrefix + "_RECORD_COUNT"] += recordCount
         if relationCount:
-            statPack["DATA_SOURCES"][dataSource1][
-                statPrefix + "_RELATION_COUNT"
-            ] += relationCount
+            statPack["DATA_SOURCES"][dataSource1][statPrefix + "_RELATION_COUNT"] += relationCount
 
-        if (
-            len(statPack["DATA_SOURCES"][dataSource1][statPrefix + "_SAMPLE"])
-            < sampleSize
-        ):
-            statPack["DATA_SOURCES"][dataSource1][statPrefix + "_SAMPLE"].append(
-                sampleValue
-            )
+        if len(statPack["DATA_SOURCES"][dataSource1][statPrefix + "_SAMPLE"]) < sampleSize:
+            statPack["DATA_SOURCES"][dataSource1][statPrefix + "_SAMPLE"].append(sampleValue)
         elif randomIndex != 0:
-            statPack["DATA_SOURCES"][dataSource1][statPrefix + "_SAMPLE"][
-                randomIndex
-            ] = sampleValue
+            statPack["DATA_SOURCES"][dataSource1][statPrefix + "_SAMPLE"][randomIndex] = sampleValue
 
         if principle_matchkey:
             p, m = principle_matchkey.split("||")
             statUpdate = {
                 "DATA_SOURCES": {
-                    dataSource1: {
-                        statPrefix
-                        + "_PRINCIPLES": {p: {m: {"COUNT": 1, "SAMPLE": [sampleValue]}}}
-                    }
+                    dataSource1: {statPrefix + "_PRINCIPLES": {p: {m: {"COUNT": 1, "SAMPLE": [sampleValue]}}}}
                 }
             }
             updateStatpack2(statPack, statUpdate, sampleSize, randomIndex)
@@ -589,9 +538,7 @@ def updateStatpack(
     # across data sources
     else:
         if recordCount == 0:
-            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][
-                statPrefix + "_COUNT"
-            ] += entityCount
+            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][statPrefix + "_COUNT"] += entityCount
         else:
             statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][
                 statPrefix + "_ENTITY_COUNT"
@@ -604,20 +551,16 @@ def updateStatpack(
                 statPrefix + "_RELATION_COUNT"
             ] += relationCount
         if (
-            len(
-                statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][
-                    statPrefix + "_SAMPLE"
-                ]
-            )
+            len(statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][statPrefix + "_SAMPLE"])
             < sampleSize
         ):
-            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][
-                statPrefix + "_SAMPLE"
-            ].append(sampleValue)
+            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][statPrefix + "_SAMPLE"].append(
+                sampleValue
+            )
         elif randomIndex != 0:
-            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][
-                statPrefix + "_SAMPLE"
-            ][randomIndex] = sampleValue
+            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][statPrefix + "_SAMPLE"][
+                randomIndex
+            ] = sampleValue
 
         if principle_matchkey:
             p, m = principle_matchkey.split("||")
@@ -625,12 +568,7 @@ def updateStatpack(
                 "DATA_SOURCES": {
                     dataSource1: {
                         "CROSS_MATCHES": {
-                            dataSource2: {
-                                statPrefix
-                                + "_PRINCIPLES": {
-                                    p: {m: {"COUNT": 1, "SAMPLE": [sampleValue]}}
-                                }
-                            }
+                            dataSource2: {statPrefix + "_PRINCIPLES": {p: {m: {"COUNT": 1, "SAMPLE": [sampleValue]}}}}
                         }
                     }
                 }
@@ -689,19 +627,11 @@ def initDataSourceStats(statPack, dataSource1, dataSource2=None):
             "POSSIBLY_RELATED",
             "DISCLOSED_RELATION",
         ]:
-            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][
-                statType + "_ENTITY_COUNT"
-            ] = 0
-            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][
-                statType + "_RECORD_COUNT"
-            ] = 0
-            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][
-                statType + "_SAMPLE"
-            ] = []
+            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][statType + "_ENTITY_COUNT"] = 0
+            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][statType + "_RECORD_COUNT"] = 0
+            statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][statType + "_SAMPLE"] = []
             if statType != "MATCH":
-                statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][
-                    statType + "_RELATION_COUNT"
-                ] = 0
+                statPack["DATA_SOURCES"][dataSource1]["CROSS_MATCHES"][dataSource2][statType + "_RELATION_COUNT"] = 0
     return statPack
 
 
@@ -711,9 +641,7 @@ def writeCsvRecord(csvData, csvFileHandle):
     columnValues.append(str(csvData["RESOLVED_ENTITY_ID"]))
     columnValues.append(str(csvData["RELATED_ENTITY_ID"]))
     columnValues.append(str(csvData["MATCH_LEVEL"]))
-    columnValues.append(
-        '"' + (csvData["MATCH_KEY"][1:] if csvData["MATCH_KEY"] else "") + '"'
-    )
+    columnValues.append('"' + (csvData["MATCH_KEY"][1:] if csvData["MATCH_KEY"] else "") + '"')
     columnValues.append('"' + csvData["DATA_SOURCE"] + '"')
     columnValues.append('"' + csvData["RECORD_ID"] + '"')
     try:
@@ -735,9 +663,7 @@ def processEntities(threadCount):
             logical_cores = g2Diag.getLogicalCores()
             calc_cores_factor = 4  # if physical_cores != logical_cores else 1.2
             threadCount = math.ceil(logical_cores * calc_cores_factor)
-            print(
-                f"\nPhysical cores: {logical_cores}, logical cores: {logical_cores}, default threads: {threadCount}"
-            )
+            print(f"\nPhysical cores: {logical_cores}, logical cores: {logical_cores}, default threads: {threadCount}")
         except G2Exception as err:
             print("\n%s\n" % str(err))
             shutDown.value = 1
@@ -752,17 +678,12 @@ def processEntities(threadCount):
         if "PROCESS" in statPack:
             priorStatus = statPack["PROCESS"]["STATUS"]
             lastEntityID = (
-                statPack["PROCESS"]["LAST_ENTITY_ID"]
-                if type(statPack["PROCESS"]["LAST_ENTITY_ID"]) == int
-                else 0
+                statPack["PROCESS"]["LAST_ENTITY_ID"] if type(statPack["PROCESS"]["LAST_ENTITY_ID"]) == int else 0
             )
         else:
             priorStatus = "Unknown"
             lastEntityID = 0
-        print(
-            "\n%s snapshot file exists with %s entities processed!"
-            % (priorStatus, statPack["TOTAL_ENTITY_COUNT"])
-        )
+        print("\n%s snapshot file exists with %s entities processed!" % (priorStatus, statPack["TOTAL_ENTITY_COUNT"]))
 
         if quietOn:
             print("PRIOR FILES WILL BE OVERWRITTEN\n")
@@ -786,9 +707,7 @@ def processEntities(threadCount):
         statPack = initializeStatPack()
 
     if not datasourceFilter:
-        maxEntityId = g2Dbo.fetchRow(
-            g2Dbo.sqlExec("select max(RES_ENT_ID) from RES_ENT")
-        )[0]
+        maxEntityId = g2Dbo.fetchRow(g2Dbo.sqlExec("select max(RES_ENT_ID) from RES_ENT"))[0]
         sql0 = "select RES_ENT_ID from RES_ENT where RES_ENT_ID between ? and ?"
     else:
         print(
@@ -814,8 +733,7 @@ def processEntities(threadCount):
             " a.RES_ENT_ID "
             "from RES_ENT_OKEY a "
             "join OBS_ENT b on b.OBS_ENT_ID = a.OBS_ENT_ID "
-            "where a.RES_ENT_ID between ? and ? and b.DSRC_ID = "
-            + str(datasourceFilterID)
+            "where a.RES_ENT_ID between ? and ? and b.DSRC_ID = " + str(datasourceFilterID)
         )
 
     if not maxEntityId:
@@ -835,11 +753,7 @@ def processEntities(threadCount):
     print(f"starting {threadCount} threads ...")
     process_list = []
 
-    process_list.append(
-        Process(
-            target=setup_resume_queue, args=(statPack, 99, threadStop, resume_queue)
-        )
-    )
+    process_list.append(Process(target=setup_resume_queue, args=(statPack, 99, threadStop, resume_queue)))
     for thread_id in range(threadCount - 1):
         process_list.append(
             Process(
@@ -861,13 +775,8 @@ def processEntities(threadCount):
         if not datasourceFilter:
             print("Getting entities from %s to %s ..." % (begEntityId, endEntityId))
         else:
-            print(
-                "Getting entities from %s to %s with %s records ..."
-                % (begEntityId, endEntityId, datasourceFilter)
-            )
-        entity_rows = g2Dbo.fetchAllRows(
-            g2Dbo.sqlExec(sql0, (begEntityId, endEntityId))
-        )
+            print("Getting entities from %s to %s with %s records ..." % (begEntityId, endEntityId, datasourceFilter))
+        entity_rows = g2Dbo.fetchAllRows(g2Dbo.sqlExec(sql0, (begEntityId, endEntityId)))
 
         if entity_rows:
             last_row_entity_id = entity_rows[len(entity_rows) - 1][0]
@@ -878,10 +787,7 @@ def processEntities(threadCount):
             # status display
             entityCount += 1
             batchEntityCount += 1
-            if (
-                entityCount % progressInterval == 0
-                or entity_row[0] == last_row_entity_id
-            ):
+            if entityCount % progressInterval == 0 or entity_row[0] == last_row_entity_id:
                 threadsRunning = 0
                 for process in process_list:
                     if process.is_alive():
@@ -890,24 +796,11 @@ def processEntities(threadCount):
                 now = datetime.now().strftime("%I:%M%p").lower()
                 elapsedMins = round((time.time() - procStartTime) / 60, 1)
                 eps = int(
-                    float(entityCount)
-                    / (
-                        float(
-                            time.time() - procStartTime
-                            if time.time() - procStartTime != 0
-                            else 1
-                        )
-                    )
+                    float(entityCount) / (float(time.time() - procStartTime if time.time() - procStartTime != 0 else 1))
                 )
                 eps2 = int(
                     float(batchEntityCount)
-                    / (
-                        float(
-                            time.time() - batchStartTime
-                            if time.time() - batchStartTime != 0
-                            else 1
-                        )
-                    )
+                    / (float(time.time() - batchStartTime if time.time() - batchStartTime != 0 else 1))
                 )
                 print(
                     "%s entities processed at %s after %s minutes, %s / %s per second, %s processes, %s entity queue, %s resume queue"
@@ -928,7 +821,7 @@ def processEntities(threadCount):
             # get out if errors hit or out of records
             if shutDown.value:
                 if shutDown.value == 9:
-                    print("USER INTERUPT! Shutting down ... ")
+                    print("USER INTERRUPT! Shutting down ... ")
                 break
 
         # get out if errors hit
@@ -1058,9 +951,7 @@ def write_stat_pack(statPack, statData):
     statPack["PROCESS"]["QUEUES"] = "empty" if queuesEmpty else "NOT EMPTY!"
     statPack["PROCESS"]["END_TIME"] = datetime.now().strftime("%m/%d/%Y %H:%M:%S")
 
-    diff = datetime.now() - datetime.strptime(
-        statPack["PROCESS"]["START_TIME"], "%m/%d/%Y %H:%M:%S"
-    )
+    diff = datetime.now() - datetime.strptime(statPack["PROCESS"]["START_TIME"], "%m/%d/%Y %H:%M:%S")
     days, seconds = diff.days, diff.seconds
     hours = days * 24 + seconds // 3600
     minutes = (seconds % 3600) // 60
@@ -1071,14 +962,7 @@ def write_stat_pack(statPack, statData):
         statPack["TOTAL_COMPRESSION"] = (
             str(
                 round(
-                    100.00
-                    - (
-                        (
-                            float(statPack["TOTAL_ENTITY_COUNT"])
-                            / float(statPack["TOTAL_RECORD_COUNT"])
-                        )
-                        * 100.00
-                    ),
+                    100.00 - ((float(statPack["TOTAL_ENTITY_COUNT"]) / float(statPack["TOTAL_RECORD_COUNT"])) * 100.00),
                     2,
                 )
             )
@@ -1092,9 +976,7 @@ def write_stat_pack(statPack, statData):
                     - (
                         (
                             float(statPack["DATA_SOURCES"][dataSource]["ENTITY_COUNT"])
-                            / float(
-                                statPack["DATA_SOURCES"][dataSource]["RECORD_COUNT"]
-                            )
+                            / float(statPack["DATA_SOURCES"][dataSource]["RECORD_COUNT"])
                         )
                         * 100.00
                     ),
@@ -1146,9 +1028,7 @@ def processEntitiesAPIOnly():
     if relationshipFilter == 1:
         pass  # --don't include any relationships
     elif relationshipFilter == 2:
-        exportFlags = (
-            exportFlags | G2EngineFlags.G2_ENTITY_INCLUDE_POSSIBLY_SAME_RELATIONS
-        )
+        exportFlags = exportFlags | G2EngineFlags.G2_ENTITY_INCLUDE_POSSIBLY_SAME_RELATIONS
     else:
         exportFlags = exportFlags | G2EngineFlags.G2_ENTITY_INCLUDE_ALL_RELATIONS
 
@@ -1164,9 +1044,7 @@ def processEntitiesAPIOnly():
         "RECORD_ID",
     ]
     try:
-        exportHandle = g2Engine.exportCSVEntityReport(
-            ",".join(exportFields), exportFlags
-        )
+        exportHandle = g2Engine.exportCSVEntityReport(",".join(exportFields), exportFlags)
         exportHeaders = nextExportRecord(exportHandle)
     except G2Exception as err:
         print("\n%s\n" % str(err))
@@ -1202,13 +1080,7 @@ def processEntitiesAPIOnly():
             elapsedMins = round((time.time() - procStartTime) / 60, 1)
             eps = int(
                 float(entityCount)
-                / (
-                    float(
-                        time.time() - processStartTime
-                        if time.time() - processStartTime != 0
-                        else 1
-                    )
-                )
+                / (float(time.time() - processStartTime if time.time() - processStartTime != 0 else 1))
             )
             print(f" {entityCount} entities processed at {now}, {eps} per second")
 
@@ -1235,9 +1107,7 @@ def calculateESBStats():
         if str_entitySize == "1":
             continue
         for i in range(len(statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"])):
-            entity_id = statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"][i][
-                "ENTITY_ID"
-            ]
+            entity_id = statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"][i]["ENTITY_ID"]
             esb_entities.append([str_entitySize, i, entity_id])
 
     print(f"Reviewing {len(esb_entities)} entities ...")
@@ -1260,37 +1130,24 @@ def calculateESBStats():
                 for esb_data in itertools.islice(esb_entities, 0, executor._max_workers)
             }
         else:
-            futures = {
-                executor.submit(get_entity_features, g2Engine, esb_data): esb_data
-                for esb_data in esb_entities
-            }
+            futures = {executor.submit(get_entity_features, g2Engine, esb_data): esb_data for esb_data in esb_entities}
 
         while futures:
-            done, futures = concurrent.futures.wait(
-                futures, return_when=concurrent.futures.FIRST_COMPLETED
-            )
+            done, futures = concurrent.futures.wait(futures, return_when=concurrent.futures.FIRST_COMPLETED)
             for fut in done:
                 result = fut.result()
                 if result:
                     str_entitySize = result[0]
                     i = result[1]
-                    statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"][i].update(
-                        result[2]
-                    )
+                    statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"][i].update(result[2])
                     if test_type == 1:
-                        print(
-                            statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"][i][
-                                "ENTITY_ID"
-                            ]
-                        )
+                        print(statPack["TEMP_ESB_STATS"][str_entitySize]["SAMPLE"][i]["ENTITY_ID"])
                 cnt += 1
                 if cnt % 1000 == 0:
                     print(f"{cnt} entities processed")
             if test_type == 1:
                 for esb_data in itertools.islice(esb_entities, len(done)):
-                    futures.add(
-                        executor.submit(get_entity_features, g2Engine, esb_data)
-                    )
+                    futures.add(executor.submit(get_entity_features, g2Engine, esb_data))
 
     print(f"{cnt} entities processed, done!")
 
@@ -1336,34 +1193,26 @@ if __name__ == "__main__":
     procStartTime = time.time()
     progressInterval = 10000
 
-    outputFileRoot = (
-        os.getenv("SENZING_OUTPUT_FILE_ROOT")
-        if os.getenv("SENZING_OUTPUT_FILE_ROOT", None)
-        else None
-    )
+    outputFileRoot = os.getenv("SENZING_OUTPUT_FILE_ROOT") if os.getenv("SENZING_OUTPUT_FILE_ROOT", None) else None
     sampleSize = (
         int(os.getenv("SENZING_SAMPLE_SIZE"))
-        if os.getenv("SENZING_SAMPLE_SIZE", None)
-        and os.getenv("SENZING_SAMPLE_SIZE").isdigit()
+        if os.getenv("SENZING_SAMPLE_SIZE", None) and os.getenv("SENZING_SAMPLE_SIZE").isdigit()
         else 1000
     )
     datasourceFilter = os.getenv("SENZING_DATASOURCE_FILTER", None)
     relationshipFilter = (
         int(os.getenv("SENZING_RELATIONSHIP_FILTER"))
-        if os.getenv("SENZING_RELATIONSHIP_FILTER", None)
-        and os.getenv("SENZING_RELATIONSHIP_FILTER").isdigit()
+        if os.getenv("SENZING_RELATIONSHIP_FILTER", None) and os.getenv("SENZING_RELATIONSHIP_FILTER").isdigit()
         else 3
     )
     chunkSize = (
         int(os.getenv("SENZING_CHUNK_SIZE"))
-        if os.getenv("SENZING_CHUNK_SIZE", None)
-        and os.getenv("SENZING_CHUNK_SIZE").isdigit()
+        if os.getenv("SENZING_CHUNK_SIZE", None) and os.getenv("SENZING_CHUNK_SIZE").isdigit()
         else 1000000
     )
     threadCount = (
         int(os.getenv("SENZING_THREAD_COUNT"))
-        if os.getenv("SENZING_THREAD_COUNT", None)
-        and os.getenv("SENZING_THREAD_COUNT").isdigit()
+        if os.getenv("SENZING_THREAD_COUNT", None) and os.getenv("SENZING_THREAD_COUNT").isdigit()
         else 0
     )
 
@@ -1392,7 +1241,7 @@ if __name__ == "__main__":
     argParser.add_argument(
         "-d",
         "--datasource_filter",
-        help="data source code to analayze, defaults to all",
+        help="data source code to analyze, defaults to all",
     )
     argParser.add_argument(
         "-f",
@@ -1525,9 +1374,7 @@ if __name__ == "__main__":
 
     # check the output file
     if not outputFileRoot:
-        print(
-            "\nPlease use -o to select and output path and root file name such as /project/audit/snap1\n"
-        )
+        print("\nPlease use -o to select and output path and root file name such as /project/audit/snap1\n")
         sys.exit(1)
     if os.path.splitext(outputFileRoot)[1] == ".json":
         outputFileRoot = os.path.splitext(outputFileRoot)[0]
