@@ -664,7 +664,7 @@ class G2CmdShell(cmd.Cmd):
 
     # ---------------------------
     def get_names(self):
-        """hides functions from available list of Commands. Seperate help sections for some"""
+        """hides functions from available list of Commands. Separate help sections for some"""
         return [n for n in dir(self.__class__) if n not in self.__hidden_methods]
 
     def completenames(self, text, *ignored):
@@ -940,12 +940,12 @@ class G2CmdShell(cmd.Cmd):
             self.current_settings["snapshotFile"] = statpackFileName
             self.snapshotFile = statpackFileName
             self.snapshotData = jsonData
-            print_message(f"sucessfully loaded {statpackFileName}", "info")
+            print_message(f"successfully loaded {statpackFileName}", "info")
         elif "SOURCE" in jsonData and jsonData["SOURCE"] in ("G2Audit"):  # 'pocAudit',
             self.current_settings["auditFile"] = statpackFileName
             self.auditFile = statpackFileName
             self.auditData = jsonData
-            print_message(f"sucessfully loaded {statpackFileName}", "info")
+            print_message(f"successfully loaded {statpackFileName}", "info")
         else:
             print_message("Invalid G2Explorer statistics file", "error")
 
@@ -1263,7 +1263,7 @@ class G2CmdShell(cmd.Cmd):
                     ][subCategory]["SAMPLE"]:
                         tableColumns, tableData = self.showAuditSample(
                             sampleRecords, None
-                        )  # 2nd parmater cuts out colorize for save to file
+                        )  # 2nd parameter cuts out colorize for save to file
                         recordHeaders = []
                         for columnDict in tableColumns:
                             columnName = columnDict["name"].lower()
@@ -1932,7 +1932,7 @@ class G2CmdShell(cmd.Cmd):
     def do_multiSourceSummary(self, arg):
         if not self.snapshotData or not self.snapshotData.get("MULTI_SOURCE"):
             print_message(
-                "Please create a new shopshot with the latest G2Snapshot.py to access this report",
+                "Please create a new snapshot with the latest G2Snapshot.py to access this report",
                 "error",
             )
             return
@@ -2162,7 +2162,7 @@ class G2CmdShell(cmd.Cmd):
 
         if not self.snapshotData or not self.snapshotData.get("PRINCIPLES_USED"):
             print_message(
-                "Please create a new shopshot with the latest G2Snapshot.py to access this report",
+                "Please create a new snapshot with the latest G2Snapshot.py to access this report",
                 "error",
             )
             return
@@ -4457,7 +4457,7 @@ class G2CmdShell(cmd.Cmd):
             textwrap.dedent(
                 f"""\
 
-        Shows the interal values and scores used to determine why a set of records resolved or only related.
+        Shows the internal values and scores used to determine why a set of records resolved or only related.
 
         {colorize('Syntax:', 'highlight2')}
             why <entity_id1>                                            {colorize('shows why the records in a single entity resolved together', 'dim')}
@@ -4575,7 +4575,7 @@ class G2CmdShell(cmd.Cmd):
                         key=lambda k: k["entityId"],
                     )
                 ]:
-                    if len(entityList) <= 2:  # supress to entity if only 2
+                    if len(entityList) <= 2:  # suppress to entity if only 2
                         del relationship["entityId"]
                     relationList.append(colorize_match_data(relationship))
                 crossRelationsRow.append("\n".join(relationList))
@@ -4599,7 +4599,7 @@ class G2CmdShell(cmd.Cmd):
                 ]:
                     if (
                         "entityId" in whyKey and len(entityList) <= 2
-                    ):  # supress to entity if only 2
+                    ):  # suppress to entity if only 2
                         del whyKey["entityId"]
                     tempList.append(colorize_match_data(whyKey))
                 matchKeyRow.append("\n".join(tempList))
@@ -5269,7 +5269,7 @@ class G2CmdShell(cmd.Cmd):
                     featureData["featColor"],
                 )
 
-        elif "matchScore" in featureData:  # must be same and likley a candidate builder
+        elif "matchScore" in featureData:  # must be same and likely a candidate builder
             featureData["sortOrder"] = 1
             featureData["featColor"] = "highlight2" + (",dim" if dimmit else "")
             featureData["formattedFeatDesc1"] = featureData["formattedFeatDesc"]
@@ -5499,7 +5499,7 @@ class G2CmdShell(cmd.Cmd):
                 how {entity_id} formatted  {colorize('shows the matching features in a table', 'dim')}
 
             {colorize('How to read:', 'highlight2')}
-                A how report documents each step of the resoution process for an entity so if
+                A how report documents each step of the resolution process for an entity so if
                 an entity has 100s records there will be 100s of steps. Each step will either
                 create a virtual entity, add to it or combine it with other virtual entities
                 that were created created along the way.
@@ -6640,7 +6640,7 @@ class G2CmdShell(cmd.Cmd):
         # a member is an obs_ent, despite how many records it has
         if len(raw_virtual_entity_data["MEMBER_RECORDS"]) == 1:
             additional_note = ""
-            if virtual_entity_data["record_count"] > 1:  # its got addtional pure dupes
+            if virtual_entity_data["record_count"] > 1:  # its got additional pure dupes
                 additional_note = colorize(
                     " +" + str(virtual_entity_data["record_count"] - 1) + " pure dupes",
                     "dim",
@@ -7215,7 +7215,7 @@ class G2CmdShell(cmd.Cmd):
         else:
             self.currentRenderString = self.currentRenderString + fmtTableString
 
-        # display if a single table or done acculating tables to display
+        # display if a single table or done accumulating tables to display
         if not displayFlag or displayFlag == "end":
             print("")
             self.showReport("auto")
