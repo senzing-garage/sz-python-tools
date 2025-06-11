@@ -369,7 +369,7 @@ class SnapshotWriter:
             "TOTALS": {"ENTITY_COUNT": 0, "RECORD_COUNT": 0},
             "DATA_SOURCES": {},
             "CROSS_SOURCES": {},
-            "MULTI_SOURCES": {},
+            "ENTITY_SOURCES": {},
             "ENTITY_SIZES": {},
         }
         self.initialize_match_levels(["TOTALS"])
@@ -482,7 +482,7 @@ class SnapshotWriter:
                 # if len(entity0_sources) > 1:
                 # include single source so can find non-matches, ie customers not on watch list or in reference file
                 multi_source_key = "||".join(sorted(entity0_sources.keys()))
-                self.update_stat_pack(["MULTI_SOURCES", multi_source_key], {"ENTITY_COUNT": 1, "SAMPLE": [entity_id]})
+                self.update_stat_pack(["ENTITY_SOURCES", multi_source_key], {"ENTITY_COUNT": 1, "SAMPLE": [entity_id]})
             elif related_id > entity_id:
                 sample = f"{entity_id} {related_id}"
                 principle_matchkey = list(resume_data[related_id]["PRINCIPLES"].keys())[0]
