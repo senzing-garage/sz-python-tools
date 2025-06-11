@@ -510,10 +510,11 @@ def check_stat_pack(stats_file_name, csv_file_name, args):
     abort = False
     stat_pack = json.load(open(stats_file_name))
     prior_status = "unknown"
-    entity_count = 0
+    entity_count = "?"
     if stat_pack.get("PROCESS"):
         prior_status = stat_pack["PROCESS"]["STATUS"]
-        entity_count = stat_pack["TOTALS"]["ENTITY_COUNT"]
+    if stat_pack.get("TOTALS"):
+        entity_count = stat_pack["TOTALS"].get("ENTITY_COUNT", "?")
     print(f"\n{prior_status} snapshot file exists with {entity_count} entities processed!")
     if args.quiet:
         print("PRIOR FILES WILL BE OVERWRITTEN")
