@@ -2737,9 +2737,10 @@ class EdaSdkWrapper:
                 result_id_str = colorize_entity(result_id)
                 step_node.node_desc = f"Step {step_num}: {step_desc} on {match_key_desc} to create {result_id_str}"
                 step_node.node_text = self.how_tree_display(steps[step_num], **kwargs)
+                step_node.step_created = step_num
                 current_node.add_child(step_node)
                 if step_data["STEP_TYPE"] == "Combine virtual entities":
-                    current_node.children = sorted(current_node.children, key=lambda k: k.step_created)
+                    # current_node.children = sorted(current_node.children, key=lambda k: k.step_created)
                     parent_nodes.pop()  # done with this parent
                     for virtual_entity in steps[step_num]["ENTITY_LIST"]:
                         interim_id = virtual_entity["VIRTUAL_ID"]
@@ -2750,7 +2751,7 @@ class EdaSdkWrapper:
                         parent_nodes.append(interim_node)
                     break
                 if step_data["STEP_TYPE"] == "Create virtual entity":
-                    current_node.children = sorted(current_node.children, key=lambda k: k.node_desc)
+                    # current_node.children = sorted(current_node.children, key=lambda k: k.node_desc)
                     parent_nodes.pop()  # end of the line
                     break
                 else:  # its an add record to virtual ID
@@ -2761,7 +2762,7 @@ class EdaSdkWrapper:
             root_node = root_node.children[0]
         else:
             ordered_nodes = []
-            for node in sorted(root_node.children, key=lambda k: k.step_created):
+            for node in root_node.children:  # sorted(root_node.children, key=lambda k: k.step_created):
                 node.node_desc += f" {len(ordered_nodes)+1} of {len(final_entities)}"
                 if len(node.children) == 0:
                     node.node_desc += " was orphaned!"
@@ -4228,8 +4229,8 @@ if __name__ == "__main__":
     engine_config = get_engine_config(args.config_file_name)
     try:
         sdk_wrapper = EdaSdkWrapper(engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url)
-    except SzError:
-        print_exception()
+    except SzError as ex:
+        print_message(ex, "error")
         sys.exit(1)
 
     try:
