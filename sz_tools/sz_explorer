@@ -2704,7 +2704,7 @@ class EdaSdkWrapper:
         if len(final_entities) == 1:
             root_node.node_desc = "n/a"
         else:
-            root_node.node_desc = colorize("Re-evalution needed! ", "bad")
+            root_node.node_desc = colorize("Re-evaluation needed! ", "bad")
         for final_entity in final_entities:
             final_id = final_entity["VIRTUAL_ENTITY_ID"]
             if len(final_entities) == 1:

@@ -382,7 +382,7 @@ class SzJsonAnalyzer:
         if "NAME_ORG" in attributes_mapped and any(x in attributes_mapped for x in ["NAME_LAST", "NAME_FIRST"]):
             message_list.append(["WARNING", "PERSON AND ORG on same record"])
 
-        # is dob parseable
+        # is dob parsable
         # companies should not have DOB, PASSPORT or DRLIC
         # people should not have business addresses
 

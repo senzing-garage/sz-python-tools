@@ -1223,7 +1223,7 @@ class SzCfgShell(cmd.Cmd):
             return
 
         parm_data["CONVERSATIONAL"], message = self.validateDomain(
-            "Coversational", parm_data.get("CONVERSATIONAL", "No"), ["Yes", "No"]
+            "Conversational", parm_data.get("CONVERSATIONAL", "No"), ["Yes", "No"]
         )
         if not parm_data["CONVERSATIONAL"]:
             colorize_msg(message, "error")
@@ -2278,7 +2278,7 @@ class SzCfgShell(cmd.Cmd):
         try:
             parm_data = dict_keys_upper(json.loads(arg))
 
-            # Validate attribute class first, some attributes classses aren't meant to be added
+            # Validate attribute class first, some attributes classes aren't meant to be added
             parm_data["CLASS"], message = self.validateDomain(
                 "Attribute class",
                 parm_data.get("CLASS", "OTHER"),
@@ -2985,7 +2985,7 @@ class SzCfgShell(cmd.Cmd):
 
     # ===== standardize call commands =====
 
-    def format_standarize_call_json(self, sfcall_record):
+    def format_standardize_call_json(self, sfcall_record):
         sfcallID = sfcall_record["SFCALL_ID"]
 
         ftype_record1 = self.get_record("CFG_FTYPE", "FTYPE_ID", sfcall_record["FTYPE_ID"])
@@ -3108,7 +3108,7 @@ class SzCfgShell(cmd.Cmd):
             self.get_record_list("CFG_SFCALL"),
             key=lambda k: (k["FTYPE_ID"], k["EXEC_ORDER"]),
         ):
-            sfcall_json = self.format_standarize_call_json(sfcall_record)
+            sfcall_json = self.format_standardize_call_json(sfcall_record)
             if arg and arg.lower() not in str(sfcall_json).lower():
                 continue
             json_lines.append(sfcall_json)
@@ -3117,7 +3117,7 @@ class SzCfgShell(cmd.Cmd):
 
     def do_getStandardizeCall(self, arg):
         """
-        Returns a single standarization call
+        Returns a single standardization call
 
         Syntax:
             getStandardizeCall id or feature [table|json|jsonl]
@@ -3132,7 +3132,7 @@ class SzCfgShell(cmd.Cmd):
             colorize_msg(message, "error")
             return
 
-        self.print_json_record(self.format_standarize_call_json(call_record))
+        self.print_json_record(self.format_standardize_call_json(call_record))
 
     def do_deleteStandardizeCall(self, arg):
         """
@@ -3850,7 +3850,7 @@ class SzCfgShell(cmd.Cmd):
 
     def do_deleteDistinctCall(self, arg):
         """
-        Deletes a distintness call
+        Deletes a distinct call
 
         Syntax:
             deleteDistinctCall id
@@ -5191,7 +5191,7 @@ class SzCfgShell(cmd.Cmd):
         Returns the list of expression functions
 
         Syntax:
-            listExpressionFuncstions [filter_expression] [table|json|jsonl]
+            listExpressionFunctions [filter_expression] [table|json|jsonl]
         """
         arg = self.check_arg_for_output_format("list", arg)
         json_lines = []
@@ -5492,7 +5492,7 @@ class SzCfgShell(cmd.Cmd):
 
     def do_deleteComparisonThreshold(self, arg):
         """
-        Deletes a comparision threshold
+        Deletes a comparison threshold
 
         Syntax:
            deleteComparisonThreshold {"feature": "PHONE", "function": "ID_COMP", "scoreName": "FULL_SCORE"}
@@ -5672,7 +5672,7 @@ class SzCfgShell(cmd.Cmd):
 
     def do_updateCompatibilityVersion(self, arg):
         """
-        Update the compatiblilty version of this configuration
+        Update the compatibility version of this configuration
 
         Examples:
             updateCompatibilityVersion {"fromVersion": "1", "toVersion": "2"}
@@ -5699,7 +5699,7 @@ class SzCfgShell(cmd.Cmd):
 
     def do_getCompatibilityVersion(self, arg):
         """
-        Retrieve the compatiblity version of this configuration
+        Retrieve the compatibility version of this configuration
 
         Syntax:
             getCompatibilityVersion
