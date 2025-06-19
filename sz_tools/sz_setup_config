@@ -1,6 +1,4 @@
 #! /usr/bin/env python3
-"""# TODO"""
-
 import argparse
 import pathlib
 import sys
@@ -13,7 +11,6 @@ MODULE_NAME = pathlib.Path(__file__).stem
 
 
 def parse_cli_args() -> argparse.Namespace:
-    """# TODO"""
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument(
         "-c",
@@ -29,7 +26,7 @@ def parse_cli_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    """# TODO"""
+    """main"""
     cli_args = parse_cli_args()
 
     # Check an engine configuration can be located

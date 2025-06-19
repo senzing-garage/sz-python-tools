@@ -41,6 +41,7 @@ disable = [
     "consider-using-f-string",
     "line-too-long",
     "too-many-branches",
+    "too-many-instance-attributes",
     "too-many-locals"
 ]
 good-names = [

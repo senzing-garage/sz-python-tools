@@ -3011,7 +3011,6 @@ class EdaCmd(cmd.Cmd):
             f"\nSenzing Support Request: {colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight2, underline')}\n"
         )
 
-    # TODO - Ant - Use from helpers
     def histCheck(self):
 
         file_name = f".{MODULE_NAME}_history"
@@ -3051,7 +3050,6 @@ class EdaCmd(cmd.Cmd):
                 self.histFileError = None
                 self.histAvail = True
 
-    # TODO - Ant - Use from helpers
     def do_history(self, arg):
 
         if self.histAvail:
@@ -3062,7 +3060,6 @@ class EdaCmd(cmd.Cmd):
         else:
             print_message("History isn't available in this session", "warning")
 
-    # TODO - Ant - Use from helpers
     def do_shell(self, line):
         """\nRun OS shell commands: !<command>\n"""
         if line:

@@ -1,0 +1,268 @@
+#! /usr/bin/env python3
+"""Create a Senzing SDK project"""
+
+import argparse
+import sys
+from pathlib import Path
+from shutil import copyfile, copytree, ignore_patterns
+
+# TODO -
+from typing import List, Union
+
+from _project_helpers import (
+    COPY_TO_PROJ,
+    PERMISSIONS,
+    PERMISSIONS_2,
+    SZ_SYS_PATH,
+    V4_SYS_BUILD,
+    copy_files_dirs,
+    get_build_details,
+    set_permissions,
+    setup_env,
+)
+
+# sz_path on normal rpm/deb install = /opt/senzing/g2
+# sz_install_root would then = /opt/senzing
+# TODO Put back when in API package
+# SZ_SYS_PATH = Path(__file__).resolve().parents[1]
+# sz_path = Path("/opt/senzing/er").resolve()
+SZ_SYS_ROOT = Path(__file__).resolve().parents[2]
+# V4_BUILD = SZ_SYS_PATH / "szBuildVersion.json"
+COPY_TO_ETC = {"er/resources/templates/": {"files": ["*"], "excludes": ["G2C.*", "setupEnv", "g2config.json"]}}
+
+COPY_TO_VAR = {"er/resources/templates/G2C.db": {"files": [], "excludes": []}}
+
+
+def parse_cli_args() -> argparse.Namespace:
+    """Parse the CLI arguments"""
+    arg_parser = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description=" Create a new instance of a Senzing project",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    arg_parser.add_argument(
+        "project_path",
+        metavar="path",
+        help="Path to create new Senzing project in, it must not exist",
+    )
+
+    return arg_parser.parse_args()
+
+
+# TODO -
+def pre_check(project_path: Path) -> None:
+    # TODO -
+    """Check not trying to overwrite the V4 Senzing system install, that path is a project, and versions are correct"""
+    # if proj_path.exists() and proj_path.samefile(SZ_SYS_ROOT):
+    #     print(f"\nProject cannot be created in {SZ_SYS_ROOT}. Please specify a different path.")
+    #     sys.exit(1)
+    if str(project_path).startswith(str(SZ_SYS_ROOT)):
+        print(f"\nProject cannot be created in {SZ_SYS_ROOT}")
+        sys.exit(1)
+
+    if project_path.exists():
+        print(f"\n{project_path} exists, specify a different path")
+        sys.exit(1)
+
+
+def replace_in_file(filename: Path, old_string: str, new_string: str) -> None:
+    """Replace strings in new project files"""
+
+    try:
+        with open(filename, encoding="utf-8") as fr:
+            data = fr.read()
+        with open(filename, "w", encoding="utf-8") as fw:
+            fw.write(data.replace(old_string, new_string))
+    except IOError as err:
+        raise err
+
+
+def set_folder_permissions(path: Path, permissions: int, folders_to_ignore: Union[List[str], None] = None) -> None:
+    """Set permissions recursively on a folder, optionally ignore specific folders"""
+    if folders_to_ignore is None:
+        folders_to_ignore = []
+
+    path.chmod(permissions)
+
+    dirs: List[Path] = [d for d in path.rglob("*") if d.is_dir() and not d.is_symlink() and d not in folders_to_ignore]
+    for dir_ in dirs:
+        dir_.chmod(permissions)
+
+
+def set_file_permissions(
+    path: Path,
+    permissions: int,
+    files_to_ignore: Union[List[str], None] = None,
+    recursive: bool = False,
+) -> None:
+    """Set permissions on files in a folder, optionally do recursively"""
+    if files_to_ignore is None:
+        files_to_ignore = []
+
+    files: List[Path] = []
+    if recursive:
+        files = [f for f in path.rglob("*") if f.is_file() and f not in files_to_ignore]
+    else:
+        files = [f for f in path.iterdir() if f.is_file() and f not in files_to_ignore]
+
+    for file in files:
+        file.chmod(permissions)
+
+
+# TODO -
+def update_sz_engine_config(config_file: Path, project_path: Path) -> None:
+    """TODO"""
+    try:
+        with open(config_file, "r", encoding="utf-8") as in_:
+            data = in_.read()
+
+        data = (
+            data.replace("${SENZING_DATA_DIR}", str(project_path / "data"))
+            .replace("${SENZING_CONFIG_PATH}", str(project_path / "etc"))
+            .replace("${SENZING_RESOURCES_DIR}", str(project_path / "resources"))
+            .replace("${SENZING_VAR_DIR}", str(project_path / "var"))
+        )
+
+        with open(config_file, "w", encoding="utf-8") as out:
+            out.write(data)
+    except OSError as err:
+        raise OSError(f"ERROR: Couldn't update new {config_file}: {err}") from err
+
+
+def main() -> None:
+    """main"""
+
+    cli_args = parse_cli_args()
+
+    # TODO -
+    # # sz_path on normal rpm/deb install = /opt/senzing/g2
+    # # sz_install_root would then = /opt/senzing
+    # # TODO Put back when in API package
+    # sz_path = Path(__file__).resolve().parents[1]
+    # # sz_path = Path("/opt/senzing/er").resolve()
+    # sz_path_root = Path(__file__).resolve().parents[2]
+    proj_path = Path(cli_args.project_path).expanduser().resolve()
+
+    bin_path = proj_path.joinpath("bin")
+    data_path = proj_path.joinpath("data")
+    etc_path = proj_path.joinpath("etc")
+    lib_path = proj_path.joinpath("lib")
+    resources_path = proj_path.joinpath("resources")
+    sdk_path = proj_path.joinpath("sdk")
+    var_path = proj_path.joinpath("var")
+
+    # if proj_path.exists() and proj_path.samefile(SZ_SYS_ROOT):
+    #     print(f"\nProject cannot be created in {SZ_SYS_ROOT}. Please specify a different path.")
+    #     sys.exit(1)
+
+    # if proj_path.exists():
+    #     print(f"\n{proj_path} exists, please specify a different path.")
+    #     sys.exit(1)
+    pre_check(proj_path)
+
+    # TODO - Add try/except and check all functions are raising not printing and being caught
+
+    # version_details = get_version_details(SZ_SYS_PATH)
+    build_details = get_build_details(V4_SYS_BUILD)
+    # print(f"\nSenzing version: {build_details[0]}\n")
+    print(f"\nSenzing version: {build_details.version}\n")
+    print(f"\nSenzing version: {build_details}\n")
+
+    # TODO -
+    # ignore_files = ["sz_create_project", "sz_update_project"]
+    # # Example: ignore_paths = [sz_path.joinpath('python')]
+    # ignore_paths: List[str] = []
+    # excludes = ignore_files + ignore_paths
+
+    # # Copy sz_path to new project path
+    # copytree(SZ_SYS_PATH, proj_path, ignore=ignore_patterns(*excludes), symlinks=True)
+    copy_files_dirs(COPY_TO_PROJ, SZ_SYS_PATH, proj_path)
+    # Copy resources/templates to etc
+    # ignore_files = ["G2C.db", "setupEnv", "*.template", "g2config.json"]
+    # copytree(
+    #     SZ_SYS_PATH.joinpath("resources", "templates"),
+    #     etc_path,
+    #     ignore=ignore_patterns(*ignore_files),
+    # )
+    copy_files_dirs(COPY_TO_ETC, SZ_SYS_PATH, proj_path / "etc")
+
+    # Copy setupEnv
+    # copyfile(
+    #     SZ_SYS_PATH.joinpath("resources", "templates", "setupEnv"),
+    #     proj_path.joinpath("setupEnv"),
+    # )
+    setup_env(proj_path)
+
+    # Copy G2C.db to runtime location
+    # Path.mkdir(proj_path.joinpath("var", "sqlite"), parents=True)
+    # copyfile(
+    #     SZ_SYS_PATH.joinpath("resources", "templates", "G2C.db"),
+    #     var_path.joinpath("sqlite", "G2C.db"),
+    # )
+    copy_files_dirs(COPY_TO_VAR, SZ_SYS_PATH, proj_path / "var" / "sqlite")
+
+    # Copy data
+    # copytree(
+    #     SZ_SYS_ROOT.joinpath("data"),
+    #     data_path,
+    #     ignore=ignore_patterns(*excludes),
+    #     symlinks=True,
+    # )
+
+    # # Files & strings to modify
+    # update_files = [
+    #     proj_path.joinpath("setupEnv"),
+    #     etc_path.joinpath("sz_engine_config.ini"),
+    # ]
+
+    # path_subs = [
+    #     ("${SENZING_DIR}", proj_path),
+    #     ("${SENZING_CONFIG_PATH}", etc_path),
+    #     ("${SENZING_DATA_DIR}", data_path),
+    #     ("${SENZING_RESOURCES_DIR}", resources_path),
+    #     ("${SENZING_VAR_DIR}", var_path),
+    # ]
+
+    # for file in update_files:
+    #     for path in path_subs:
+    #         replace_in_file(file, path[0], str(path[1]))
+
+    update_sz_engine_config(proj_path / "etc" / "sz_engine_config.ini", proj_path)
+
+    set_permissions(proj_path, PERMISSIONS)
+    set_permissions(proj_path, PERMISSIONS_2)
+    # # Folder permissions
+    # set_folder_permissions(proj_path, 0o770)
+
+    # # Root of project
+    # set_file_permissions(proj_path, 0o660)
+    # proj_path.joinpath("setupEnv").chmod(0o770)
+
+    # # bin
+    # set_file_permissions(bin_path, 0o770, recursive=True)
+
+    # # etc
+    # set_file_permissions(etc_path, 0o660)
+
+    # # lib
+    # set_file_permissions(
+    #     lib_path,
+    #     0o660,
+    #     files_to_ignore=["g2.jar"],
+    # )
+
+    # # resources
+    # set_file_permissions(resources_path, 0o660, recursive=True)
+    # resources_path.joinpath("templates", "setupEnv").chmod(0o770)
+
+    # # sdk
+    # set_file_permissions(sdk_path, 0o664, recursive=True)
+
+    # # var
+    # set_file_permissions(var_path, 0o660, recursive=True)
+
+    print("Successfully created.")
+
+
+if __name__ == "__main__":
+    main()

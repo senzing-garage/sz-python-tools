@@ -392,19 +392,6 @@ def check_ingest_files(files: list[str]):
                     json_good += 1
                 except JSONDecodeError:
                     json_errors += 1
-                    # TODO
-                    # try:
-                    #     csv_sample = file_.read(5000)
-                    #     csv_header = csv.Sniffer().has_header(csv_sample)
-                    #     csv_dialect = csv.Sniffer().sniff(csv_sample)
-                    #     print(f"\n{csv_header = }")
-                    #     print(f"\n{csv_dialect.__dict__ = }")
-                    #     reader = csv.reader(file_, csv_dialect)
-                    #     for _ in range(500):
-                    #         row = next(reader)
-                    #         print(row)
-                    # except Exception as err:
-                    #     print(f"{err = }")
         except OSError as err:
             logger.info("")
             logger.error(err)
@@ -464,7 +451,7 @@ def docker_redirects(
 
         # Have a file but not another redirect
         if files_list and not any(redirects):
-            file_parent = str(Path(files_list[0]).parent.resolve())
+            file_parent = str(Path(files_list[0]).parent.expanduser().resolve())
             logger.info(
                 "Setting missing error, with info, shuffled files output paths to ingest file path, any of -ep, -wp, -sp, -rp not specified"
             )
@@ -553,9 +540,6 @@ def shuffle_ingest_file(
     logger.info("Shuffling to: %s", shuff_file)
     shuf_cmd = "gshuf" if sys.platform == "darwin" else "shuf"
     cmd = f"{shuf_cmd} {ingest_file} > {shuff_file}"
-    # TODO
-    # if sourceDict["FILE_FORMAT"] not in ("JSON", "UMF"):
-    #     cmd = f"head -n1 {file_path} > {shuf_file_path} && tail -n+2 {file_path} | shuf >> {shuf_file_path}"
 
     try:
         _ = subprocess.run([cmd], capture_output=True, check=True, shell=True)
@@ -913,19 +897,6 @@ def load_and_redo(
                 for f in done:
                     try:
                         result = f.result()
-                    # TODO - Test on OS & SG load with redo when engine fixed for process_redo_record()
-                    # TODO - Collect and retry later?
-                    # # If caught a retryable error resubmit the record to try again
-                    # except SzRetryableError as err:
-                    #     logger.info("")
-                    #     logger.info(
-                    #         "Retrying record due to: %s - Operation: %s - Record: %s",
-                    #         err,
-                    #         mode_text[mode.__name__]["except_msg"],
-                    #         futures[f][0].strip(),
-                    #     )
-                    #     logger.info("")
-                    #     more_recs = add_new_future(futures[f][0].strip())
                     except (
                         SzError,
                         JSONDecodeError,
@@ -963,7 +934,7 @@ def load_and_redo(
                     finally:
                         if add_future and not shutdown.is_set():
                             more_recs = add_new_future()
-                            
+
                         del futures[f]
 
                 # Early errors check to catch mapping errors, missing dsrc_code, etc

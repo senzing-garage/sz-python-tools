@@ -1,7 +1,5 @@
 #! /usr/bin/env python3
 
-"""# TODO"""
-
 import argparse
 import cmd
 import functools
@@ -568,7 +566,6 @@ class SzCmdShell(cmd.Cmd):
         set_theme_parser.add_argument("theme", choices=self.themes, nargs=1)
 
     def get_config_attr_codes(self) -> List[str]:
-        # TODO - Work in progress for JSON autocomplete
         try:
             config_id = self.sz_engine.get_active_config_id()
             sz_config = self.sz_configmgr.create_config_from_config_id(config_id)
