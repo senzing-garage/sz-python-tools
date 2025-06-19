@@ -626,7 +626,7 @@ class SzCfgShell(cmd.Cmd):
     def preloop(self):
         self.load_config()
         colorize_msg(
-            "Welcome to the Senzing configuration tool. Type help or ? for help",
+            "Type help or ? for help",
             "highlight2",
         )
 

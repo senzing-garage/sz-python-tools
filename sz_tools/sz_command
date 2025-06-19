@@ -660,7 +660,7 @@ class SzCmdShell(cmd.Cmd):
         if self.debug_reinit["prior_instance_reinitialized"]:
             print_response("Senzing engines were reinitialized due to a configuration change", color="success")
         else:
-            print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help", info_prefix=False)
+            print_info(f"Type help or ? for help", info_prefix=False)
 
     # -------------------------------------------------------------------------
     # Non-interactive input methods

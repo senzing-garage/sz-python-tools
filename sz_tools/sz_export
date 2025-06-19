@@ -257,9 +257,9 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             """\
 
-                                                                                        Path and file name to send output to.
+            Path and file name to send output to.
 
-                                                                                        """
+            """
         ),
     )
 
@@ -272,9 +272,9 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             """\
 
-                                                                                        Path and file name of optional sz_engine_config.ini to use.
+            Path and file name of optional sz_engine_config.ini to use.
 
-                                                                                        """
+            """
         ),
     )
 
@@ -286,16 +286,11 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             """\
 
-                                                                                                            Space separated list of export flags to apply to the export.
+            Space separated list of export flags to apply to the export.
 
-                                                                                                            Valid flags:
+            Default: %(default)s
 
-                                                                                                                ...
-                                                                                                                ...
-
-                                                                                                            Default: %(default)s
-
-                                                                                                            """
+            """
         ),
     )
 
@@ -308,11 +303,11 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             """\
 
-                                                                                                                        Data format to export to, JSON or CSV.
+            Data format to export to, JSON or CSV.
 
-                                                                                                                        Default: %(default)s
+            Default: %(default)s
 
-                                                                                                                        """
+            """
         ),
     )
 
@@ -324,20 +319,20 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             """\
 
-                                                                                                Return extended details, adds RESOLVED_ENTITY_NAME & JSON_DATA.
+            Return extended details, adds RESOLVED_ENTITY_NAME & JSON_DATA.
 
-                                                                                                Adding JSON_DATA significantly increases the size of the output and execution time.
+            Adding JSON_DATA significantly increases the size of the output and execution time.
 
-                                                                                                When used with CSV output, JSON_DATA isn\'t included for the related entities
-                                                                                                (RELATED_ENTITY_ID) for each resolved entity (RESOLVED_ENTITY_ID). This reduces
-                                                                                                the size of a CSV export by preventing repeating data for related entities. JSON_DATA
-                                                                                                for the related entities is still included in the CSV export and is located in the
-                                                                                                export record where the RELATED_ENTITY_ID = RESOLVED_ENTITY_ID.
+            When used with CSV output, JSON_DATA isn\'t included for the related entities
+            (RELATED_ENTITY_ID) for each resolved entity (RESOLVED_ENTITY_ID). This reduces
+            the size of a CSV export by preventing repeating data for related entities. JSON_DATA
+            for the related entities is still included in the CSV export and is located in the
+            export record where the RELATED_ENTITY_ID = RESOLVED_ENTITY_ID.
 
-                                                                                                WARNING: This is not recommended! To include the JSON_DATA for every CSV record see the
-                                                                                                --extendCSVRelates (-xcr) argument.
+            WARNING: This is not recommended! To include the JSON_DATA for every CSV record see the
+            --extendCSVRelates (-xcr) argument.
 
-                                                                                                """
+            """
         ),
     )
 
@@ -349,11 +344,11 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             """\
 
-                                                                                            Frequency of export output statistics.
+            Frequency of export output statistics.
 
-                                                                                            Default: %(default)s
+            Default: %(default)s
 
-                                                                                            """
+            """
         ),
     )
 
@@ -368,14 +363,14 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             f"""\
 
-                                                                                                                                    Compress output file with gzip. Compression level can be optionally specified.
+            Compress output file with gzip. Compression level can be optionally specified.
 
-                                                                                                                                    If output file is specified as - (for stdout), use shell redirection instead to compress:
-                                                                                                                                    {MODULE_NAME} -o - | gzip -v > export.csv.gz
+            If output file is specified as - (for stdout), use shell redirection instead to compress:
+            {MODULE_NAME} -o - | gzip -v > export.csv.gz
 
-                                                                                                                                    Default: %(const)s
+            Default: %(const)s
 
-                                                                                                                                    """
+            """
         ),
     )
 
@@ -387,13 +382,13 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             """\
 
-                                                                                                            WARNING: Use of this argument is not recommended!
+            WARNING: Use of this argument is not recommended!
 
-                                                                                                            Used in addition to --extend (-x), it will include JSON_DATA in CSV output for related entities.
+            Used in addition to --extend (-x), it will include JSON_DATA in CSV output for related entities.
 
-                                                                                                            Only valid for CSV output format.
+            Only valid for CSV output format.
 
-                                                                                                            """
+            """
         ),
     )
 
@@ -489,7 +484,6 @@ if __name__ == "__main__":
         print(", ".join(invalid_string_flags))
 
     valid_flags = [flag for flag in flags if flag not in invalid_string_flags]
-
     final_flags = combine_engine_flags(valid_flags)
 
     # Initialize the export
