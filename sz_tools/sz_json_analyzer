@@ -26,8 +26,6 @@ MODULE_NAME = pathlib.Path(__file__).stem
 
 
 class JsonlReader:
-    """#TODO"""
-
     def __init__(self, file_handle):
         self.file_handle = file_handle
 
@@ -39,7 +37,6 @@ class JsonlReader:
 
 
 def get_environment_config(settings: str) -> Dict[str, Any]:
-    """# TODO"""
     try:
         sz_factory = SzAbstractFactoryCore(MODULE_NAME, settings)
         sz_configmgr = sz_factory.create_configmanager()
@@ -54,7 +51,6 @@ def get_environment_config(settings: str) -> Dict[str, Any]:
 
 
 def get_file_config(file: str) -> Dict[str, Any]:
-    """#TODO"""
     try:
         with open(file, "r", encoding="utf-8") as config_file:
             config_json: Dict[str, Any] = json.loads(config_file.read())
@@ -65,8 +61,6 @@ def get_file_config(file: str) -> Dict[str, Any]:
 
 
 class SzJsonAnalyzer:
-    """#TODO"""
-
     def __init__(self, config_data: Dict[str, Any]):
 
         self.attribute_lookup = {}
@@ -107,11 +101,10 @@ class SzJsonAnalyzer:
         for record in config_data["G2_CONFIG"]["CFG_FTYPE"]:
             self.feature_lookup[record["FTYPE_CODE"]] = record
 
-        # TODO hack until 4.0 to move record_type higher
+        # NOTE - hack until 4.0 to move record_type higher
         self.feature_order["RECORD_TYPE"] = 1004
 
     def register_attribute(self, attr_name: str) -> None:
-        """#TODO"""
         attr_data = {}
         if attr_name in self.attribute_lookup:
             attr_data = self.attribute_lookup[attr_name]
@@ -143,8 +136,6 @@ class SzJsonAnalyzer:
         attr_name: str,
         attr_value: str,
     ) -> None:
-        """#TODO"""
-
         if isinstance(attr_value, (list, dict)):
             errors.append(f"Expected integer or string for {attr_name}")
         else:
@@ -157,7 +148,6 @@ class SzJsonAnalyzer:
                 features[feature_key].append(attr_data)
 
     def update_feature_stats(self, feature: str, attribute: str, value: str) -> None:
-        """#TODO"""
         if attribute in self.feature_stats[feature]["attributes"]:
             self.feature_stats[feature]["attributes"][attribute]["count"] += 1
         else:
@@ -174,7 +164,6 @@ class SzJsonAnalyzer:
             self.feature_stats[feature]["attributes"][attribute]["values"][value] = 1
 
     def update_unmapped_stats(self, attr_name: str, attr_value: str) -> None:
-        """#TODO"""
         if attr_name in self.unmapped_stats:
             self.unmapped_stats[attr_name]["count"] += 1
         else:
@@ -185,7 +174,6 @@ class SzJsonAnalyzer:
             self.unmapped_stats[attr_name]["values"][attr_value] = 1
 
     def update_message_stats(self, cat: str, stat: str, row_num: Union[int, str] = "n/a") -> None:
-        """#TODO"""
         row_num = f"row {row_num}" if isinstance(row_num, int) else row_num
         if stat not in self.message_stats[cat]:
             self.message_stats[cat][stat] = {"count": 1, "rows": [row_num]}
@@ -195,7 +183,6 @@ class SzJsonAnalyzer:
                 self.message_stats[cat][stat]["rows"].append(row_num)
 
     def analyze_json(self, input_data: Dict[str, Any], input_row_num: Union[int, None]) -> None:
-        """#TODO"""
         self.record_count += 1
 
         # print('-'*50)
@@ -397,7 +384,6 @@ class SzJsonAnalyzer:
             self.update_message_stats(message[0], message[1], input_row_num)
 
     def get_report(self) -> List[List[Union[int, str]]]:
-        """#TODO"""
         table_headers = [
             "Category",
             "Attribute",
@@ -558,7 +544,6 @@ class SzJsonAnalyzer:
 
 # ----------------------------------------
 def format_pretty_table(table_rows):
-    """#TODO"""
     table_object = prettytable.PrettyTable()
     table_object.horizontal_char = "\u2500"
     table_object.vertical_char = "\u2502"
@@ -631,7 +616,6 @@ def format_pretty_table(table_rows):
 
 
 def format_csv_table(table_rows):
-    """#TODO"""
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerows(table_rows)
@@ -639,7 +623,6 @@ def format_csv_table(table_rows):
 
 
 def print_report(report_string: str):
-    """#TODO"""
     less = subprocess.Popen(["less", "-FMXSR"], stdin=subprocess.PIPE)
     try:
         less.stdin.write(report_string.encode("utf-8"))

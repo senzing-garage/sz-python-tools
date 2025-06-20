@@ -40,7 +40,6 @@ MODULE_NAME = pathlib.Path(__file__).stem
 
 
 def parse_cli_args() -> argparse.Namespace:
-    """# TODO"""
     arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description="Utility to view and manipulate the Senzing configuration",
@@ -627,7 +626,7 @@ class SzCfgShell(cmd.Cmd):
     def preloop(self):
         self.load_config()
         colorize_msg(
-            "Welcome to the Senzing configuration tool. Type help or ? for help",
+            "Type help or ? for help",
             "highlight2",
         )
 
@@ -755,7 +754,7 @@ class SzCfgShell(cmd.Cmd):
         except SzError as err:
             colorize_msg(err, "error")
 
-    def do_getConfigList(self, arg):
+    def do_getConfigRegistry(self, arg):
         """
         Returns the list of all known configurations
 
@@ -764,7 +763,7 @@ class SzCfgShell(cmd.Cmd):
         """
         arg = self.check_arg_for_output_format("record", arg)
         try:
-            config_list = self.sz_configmgr.get_configs()
+            config_list = self.sz_configmgr.get_config_registry()
             self.print_json_record(json.loads(config_list)["CONFIGS"])
         except SzError as err:
             colorize_msg(err, "error")
@@ -1256,7 +1255,6 @@ class SzCfgShell(cmd.Cmd):
 
         self.print_json_lines(json_lines)
 
-    # TODO auto complete doesn't work if there is a - in dsrc
     def do_deleteDataSource(self, arg):
         """
         Delete an existing data source

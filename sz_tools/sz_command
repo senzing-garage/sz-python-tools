@@ -1,7 +1,5 @@
 #! /usr/bin/env python3
 
-"""# TODO"""
-
 import argparse
 import cmd
 import functools
@@ -47,15 +45,14 @@ _WrappedFunc = TypeVar("_WrappedFunc", bound=Callable[..., Any])
 
 MODULE_NAME = pathlib.Path(__file__).stem
 
-# Per command settings
-PER_CMD_SETTINGS = ["json", "jsonl", "color", "colour", "nocolor", "nocolour", "debug", "timer", "page"]
+PER_CMD_SETTINGS = ["json", "jsonl", "color", "colour", "nocolor", "nocolour", "debug", "timer", "scroll"]
 
 DEFAULT_CONFIG = {
     "format_json": True,
     "color_output": True,
     "timer": False,
     "theme": "TERMINAL",
-    "page_output": False,
+    "scroll_output": False,
     "debug_sdk_call": False,
     "debug_sz_engine": False,
     "history_file": True,
@@ -73,7 +70,7 @@ SETTINGS_TO_CONFIG_MAP = {
     "debug": ["debug_sdk_call", True],
     "debug_sdk": ["debug_sdk_call", True],
     "timer": ["timer", True],
-    "page": ["page_output", True],
+    "scroll": ["scroll_output", True],
 }
 
 # Don't overwrite last command if we still need to use it
@@ -101,7 +98,7 @@ CONFIG_SETTINGS: Dict[str, Dict[str, Any]] = {
         "values": [c.lower() for c in Colors.AVAILABLE_THEMES],
         "description": "Set color scheme to use",
     },
-    "page_output": {
+    "scroll_output": {
         "values": ["off", "on"],
         "description": "Use a pager for content larger than the terminal",
     },
@@ -128,7 +125,7 @@ CONFIG_SETTINGS: Dict[str, Dict[str, Any]] = {
 
 def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
     @functools.wraps(do_method)
-    def wrapper(self, *args, **kwargs) -> Any:
+    def wrapper(self, *args: Any, **kwargs: Any) -> Any:
         # Remove do_ from wrapped method
         sdk_method_name = do_method.__name__[3:]
 
@@ -313,7 +310,7 @@ class SzCmdShell(cmd.Cmd):
             self.attrs = self.get_config_attr_codes()
 
             # Get Senzing engine flag names for use in auto completion
-            self.engine_flags_list = get_engine_flag_names()
+            self.engine_flags_list = get_engine_flag_names(["_SZ_WITHOUT_INFO"])
         except SzError as err:
             print_error(err)
             sys.exit(1)
@@ -568,7 +565,6 @@ class SzCmdShell(cmd.Cmd):
         set_theme_parser.add_argument("theme", choices=self.themes, nargs=1)
 
     def get_config_attr_codes(self) -> List[str]:
-        # TODO - Work in progress for JSON autocomplete
         try:
             config_id = self.sz_engine.get_active_config_id()
             sz_config = self.sz_configmgr.create_config_from_config_id(config_id)
@@ -585,7 +581,7 @@ class SzCmdShell(cmd.Cmd):
         formatted_response: str = print_response(
             response,
             self.per_cmd_config["format_json"],  # type: ignore[arg-type]
-            self.per_cmd_config["page_output"],  # type: ignore[arg-type]
+            self.per_cmd_config["scroll_output"],  # type: ignore[arg-type]
             self.per_cmd_config["color_output"],  # type: ignore[arg-type]
             color=color,
         )
@@ -663,7 +659,7 @@ class SzCmdShell(cmd.Cmd):
         if self.debug_reinit["prior_instance_reinitialized"]:
             print_response("Senzing engines were reinitialized due to a configuration change", color="success")
         else:
-            print_info(f"Welcome to {MODULE_NAME}. Type help or ? for help", info_prefix=False)
+            print_info(f"Type help or ? for help", info_prefix=False)
 
     # -------------------------------------------------------------------------
     # Non-interactive input methods
@@ -784,7 +780,7 @@ class SzCmdShell(cmd.Cmd):
                 - nocolor / nocolour
                 - debug
                 - timer
-                - page
+                - scroll
 
             {colorize_str('- Examples:', 'dim')}
                 - get_entity_by_entity_id 1001 jsonl
@@ -848,21 +844,21 @@ class SzCmdShell(cmd.Cmd):
         Notes:
             - Retrieve the active configuration identifier with get_active_config_id
 
-            - Retrieve a list of configurations and identifiers with get_configs"""
+            - Retrieve a list of configurations and identifiers with get_config_registry"""
 
         sz_config = self.sz_configmgr.create_config_from_config_id(kwargs["parsed_args"].config_id)
         response = sz_config.export()
         self.last_response = self.output_response(response)
 
     @do_methods_decorator
-    def do_get_configs(self) -> None:
+    def do_get_config_registry(self) -> None:
         """
-        Get a list of current configurations
+        Get details of current registered configurations
 
         Syntax:
-            get_configs"""
+            get_config_registry"""
 
-        response = self.sz_configmgr.get_configs()
+        response = self.sz_configmgr.get_config_registry()
         self.last_response = self.output_response(response)
 
     @do_methods_decorator
@@ -892,7 +888,7 @@ class SzCmdShell(cmd.Cmd):
             new_default_config_id = Configuration identifier
 
         Notes:
-            - Retrieve a list of configurations and identifiers with get_configs"""
+            - Retrieve a list of configurations and identifiers with get_config_registry"""
 
         self.sz_configmgr.replace_default_config_id(
             kwargs["parsed_args"].current_default_config_id,
@@ -2300,7 +2296,7 @@ class SzCmdShell(cmd.Cmd):
         return kwargs["cmd_settings"]
 
     @cmd_settings_decorator
-    def complete_get_configs(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+    def complete_get_config_registry(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
         return kwargs["cmd_settings"]
 
     @cmd_settings_decorator

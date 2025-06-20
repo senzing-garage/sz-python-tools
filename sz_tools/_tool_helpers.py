@@ -1,7 +1,3 @@
-"""
-# TODO
-"""
-
 from __future__ import annotations
 
 import cmd
@@ -70,7 +66,7 @@ TSzEngineFlags = TypeVar("TSzEngineFlags", bound="SzEngineFlags")  # pylint: dis
 
 
 class TimedOut(Exception):
-    """# TODO"""
+    """Timeout"""
 
 
 # -------------------------------------------------------------------------
@@ -78,16 +74,12 @@ class TimedOut(Exception):
 # -------------------------------------------------------------------------
 
 
-@dataclass
 class Colors:
-    """# TODO"""
-
     AVAILABLE_THEMES = ["DEFAULT", "LIGHT", "DARK", "TERMINAL"]
 
     @classmethod
     def apply(cls, to_color: Union[int, str], colors_list: str = "") -> Union[int, str]:
         """apply list of colors to a string"""
-        # TODO colors_list is a string with multiple entries separated by ,
         if colors_list:
             prefix = "".join([getattr(cls, i.strip().upper()) for i in colors_list.split(",")])
             return f"{prefix}{to_color}{cls.RESET}"
@@ -96,7 +88,6 @@ class Colors:
 
     @classmethod
     def set_theme(cls, theme: str) -> None:
-        """# TODO"""
         theme = theme.upper()
         # best for dark backgrounds
         if theme == "DEFAULT":
@@ -290,13 +281,12 @@ class Colors:
 
 
 def check_environment() -> None:
-    """# TODO"""
     # Error if can't locate a sz_engine_config.ini or SENZING_ENGINE_CONFIGURATION_JSON
     if "SENZING_ETC_PATH" not in os.environ and "SENZING_ROOT" not in os.environ:
         # Check if set or not and that it's not set to null
         secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
         if not secj or (secj and len(secj) == 0):
-            # TODO V4 doc links
+            # TODO - V4 doc links
             print(
                 textwrap.dedent(
                     """\n\
@@ -317,7 +307,6 @@ def check_environment() -> None:
 
 
 def get_g2module_path() -> Path:
-    """# TODO"""
     file_paths = []
     msg_args = f"Use command line argument -c (--inifile) to specify the path & filename for {CONFIG_FILE}\n"
 
@@ -361,7 +350,6 @@ def get_g2module_path() -> Path:
 
 
 def print_config_locations(locations: List[Path]) -> None:
-    """# TODO"""
     _ = [print(f"\t{loc}") for loc in locations]
     print()
 
@@ -396,8 +384,6 @@ def get_ini_as_json_str(ini_file: Path) -> str:
 
 
 def get_engine_config(ini_file_name: Union[str, None] = None) -> str:
-    """# TODO"""
-
     # Initial check to determine is environment variables expected are set
     check_environment()
 
@@ -431,9 +417,11 @@ def combine_engine_flags(flags: Union[List[TSzEngineFlags], List[str]]) -> int:
     return result
 
 
-def get_engine_flag_names() -> List[str]:
-    """# TODO"""
-    return list(SzEngineFlags.__members__.keys())
+def get_engine_flag_names(filter_: List[str] = None) -> List[str]:  # type: ignore[assignment]
+    """Return flag names and optionally filter"""
+    filter_ = [] if filter_ is None else filter_
+
+    return [f for f in SzEngineFlags.__members__ if f not in filter_]
 
 
 def get_engine_flags_as_int(flags: List[str]) -> int:
@@ -446,8 +434,6 @@ def get_engine_flags_as_int(flags: List[str]) -> int:
         return int(flags[0])
 
     # Named engine flag(s) used, combine and return the int value
-    # TODO
-    # return SzEngineFlags.combine_flags(flags)
     return combine_engine_flags(flags)
 
 
@@ -482,8 +468,6 @@ def check_path_exists(path: Union[Path, str]) -> bool:
 
 
 def check_file_exists(file_name: Union[Path, str]) -> bool:
-    """# TODO"""
-
     if isinstance(file_name, str):
         file_name = Path(file_name)
 
@@ -494,8 +478,6 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
 
 
 # def check_file_readable(file_name: Union[Path, str]) -> bool:
-#     """# TODO"""
-
 #     if isinstance(file_name, str):
 #         file_name = Path(file_name)
 
@@ -512,10 +494,7 @@ def check_file_exists(file_name: Union[Path, str]) -> bool:
 # -------------------------------------------------------------------------
 
 
-# TODO - This can be merged into colorize_output
 def colorize_str(string: str, colors_list: str = "", color_disabled: bool = False) -> str:
-    """# TODO"""
-
     if color_disabled:
         return string
 
@@ -523,7 +502,6 @@ def colorize_str(string: str, colors_list: str = "", color_disabled: bool = Fals
 
 
 def colorize_json(json_str: str, color_disabled: bool = False) -> str:
-    """# TODO"""
     if color_disabled:
         return json_str
 
@@ -538,13 +516,11 @@ def colorize_json(json_str: str, color_disabled: bool = False) -> str:
     return json_color
 
 
-# TODO - Move into Colors and add the missing values?
 def colorize_output(
     output: Union[Exception, int, str],
     color_or_type: str,
     output_color: bool = True,
 ) -> str:
-    """# TODO"""
     if not output:
         return ""
 
@@ -590,21 +566,18 @@ def colorize_cmd_prompt(prompt: str, color_or_type: str, color_prompt: bool = Tr
 
 
 def print_debug(msg: str, end_str: str = "\n\n", output_color: bool = True) -> None:
-    """# TODO"""
     print(f"\n{colorize_output('DEBUG:', 'debug', output_color)} {msg}", end=end_str)
 
 
 def print_error(
     msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True, exit_: bool = False
 ) -> None:
-    """# TODO"""
     print(f"\n{colorize_output('ERROR:', 'error', output_color)} {msg}", end=end_str)
     if exit_:
         sys.exit(1)
 
 
 def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True, info_prefix=True) -> None:
-    """# TODO"""
     if info_prefix:
         print(f"\n{colorize_output('INFO:', 'info', output_color)} {msg}", end=end_str)
     else:
@@ -612,7 +585,6 @@ def print_info(msg: Union[Exception, str], end_str: str = "\n\n", output_color: 
 
 
 def print_warning(msg: Union[Exception, str], end_str: str = "\n\n", output_color: bool = True) -> None:
-    """# TODO"""
     # Warnings may be multiline strings, if they are don't add WARNING: before the msg to color
     if isinstance(msg, str) and "\n" in msg:
         print(f"\n{colorize_output(msg, 'warning', output_color)}", end=end_str)
@@ -627,7 +599,6 @@ def print_response(
     color_output: bool = True,
     color: str = "",
 ) -> str:
-    """# TODO"""
     strip_colors = True
 
     if not response:
@@ -684,12 +655,10 @@ def print_response(
 
 
 def do_shell(self: Union[SzCmdShell, SzCfgShell], line: str) -> None:  # pylint: disable=unused-argument
-    """# TODO"""
     print(os.popen(line).read())
 
 
 def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
-    """# TODO"""
     if not help_topic or help_topic == "overview":
         self.help_overview()
         return
@@ -751,7 +720,6 @@ def do_help(self: Union[SzCmdShell, SzCfgShell], help_topic: str) -> None:
 
 
 def do_history() -> None:
-    """# TODO"""
     print()
     for i in range(readline.get_current_history_length()):
         print(readline.get_history_item(i + 1))
@@ -796,12 +764,10 @@ def history_setup(module_name: str) -> Union[None, Path]:
 
 
 def history_write_file(file: Path) -> None:
-    """# TODO"""
     readline.write_history_file(file)
 
 
 def history_disabled(file: Path) -> None:
-    """# TODO"""
     # Save current session history
     history_now = [readline.get_history_item(i) for i in range(1, readline.get_current_history_length() + 1)]
 
@@ -820,7 +786,6 @@ def history_disabled(file: Path) -> None:
 
 
 def response_to_clipboard(last_response: str) -> None:
-    """# TODO"""
     if not PYCLIP_AVAIL:
         print_info(
             "- To send the last response to the clipboard the Python module pyclip needs to be installed\n"
@@ -841,7 +806,6 @@ def response_to_clipboard(last_response: str) -> None:
 def response_to_file(
     file_path: str, append_to_file: bool, add_last_command: bool, last_command: str, last_response: str
 ) -> None:
-    """# TODO"""
     try:
         mode = "a" if append_to_file else "w"
         with open(file_path, mode, encoding="utf-8") as response_out:
@@ -859,7 +823,6 @@ def response_to_file(
 
 
 def response_reformat_json(last_response: str, color_json: bool) -> str:
-    """# TODO"""
     if not last_response.startswith("{"):
         print_warning("The last response isn't JSON")
         return ""
@@ -874,8 +837,7 @@ def response_reformat_json(last_response: str, color_json: bool) -> str:
 
 
 def get_max_futures_workers() -> int:
-    """# TODO"""
-    # Test the max number of workers ThreadPoolExecutor allocates to use in sizing actual workers to request
+    """Test the max number of workers ThreadPoolExecutor allocates to use in sizing actual workers to request"""
     with concurrent.futures.ThreadPoolExecutor() as test:
         return test._max_workers  # pylint: disable=protected-access
 
@@ -886,7 +848,6 @@ def get_max_futures_workers() -> int:
 
 
 def human_readable_bytes(bytes_: int) -> str:
-    """# TODO"""
     if bytes_ == 0:
         return "0"
 
@@ -906,9 +867,7 @@ def human_readable_bytes(bytes_: int) -> str:
 
 
 def case_combinations(strings: Iterable[str]) -> List[str]:
-    """# TODO"""
     combos = []
-
     try:
         for string in strings:
             combos.extend(list({"".join(sc) for sc in product(*zip(string.upper(), string.lower()))}))
@@ -921,8 +880,6 @@ def case_combinations(strings: Iterable[str]) -> List[str]:
 
 
 def prompt_confirm(msg: str, confirm_values: Iterable[str] = ("y", "yes")) -> bool:
-    """# TODO"""
-
     case_combos = case_combinations(confirm_values)
     response = input(msg).strip()
     if response not in case_combos:
@@ -932,7 +889,6 @@ def prompt_confirm(msg: str, confirm_values: Iterable[str] = ("y", "yes")) -> bo
 
 
 def get_char() -> str:
-    """# TODO"""
     file_desc = sys.stdin.fileno()
     orig = termios.tcgetattr(file_desc)
 
@@ -944,7 +900,6 @@ def get_char() -> str:
 
 
 def get_char_with_prompt(prompt, valid_responses=None):
-    """# TODO"""
     print(prompt, end="", flush=True)
     response = ""
     while True:
@@ -970,8 +925,6 @@ def get_char_with_prompt(prompt, valid_responses=None):
 
 
 def get_char_with_timeout(time_out: int) -> str:
-    """# TODO"""
-
     def handler(*_):  # type: ignore[no-untyped-def]
         raise TimedOut
 

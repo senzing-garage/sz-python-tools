@@ -41,7 +41,9 @@ disable = [
     "consider-using-f-string",
     "line-too-long",
     "too-many-branches",
-    "too-many-locals"
+    "too-many-instance-attributes",
+    "too-many-locals",
+    "too-many-statements"
 ]
 good-names = [
     "template-python"
