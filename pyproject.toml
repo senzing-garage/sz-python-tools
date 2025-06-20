@@ -42,7 +42,8 @@ disable = [
     "line-too-long",
     "too-many-branches",
     "too-many-instance-attributes",
-    "too-many-locals"
+    "too-many-locals",
+    "too-many-statements"
 ]
 good-names = [
     "template-python"

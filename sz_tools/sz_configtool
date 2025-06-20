@@ -754,7 +754,7 @@ class SzCfgShell(cmd.Cmd):
         except SzError as err:
             colorize_msg(err, "error")
 
-    def do_getConfigList(self, arg):
+    def do_getConfigRegistry(self, arg):
         """
         Returns the list of all known configurations
 
@@ -763,7 +763,7 @@ class SzCfgShell(cmd.Cmd):
         """
         arg = self.check_arg_for_output_format("record", arg)
         try:
-            config_list = self.sz_configmgr.get_configs()
+            config_list = self.sz_configmgr.get_config_registry()
             self.print_json_record(json.loads(config_list)["CONFIGS"])
         except SzError as err:
             colorize_msg(err, "error")

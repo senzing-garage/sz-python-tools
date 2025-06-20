@@ -608,7 +608,7 @@ def startup_info(
     try:
         lic_info = _json_loads(product.get_license())
         ver_info = _json_loads(product.get_version())
-        config_list = _json_loads(configmgr.get_configs())
+        config_list = _json_loads(configmgr.get_config_registry())
         active_cfg_id = engine.get_active_config_id()
         ds_info = _json_loads(diag.get_datastore_info())
     except SzError as err:
