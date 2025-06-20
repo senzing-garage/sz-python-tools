@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.24] - 2025-06-20
+
+### Added in 0.0.24
+
+- sz_update_project can now upgrade V3 -> V4 and V4 -> V4 projects
+
+### Changed in 0.0.24
+
+- Update tools from get_configs() to get_config_registry() (SDK change)
+- sz_command now uses the setting and command `scroll` instead of `page`
+
+### Fixed in 0.0.24
+
+- sz_create_project shouldn't copy sz_update_project to a new project
+
 ## [0.0.23] - 2025-06-12
 
 ### Fixed in 0.0.23
