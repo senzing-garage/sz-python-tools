@@ -417,8 +417,11 @@ def combine_engine_flags(flags: Union[List[TSzEngineFlags], List[str]]) -> int:
     return result
 
 
-def get_engine_flag_names() -> List[str]:
-    return list(SzEngineFlags.__members__.keys())
+def get_engine_flag_names(filter_: List[str] = None) -> List[str]:  # type: ignore[assignment]
+    """Return flag names and optionally filter"""
+    filter_ = [] if filter_ is None else filter_
+
+    return [f for f in SzEngineFlags.__members__ if f not in filter_]
 
 
 def get_engine_flags_as_int(flags: List[str]) -> int:

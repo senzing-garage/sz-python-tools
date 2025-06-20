@@ -310,7 +310,7 @@ class SzCmdShell(cmd.Cmd):
             self.attrs = self.get_config_attr_codes()
 
             # Get Senzing engine flag names for use in auto completion
-            self.engine_flags_list = get_engine_flag_names()
+            self.engine_flags_list = get_engine_flag_names(["_SZ_WITHOUT_INFO"])
         except SzError as err:
             print_error(err)
             sys.exit(1)
