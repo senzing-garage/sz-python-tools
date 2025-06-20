@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.23] - 2025-06-12
+
+### Fixed in 0.0.23
+
+- Support for all versions of prettytable
+- Update for default flags
+- Multi_source_summary renamed to entity_source_summary
+
+### Added in 0.0.23
+
+- New search_feature command
+
 ## [0.0.22] - 2025-06-06
 
 ### Fixed in 0.0.22

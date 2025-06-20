@@ -6129,7 +6129,9 @@ class SzCfgShell(cmd.Cmd):
             table_object.add_row(tblRow)
 
         table_object.align = "l"
-        if hasattr(prettytable, "SINGLE_BORDER"):
+        if hasattr(prettytable, "TableStyle"):
+            table_object.set_style(prettytable.TableStyle.SINGLE_BORDER)
+        else:
             table_object.set_style(prettytable.SINGLE_BORDER)
         table_object.hrules = 1
         render_string = table_object.get_string()
