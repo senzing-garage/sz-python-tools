@@ -123,7 +123,7 @@ shutdown = Event()
 
 
 def files_clean_up(errors_file: Path, with_info_file: Path) -> None:
-    """TODO"""
+    """Remove error and with_info files if they weren't used"""
     if check_file_exists(errors_file) and errors_file.stat().st_size == 0:
         errors_file.unlink()
 
@@ -132,7 +132,7 @@ def files_clean_up(errors_file: Path, with_info_file: Path) -> None:
 
 
 def parse_cli_args() -> argparse.Namespace:
-    """TODO"""
+    """Parse command line arguments"""
     arg_parser = argparse.ArgumentParser(
         allow_abbrev=False,
         description="Utility to load Senzing mapped JSON records and process redo records",
@@ -374,7 +374,7 @@ def parse_cli_args() -> argparse.Namespace:
 
 
 def check_ingest_files(files: list[str]):
-    """TODO"""
+    """Basic test files to load to catch early JSON issues"""
     for file in files:
         json_errors = 0
         json_good = 0
@@ -406,12 +406,8 @@ def check_ingest_files(files: list[str]):
 def docker_redirects(
     files_list: list[str],
     redirects,
-    # redirect_path: str,
-    # errors_path: str,
-    # withinfo_path: str,
-    # shuffle_path: str,
 ) -> tuple[Any, Any, Any]:
-    """TODO"""
+    """Modify paths in docker"""
     errors_path = redirects.errors_path
     withinfo_path = redirects.withinfo_path
     shuffle_path = redirects.shuffle_path
@@ -467,8 +463,8 @@ def docker_redirects(
     return (errors_path, withinfo_path, shuffle_path)
 
 
-def check_redirect_paths(paths: Iterable[str]):
-    """TODO"""
+def check_redirect_paths(paths: Iterable[str]) -> None:
+    """Check redirect paths are writable"""
     try:
         for p in paths:
             if not p:
@@ -562,7 +558,7 @@ def shuffle_ingest_file(
 def get_sz_engines(
     sz_factory: SzAbstractFactoryCore,
 ) -> Tuple[SzEngine, SzDiagnostic, SzProduct, SzConfigManager]:
-    """TODO"""
+    """Create required engines"""
     try:
         sz_engine = sz_factory.create_engine()
         sz_diag = sz_factory.create_diagnostic()
@@ -575,7 +571,7 @@ def get_sz_engines(
 
 
 def prime_sz_engine(sz_engine: SzEngine) -> None:
-    """TODO"""
+    """Prime sz_engine"""
     logger.info("")
     logger.info("Priming Senzing engine...")
     try:
@@ -998,7 +994,7 @@ def load_and_redo(
 
 
 def per_result(cli_args: argparse.Namespace, result: dict[str, Any]) -> None:
-    """TODO"""
+    """Results for each ingested file"""
     logger.info("")
     logger.info("Results")
     logger.info("-------")
@@ -1048,7 +1044,7 @@ def summary_results(
     cli_args: argparse.Namespace,
     overall_results: dict[str, dict[str, Any]],
 ) -> None:
-    """TODO"""
+    """Overall results"""
     elapsed_time_total = 0
     load_blank_lines_total = 0
     load_error_total = 0
