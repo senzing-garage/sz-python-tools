@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.25] - 2025-06-21
+
+### Removed in 0.0.25
+
+- Use of packaging module
+
 ## [0.0.24] - 2025-06-20
 
 ### Added in 0.0.24
