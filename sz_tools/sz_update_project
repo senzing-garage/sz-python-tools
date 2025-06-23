@@ -170,29 +170,29 @@ def pre_check(project_path: Path) -> tuple[SzBuildDetails, SzBuildDetails]:
 
     try:
         proj_build_file = v3_project_build_file if v3_project_build_file in proj_listing else v4_project_build_file
-        proj_build_details = get_build_details(proj_build_file)
-        sys_build_details = get_build_details(V4_SYS_BUILD)
+        proj_build = get_build_details(proj_build_file)
+        sys_build = get_build_details(V4_SYS_BUILD)
     except (OSError, TypeError) as err:
         print(f"\nERROR: Trying to read {proj_build_file} or {V4_SYS_BUILD} to collect version information: {err}")
         sys.exit(1)
 
-    if proj_build_details.major not in (3, 4) or sys_build_details.major != 4:
+    if proj_build.major not in (3, 4) or sys_build.major != 4:
         print(f"\nERROR: {MODULE_NAME} updates a V3 project to V4, or V4.n.n to a newer release")
-        print(f"\tProject version: {proj_build_details.version}")
-        print(f"\tSystem install version: {sys_build_details.version}")
+        print(f"\tProject version: {proj_build.build_version}")
+        print(f"\tSystem install version: {sys_build.build_version}")
         sys.exit(1)
 
-    if sys_build_details.version_parsed < proj_build_details.version_parsed:
+    if sys_build < proj_build:
         print("\nNo update required, project is newer than the system install")
-        print(f"\tProject version: {proj_build_details.version}")
-        print(f"\tSystem install version: {sys_build_details.version}")
+        print(f"\tProject version: {proj_build.build_version}")
+        print(f"\tSystem install version: {sys_build.build_version}")
         sys.exit(0)
 
-    if sys_build_details.version_parsed == proj_build_details.version_parsed:
-        print(f"\nNo update required, project and system install are the same version - {proj_build_details.version}")
+    if sys_build.build_version == proj_build.build_version:
+        print(f"\nNo update required, project & system install are the same version: {proj_build.build_version}")
         sys.exit(0)
 
-    return (proj_build_details, sys_build_details)
+    return (proj_build, sys_build)
 
 
 def remove_dir(dir_: Path, excludes: list[Path]) -> None:

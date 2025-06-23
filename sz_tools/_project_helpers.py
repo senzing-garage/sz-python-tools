@@ -1,12 +1,11 @@
 """Helpers for creating and updating projects"""
 
 import json
+import operator
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from packaging import version as p_version
 
 V3_BACKUP_PATH = "v3_to_v4_upgrade_backups"
 V4_BUILD = "szBuildVersion.json"
@@ -63,7 +62,10 @@ PERMISSIONS_2 = {
 
 @dataclass()
 class SzBuildDetails:
-    """Build information for a project or Senzing SDK system install"""
+    """
+    Build information for a project or Senzing SDK system install
+    SzBuildDetails(platform='Linux', version='4.0.0', build_version='4.0.0.25164', build_number='2025_06_13__13_07', major=4, minor=0, micro=0)
+    """
 
     platform: str
     version: str
@@ -72,13 +74,48 @@ class SzBuildDetails:
     major: int = field(init=False)
     minor: int = field(init=False)
     micro: int = field(init=False)
+    build_v: int = field(init=False)
 
     def __post_init__(self) -> None:
-        self.version_parsed = p_version.parse(self.version)
-        self.build_version_parsed = p_version.parse(self.build_version)
-        self.major = self.version_parsed.major
-        self.minor = self.version_parsed.minor
-        self.micro = self.version_parsed.micro
+        self.major, self.minor, self.micro, self.build_v = [int(n) for n in self.build_version.split(".")]
+
+    def _operators(self, other: "SzBuildDetails", operator_: Any) -> tuple[bool, ...]:
+        """Check instances of version details are with different operators"""
+        to_compare = (
+            (self.major, other.major),
+            (self.minor, other.minor),
+            (self.micro, other.micro),
+            (self.build_v, other.build_v),
+        )
+        return tuple(operator_(t[0], t[1]) for t in to_compare)
+
+    def __lt__(self, other: "SzBuildDetails") -> bool:
+        if not isinstance(other, SzBuildDetails):
+            return NotImplemented
+
+        major_equal, minor_equal, micro_equal, _ = self._operators(other, operator.eq)
+        major_lt, minor_lt, micro_lt, build_v_lt = self._operators(other, operator.lt)
+
+        if major_lt or (
+            major_equal and any((minor_lt, all((minor_equal, micro_lt)), all((minor_equal, micro_equal, build_v_lt))))
+        ):
+            return True
+
+        return False
+
+    def __gt__(self, other: "SzBuildDetails") -> bool:
+        if not isinstance(other, SzBuildDetails):
+            return NotImplemented
+
+        major_equal, minor_equal, micro_equal, _ = self._operators(other, operator.eq)
+        major_gt, minor_gt, micro_gt, build_v_gt = self._operators(other, operator.gt)
+
+        if major_gt or (
+            major_equal and any((minor_gt, all((minor_equal, micro_gt)), all((minor_equal, micro_equal, build_v_gt))))
+        ):
+            return True
+
+        return False
 
 
 def get_build_details(path: Path) -> SzBuildDetails:
