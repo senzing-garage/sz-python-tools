@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.26] - 2025-07-11
+
+### Changed in 0.0.26
+
+- Rename some methods changed in the Python SDK
+
 ## [0.0.25] - 2025-06-21
 
 ### Removed in 0.0.25
