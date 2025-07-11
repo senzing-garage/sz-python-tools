@@ -376,10 +376,10 @@ class SzCmdShell(cmd.Cmd):
 
         # szdiagnostic parsers
 
-        check_datastore_performance_parser = self.subparsers.add_parser(
-            "check_datastore_performance", usage=argparse.SUPPRESS
+        check_repository_performance_parser = self.subparsers.add_parser(
+            "check_repository_performance", usage=argparse.SUPPRESS
         )
-        check_datastore_performance_parser.add_argument("seconds_to_run", default=3, nargs="?", type=int)
+        check_repository_performance_parser.add_argument("seconds_to_run", default=3, nargs="?", type=int)
 
         get_feature_parser = self.subparsers.add_parser("get_feature", usage=argparse.SUPPRESS)
         get_feature_parser.add_argument("featureID", type=int)
@@ -495,6 +495,10 @@ class SzCmdShell(cmd.Cmd):
         get_record_parser.add_argument("record_id")
         get_record_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
+        get_record_preview_parser = self.subparsers.add_parser("get_record_preview", usage=argparse.SUPPRESS)
+        get_record_preview_parser.add_argument("record_definition")
+        get_record_preview_parser.add_argument("-f", "--flags", nargs="+", required=False)
+
         get_virtual_entity_by_record_id_parser = self.subparsers.add_parser(
             "get_virtual_entity_by_record_id", usage=argparse.SUPPRESS
         )
@@ -504,10 +508,6 @@ class SzCmdShell(cmd.Cmd):
         how_entity_by_entity_id_parser = self.subparsers.add_parser("how_entity_by_entity_id", usage=argparse.SUPPRESS)
         how_entity_by_entity_id_parser.add_argument("entity_id", type=int)
         how_entity_by_entity_id_parser.add_argument("-f", "--flags", nargs="+", required=False)
-
-        preprocess_record_parser = self.subparsers.add_parser("preprocess_record", usage=argparse.SUPPRESS)
-        preprocess_record_parser.add_argument("record_definition")
-        preprocess_record_parser.add_argument("-f", "--flags", nargs="+", required=False)
 
         process_redo_record_parser = self.subparsers.add_parser("process_redo_record", usage=argparse.SUPPRESS)
         process_redo_record_parser.add_argument("redo_record")
@@ -923,29 +923,29 @@ class SzCmdShell(cmd.Cmd):
     # -----------------------------------------------------------------------------
 
     @do_methods_decorator
-    def do_check_datastore_performance(self, **kwargs: Any) -> None:
+    def do_check_repository_performance(self, **kwargs: Any) -> None:
         """
-        Run a performance check on the database
+        Run a performance check on the repository
 
         Syntax:
-            check_datastore_performance [seconds_to_run]
-            check_datastore_performance
+            check_repository_performance [seconds_to_run]
+            check_repository_performance
 
         Arguments:
             seconds_to_run = Time in seconds to run the check, default is 3"""
 
-        response = self.sz_diagnostic.check_datastore_performance(kwargs["parsed_args"].seconds_to_run)
+        response = self.sz_diagnostic.check_repository_performance(kwargs["parsed_args"].seconds_to_run)
         self.last_response = self.output_response(response)
 
     @do_methods_decorator
-    def do_get_datastore_info(self) -> None:
+    def do_get_repository_info(self) -> None:
         """
-        Get data store information
+        Get repository information
 
         Syntax:
-            get_datastore_info"""
+            get_repository_info"""
 
-        response = self.sz_diagnostic.get_datastore_info()
+        response = self.sz_diagnostic.get_repository_info()
         self.last_response = self.output_response(response)
 
     @do_methods_decorator
@@ -1137,7 +1137,7 @@ class SzCmdShell(cmd.Cmd):
                     rec_cnt += 1
                     if rec_cnt % 1000 == 0:
                         print(f"Exported {rec_cnt} records...", flush=True)
-                self.sz_engine.close_export(export_handle)
+                self.sz_engine.close_export_report(export_handle)
         except (SzError, IOError) as err:
             print_error(err)
         else:
@@ -1187,7 +1187,7 @@ class SzCmdShell(cmd.Cmd):
                     rec_cnt += 1
                     if rec_cnt % 1000 == 0:
                         print(f"Exported {rec_cnt} records...", flush=True)
-                self.sz_engine.close_export(export_handle)
+                self.sz_engine.close_export_report(export_handle)
         except (SzError, IOError) as err:
             print_error(err)
         else:
@@ -1502,6 +1502,27 @@ class SzCmdShell(cmd.Cmd):
         self.last_response = self.output_response(response)
 
     @do_methods_decorator
+    def do_get_record_preview(self, **kwargs: Any) -> None:
+        """
+        Describe the features resulting from the hypothetical load of a record
+
+        Syntax:
+            get_record_preview record_definition [-f flag ...]
+
+        Examples:
+            get_record_preview '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}'
+
+        Arguments:
+            record_definition = Senzing mapped JSON representation of a record
+            flag = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
+        """
+
+        preview_record = functools.partial(self.sz_engine.get_record_preview, kwargs["parsed_args"].record_definition)
+
+        response = preview_record(kwargs["flags"]) if "flags" in kwargs else preview_record()
+        self.last_response = self.output_response(response)
+
+    @do_methods_decorator
     def do_get_redo_record(self) -> None:
         """
         Get a redo record from the redo queue
@@ -1612,30 +1633,6 @@ class SzCmdShell(cmd.Cmd):
         )
 
         response = process_redo(kwargs["flags"]) if "flags" in kwargs else process_redo()
-        self.last_response = self.output_response(response)
-
-    @do_methods_decorator
-    def do_preprocess_record(self, **kwargs: Any) -> None:
-        """
-        Pre-process a record
-
-        Syntax:
-            preprocess_record record_definition [-f flag ...]
-
-        Examples:
-            preprocess_record '{"NAME_FULL":"Robert Smith", "DATE_OF_BIRTH":"7/4/1976", "PHONE_NUMBER":"787-767-2088"}'
-
-        Arguments:
-            record_definition = Senzing mapped JSON representation of a record
-            flag = Optional space separated list of engine flag(s) to determine output (don't specify for defaults)
-        """
-
-        preprocess_record = functools.partial(
-            self.sz_engine.preprocess_record,
-            kwargs["parsed_args"].record_definition,
-        )
-
-        response = preprocess_record(kwargs["flags"]) if "flags" in kwargs else preprocess_record()
         self.last_response = self.output_response(response)
 
     @do_methods_decorator
@@ -2238,7 +2235,7 @@ class SzCmdShell(cmd.Cmd):
         return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     @cmd_settings_decorator
-    def complete_check_datastore_performance(
+    def complete_check_repository_performance(
         self, text: str, line: str, begidx: int, endidx: int, **kwargs
     ) -> List[str]:
         return kwargs["cmd_settings"]
@@ -2300,7 +2297,7 @@ class SzCmdShell(cmd.Cmd):
         return kwargs["cmd_settings"]
 
     @cmd_settings_decorator
-    def complete_get_datastore_info(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+    def complete_get_repository_info(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
         return kwargs["cmd_settings"]
 
     @cmd_settings_decorator
@@ -2342,7 +2339,7 @@ class SzCmdShell(cmd.Cmd):
         return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     @cmd_settings_decorator
-    def complete_preprocess_record(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
+    def complete_get_record_preview(self, text: str, line: str, begidx: int, endidx: int, **kwargs) -> List[str]:
         return self.flags_completes(text, line) + kwargs["cmd_settings"]
 
     @cmd_settings_decorator

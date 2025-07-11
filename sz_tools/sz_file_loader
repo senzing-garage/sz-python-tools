@@ -606,7 +606,7 @@ def startup_info(
         ver_info = _json_loads(product.get_version())
         config_list = _json_loads(configmgr.get_config_registry())
         active_cfg_id = engine.get_active_config_id()
-        ds_info = _json_loads(diag.get_datastore_info())
+        ds_info = _json_loads(diag.get_repository_info())
     except SzError as err:
         raise err
 
@@ -657,11 +657,11 @@ def startup_info(
         db_tune_article = "https://senzing.zendesk.com/hc/en-us/articles/360016288254-Tuning-Your-Database"
 
         logger.info("")
-        logger.info("Datastore Performance")
+        logger.info("Repository Performance")
         logger.info("---------------------")
         logger.info("")
 
-        ds_perf = _json_loads(diag.check_datastore_performance(3))
+        ds_perf = _json_loads(diag.check_repository_performance(3))
         num_recs_inserted = ds_perf.get("numRecordsInserted", None)
         if num_recs_inserted:
             insert_time = ds_perf["insertTime"]
@@ -671,11 +671,11 @@ def startup_info(
             logger.info("Average per insert:  %s ms", f"{time_per_insert:.3f}")
             logger.info("")
         else:
-            logger.error("Datastore performance test failed!")
+            logger.error("Repository performance test failed!")
 
         if time_per_insert > max_time_per_insert:
             logger.warning(
-                "Datastore performance of %s ms per insert is slower than the recommended minimum of %s ms per insert",
+                "Repository performance of %s ms per insert is slower than the recommended minimum of %s ms per insert",
                 f"{time_per_insert:.1f}",
                 f"{max_time_per_insert:.1f}",
             )
