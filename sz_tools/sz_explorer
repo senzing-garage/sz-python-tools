@@ -1206,12 +1206,9 @@ class EdaSdkWrapper:
                 distinct_usage_type = distinct_feat_record.get("USAGE_TYPE", "")
                 # search request does contain feat_desc_values
                 if not distinct_feat_record.get("FEAT_DESC_VALUES"):
-                    feat_record = distinct_feat_record.copy()
-                    distinct_feat_record["FEAT_DESC_VALUES"] = [
-                        feat_record,
-                    ]
+                    distinct_feat_record["FEAT_DESC_VALUES"] = [distinct_feat_record]
                 for feat_record in distinct_feat_record["FEAT_DESC_VALUES"]:
-                    feat_record["RECORD_COUNT"] = 0  # will be incremented later
+                    feat_record = feat_record.copy()
                     feat_record["FTYPE_CODE"] = ftype_code
                     feat_record["USAGE_TYPE"] = feat_record.get("USAGE_TYPE", distinct_usage_type)
                     if feat_record["USAGE_TYPE"] == "PRIMARY":
@@ -1220,25 +1217,26 @@ class EdaSdkWrapper:
                         feat_record["USAGE_TYPE_SORT"] = f"2-{feat_record['USAGE_TYPE']}"
                     else:
                         feat_record["USAGE_TYPE_SORT"] = "3-UNSPECIFIED"
-                    features_by_type[ftype_code].append(feat_record)
                     lib_feat_id = feat_record["LIB_FEAT_ID"]
                     if lib_feat_id in features_by_id:  # may be a different usage type
-                        usage_type1 = features_by_id.get("USAGE_TYPE", "")
+                        usage_type1 = features_by_id[lib_feat_id].get("USAGE_TYPE", "")
                         usage_type2 = feat_record.get("USAGE_TYPE", "")
-                        if usage_type2 and usage_type2 != usage_type1:
-                            delim = ", " if usage_type1 else ""
-                            features_by_id[lib_feat_id]["USAGE_TYPE"] += delim + usage_type2
+                        if usage_type1 and usage_type2 and usage_type2 != usage_type1:
+                            features_by_id[lib_feat_id]["USAGE_TYPE"] += ", " + usage_type2
                     else:
                         features_by_id[lib_feat_id] = feat_record
+
+        # features_by_type is updated after in case duplicate lib_feat_ids
+        for feat_record in features_by_id.values():
+            features_by_type[feat_record["FTYPE_CODE"]].append(feat_record)
+
         return {"BY_ID": features_by_id, "BY_TYPE": features_by_type}
 
     def get_record_features(self, entity_features, feature_list):
         features_by_id = {}
-        features_by_type = {}
         for feat_record in feature_list:
             lib_feat_id = feat_record["LIB_FEAT_ID"]
             if lib_feat_id in entity_features:
-                entity_features[lib_feat_id]["RECORD_COUNT"] += 1
                 feature_data = entity_features[lib_feat_id].copy()
                 feature_data["USAGE_TYPE"] = feat_record.get("USAGE_TYPE", "")
                 if feature_data["USAGE_TYPE"] == "PRIMARY":
@@ -1248,18 +1246,21 @@ class EdaSdkWrapper:
                 else:
                     feature_data["USAGE_TYPE_SORT"] = "3-UNSPECIFIED"
                 ftype_code = feature_data["FTYPE_CODE"]
-                if ftype_code not in features_by_type:
-                    features_by_type[ftype_code] = [feature_data]
-                else:
-                    features_by_type[ftype_code].append(feature_data)
                 if lib_feat_id in features_by_id:  # may be a different usage type
-                    usage_type1 = features_by_id.get("USAGE_TYPE", "")
-                    usage_type2 = feature_data.get("USAGE_TYPE", "")
-                    if usage_type2 and usage_type2 != usage_type1:
-                        delim = ", " if usage_type1 else ""
-                        features_by_id[lib_feat_id]["USAGE_TYPE"] += delim + usage_type2
+                    usage_type1 = features_by_id[lib_feat_id].get("USAGE_TYPE", "")
+                    usage_type2 = feat_record.get("USAGE_TYPE", "")
+                    if usage_type1 and usage_type2 and usage_type2 != usage_type1:
+                        features_by_id[lib_feat_id]["USAGE_TYPE"] += ", " + usage_type2
                 else:
                     features_by_id[lib_feat_id] = feature_data
+        # features_by_type is updated after in case duplicate lib_feat_ids
+        features_by_type = {}
+        for feat_record in features_by_id.values():
+            if feat_record["FTYPE_CODE"] not in features_by_type:
+                features_by_type[feat_record["FTYPE_CODE"]] = [feat_record]
+            else:
+                features_by_type[feat_record["FTYPE_CODE"]].append(feat_record)
+
         return {"BY_ID": features_by_id, "BY_TYPE": features_by_type}
 
     def regroup_by_type(self, features_by_id):
@@ -1340,11 +1341,9 @@ class EdaSdkWrapper:
         score_records = {}
         if match_info.get("WHY_KEY_DETAILS"):
             for best_score in match_info["WHY_KEY_DETAILS"].get("CONFIRMATIONS", []):
-                best_score["TOKEN"] = "+" + best_score["TOKEN"]
                 key = f"{best_score['INBOUND_FEAT_ID']}-{best_score['CANDIDATE_FEAT_ID']}"
                 score_records[key] = best_score
             for best_score in match_info["WHY_KEY_DETAILS"].get("DENIALS", []):
-                best_score["TOKEN"] = "-" + best_score["TOKEN"]
                 key = f"{best_score['INBOUND_FEAT_ID']}-{best_score['CANDIDATE_FEAT_ID']}"
                 score_records[key] = best_score
         for ftype_code in match_info.get("FEATURE_SCORES", {}):
@@ -1496,6 +1495,11 @@ class EdaSdkWrapper:
 
             errule_code = step["MATCH_INFO"].get("ERRULE_CODE", "None")
             match_key = step["MATCH_INFO"].get("MATCH_KEY", "None")
+            if not match_key.startswith("+NAME"):
+                # eventually get match_key details and check name score
+                reason = "Match_key has no or partial name match"
+                summary["INTERESTING_STEP"][step_num] = reason
+
             if errule_code not in summary["PRINCIPLE"]:
                 summary["PRINCIPLE"][errule_code] = {"COUNT": 1, "MATCH_KEY": {}}
             else:
@@ -1522,7 +1526,6 @@ class EdaSdkWrapper:
             "STEPS": steps,
             "FINAL_ENTITIES": final_entities,
         }
-
         return how_data
 
     def reorder_search_results(self, resolved_entities):
@@ -1659,11 +1662,6 @@ class EdaSdkWrapper:
 
             if any(x in stats for x in ("~", "!", "#")):
                 feat_color += ",dim" if feat_color else "dim"
-
-            # mixed_color = False / mixed_color and wrap text would not work well with each other
-            if feature.get("MATCH_KEY_TOKEN"):
-                feat_color = "good" if feature["MATCH_KEY_TOKEN"].startswith("+") else "bad"
-                # mixed_color = feature["FTYPE_CODE"] = feature["MATCH_KEY_TOKEN"][1:]
 
             display_list.extend(wrap_text(f"{feat_desc} {stats}", attr_width, feat_color))
 
@@ -1960,7 +1958,7 @@ class EdaSdkWrapper:
 
         entity_only_features = []
         for feat_data in entity_features.values():
-            if feat_data["RECORD_COUNT"] == 0:
+            if feat_data["FTYPE_CODE"] in self.senzing_features:
                 entity_only_features.append(f"{colorize(feat_data['FTYPE_CODE'], 'bad')}: {feat_data['FEAT_DESC']}")
         if entity_only_features:
             tbl.rows.insert(0, [colorize_dsrc("SENZING"), "\n".join(entity_only_features), ""])
@@ -2297,7 +2295,7 @@ class EdaSdkWrapper:
         virtual_id1 = step_data["ENTITY_LIST"][0]["VIRTUAL_ID"]
         virtual_id2 = step_data["ENTITY_LIST"][1]["VIRTUAL_ID"]
 
-        # debug_print(step_data["ENTITY_LIST"][0])
+        # debug_print(step_data)
         # source_row.append(self.fmt_record_list(records, 1, attr_width))
 
         tbl = eda_table()
@@ -2315,6 +2313,13 @@ class EdaSdkWrapper:
                 self.fmt_record_list(step_data["ENTITY_LIST"][1]["RECORDS"], **kwargs),  # .replace("\n", " | ")[0:80],
             ],
         ]
+        if step_data["STEP_TYPE"] == "Create virtual entity":
+            left_side_feat = "CANDIDATE_FEAT_DESC"
+            right_side_feat = "INBOUND_FEAT_DESC"
+        else:
+            left_side_feat = "INBOUND_FEAT_DESC"
+            right_side_feat = "CANDIDATE_FEAT_DESC"
+
         match_key = step_data["MATCH_INFO"].get("MATCH_KEY", "")
         feature_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"]
         for ftype_code in sorted(set(feature_scores), key=lambda k: self.ftype_code_order[k]):
@@ -2344,9 +2349,9 @@ class EdaSdkWrapper:
             tbl.rows.append(
                 [
                     colorize(ftype_code, "dim"),
-                    best_score["INBOUND_FEAT_DESC"],
+                    best_score[left_side_feat],
                     colorize(score_value, feat_color),
-                    best_score["CANDIDATE_FEAT_DESC"],
+                    best_score[right_side_feat],
                 ]
             )
         #     tbl.rows[0][0].append(colorize(ftype_code, "dim"))
@@ -2605,7 +2610,7 @@ class EdaSdkWrapper:
 
     def how_summary(self, how_data):
         summary_node = eda_node("summary")
-        summary_node.node_desc = colorize("HOW STATISTICS", "")  # "highlight2")
+        summary_node.node_desc = f"How summary for {self.fmt_entity_desc(how_data)}"
 
         category_node = eda_node("resolution")
         category_node.node_desc = self.fmt_how_statistic_hdr("RESOLUTION SUMMARY")
@@ -2705,12 +2710,14 @@ class EdaSdkWrapper:
             root_node.node_desc = "n/a"
         else:
             root_node.node_desc = colorize("Re-evaluation needed! ", "bad")
+        final_node_cnt = 0
         for final_entity in final_entities:
             final_id = final_entity["VIRTUAL_ENTITY_ID"]
             if len(final_entities) == 1:
                 final_node_msg = "final entity"
             else:
-                final_node_msg = "final entity"
+                final_node_cnt += 1
+                final_node_msg = f"final entity {final_node_cnt} of {len(final_entities)}"
             final_node = eda_node(final_id)
             final_node.node_desc = f"{colorize_entity(final_id)} {final_node_msg}"
             final_node.step_created = 0
@@ -2768,7 +2775,7 @@ class EdaSdkWrapper:
                     node.node_desc += " was orphaned!"
                 ordered_nodes.append(node)
             root_node.children = ordered_nodes
-        return root_node.render_tree()
+        return f"How decision tree for {self.fmt_entity_desc(how_data)}\n\n" + root_node.render_tree()
 
     def how_columnar(self, how_data, **kwargs):
         entity_id = how_data["ENTITY_ID"]
@@ -2786,7 +2793,8 @@ class EdaSdkWrapper:
                         "MATCH_INFO": step_data[step_num]["MATCH_INFO"],
                     }
         # entities, how_data = self.why_how(entity_id)
-        kwargs["report_title"] = f"How for entity: {colorize_entity(entity_id)}"
+
+        kwargs["report_title"] = f"Columnar how for {self.fmt_entity_desc(how_data)}"
         kwargs["row1_title"] = "VIRTUAL_ID"
         if how_data["SUMMARY"]["REEVALUATION_MSG"]:
             kwargs["report_title"] += " " + colorize(how_data["SUMMARY"]["REEVALUATION_MSG"], "bad")
@@ -3396,7 +3404,7 @@ class EdaCmd(cmd.Cmd):
             elif token.upper() in sdk_wrapper.ftype_code_lookup:
                 feature_list.append(token)
             elif token.lower() in sdk_wrapper.how_views.values():
-                kwarg_dict["how_view"] = token.lower
+                kwarg_dict["how_view"] = token.lower()
             else:
                 remaining_tokens.append(token)
             prior_token = token.upper()
