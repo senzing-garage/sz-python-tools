@@ -1206,11 +1206,9 @@ class EdaSdkWrapper:
                 distinct_usage_type = distinct_feat_record.get("USAGE_TYPE", "")
                 # search request does contain feat_desc_values
                 if not distinct_feat_record.get("FEAT_DESC_VALUES"):
-                    feat_record = distinct_feat_record.copy()
-                    distinct_feat_record["FEAT_DESC_VALUES"] = [
-                        feat_record,
-                    ]
+                    distinct_feat_record["FEAT_DESC_VALUES"] = [distinct_feat_record]
                 for feat_record in distinct_feat_record["FEAT_DESC_VALUES"]:
+                    feat_record = feat_record.copy()
                     feat_record["FTYPE_CODE"] = ftype_code
                     feat_record["USAGE_TYPE"] = feat_record.get("USAGE_TYPE", distinct_usage_type)
                     if feat_record["USAGE_TYPE"] == "PRIMARY":
@@ -1219,16 +1217,21 @@ class EdaSdkWrapper:
                         feat_record["USAGE_TYPE_SORT"] = f"2-{feat_record['USAGE_TYPE']}"
                     else:
                         feat_record["USAGE_TYPE_SORT"] = "3-UNSPECIFIED"
-                    features_by_type[ftype_code].append(feat_record)
                     lib_feat_id = feat_record["LIB_FEAT_ID"]
                     if lib_feat_id in features_by_id:  # may be a different usage type
-                        usage_type1 = features_by_id.get("USAGE_TYPE", "")
+                        # print(features_by_id[lib_feat_id])
+                        # input("press any key ...")
+                        usage_type1 = features_by_id[lib_feat_id].get("USAGE_TYPE", "")
                         usage_type2 = feat_record.get("USAGE_TYPE", "")
-                        if usage_type2 and usage_type2 != usage_type1:
-                            delim = ", " if usage_type1 else ""
-                            features_by_id[lib_feat_id]["USAGE_TYPE"] += delim + usage_type2
+                        if usage_type1 and usage_type2 and usage_type2 != usage_type1:
+                            features_by_id[lib_feat_id]["USAGE_TYPE"] += ", " + usage_type2
                     else:
                         features_by_id[lib_feat_id] = feat_record
+
+        # features_by_type is updated after in case duplicate lib_feat_ids
+        for feat_record in features_by_id.values():
+            features_by_type[feat_record["FTYPE_CODE"]].append(feat_record)
+
         return {"BY_ID": features_by_id, "BY_TYPE": features_by_type}
 
     def get_record_features(self, entity_features, feature_list):
@@ -1339,11 +1342,11 @@ class EdaSdkWrapper:
         score_records = {}
         if match_info.get("WHY_KEY_DETAILS"):
             for best_score in match_info["WHY_KEY_DETAILS"].get("CONFIRMATIONS", []):
-                best_score["TOKEN"] = "+" + best_score["TOKEN"]
+                best_score["TOKEN"] = best_score["TOKEN"]
                 key = f"{best_score['INBOUND_FEAT_ID']}-{best_score['CANDIDATE_FEAT_ID']}"
                 score_records[key] = best_score
             for best_score in match_info["WHY_KEY_DETAILS"].get("DENIALS", []):
-                best_score["TOKEN"] = "-" + best_score["TOKEN"]
+                best_score["TOKEN"] = best_score["TOKEN"]
                 key = f"{best_score['INBOUND_FEAT_ID']}-{best_score['CANDIDATE_FEAT_ID']}"
                 score_records[key] = best_score
         for ftype_code in match_info.get("FEATURE_SCORES", {}):
@@ -1495,6 +1498,11 @@ class EdaSdkWrapper:
 
             errule_code = step["MATCH_INFO"].get("ERRULE_CODE", "None")
             match_key = step["MATCH_INFO"].get("MATCH_KEY", "None")
+            if not match_key.startswith("+NAME"):
+                # eventually get match_key details and check name score
+                reason = "Match_key has no or partial name match"
+                summary["INTERESTING_STEP"][step_num] = reason
+
             if errule_code not in summary["PRINCIPLE"]:
                 summary["PRINCIPLE"][errule_code] = {"COUNT": 1, "MATCH_KEY": {}}
             else:
@@ -1657,11 +1665,6 @@ class EdaSdkWrapper:
 
             if any(x in stats for x in ("~", "!", "#")):
                 feat_color += ",dim" if feat_color else "dim"
-
-            # mixed_color = False / mixed_color and wrap text would not work well with each other
-            if feature.get("MATCH_KEY_TOKEN"):
-                feat_color = "good" if feature["MATCH_KEY_TOKEN"].startswith("+") else "bad"
-                # mixed_color = feature["FTYPE_CODE"] = feature["MATCH_KEY_TOKEN"][1:]
 
             display_list.extend(wrap_text(f"{feat_desc} {stats}", attr_width, feat_color))
 
