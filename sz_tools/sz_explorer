@@ -1219,8 +1219,6 @@ class EdaSdkWrapper:
                         feat_record["USAGE_TYPE_SORT"] = "3-UNSPECIFIED"
                     lib_feat_id = feat_record["LIB_FEAT_ID"]
                     if lib_feat_id in features_by_id:  # may be a different usage type
-                        # print(features_by_id[lib_feat_id])
-                        # input("press any key ...")
                         usage_type1 = features_by_id[lib_feat_id].get("USAGE_TYPE", "")
                         usage_type2 = feat_record.get("USAGE_TYPE", "")
                         if usage_type1 and usage_type2 and usage_type2 != usage_type1:
@@ -1236,7 +1234,6 @@ class EdaSdkWrapper:
 
     def get_record_features(self, entity_features, feature_list):
         features_by_id = {}
-        features_by_type = {}
         for feat_record in feature_list:
             lib_feat_id = feat_record["LIB_FEAT_ID"]
             if lib_feat_id in entity_features:
@@ -1249,19 +1246,21 @@ class EdaSdkWrapper:
                 else:
                     feature_data["USAGE_TYPE_SORT"] = "3-UNSPECIFIED"
                 ftype_code = feature_data["FTYPE_CODE"]
-                if ftype_code not in features_by_type:
-                    features_by_type[ftype_code] = [feature_data]
-                else:
-                    features_by_type[ftype_code].append(feature_data)
                 if lib_feat_id in features_by_id:  # may be a different usage type
-                    input("here-----")
-                    # usage_type1 = features_by_id.get("USAGE_TYPE", "")
-                    usage_type2 = feature_data.get("USAGE_TYPE", "")
-                    if usage_type2 and usage_type2 not in features_by_id[lib_feat_id]["USAGE_TYPE"]:
-                        delim = ", " if features_by_id[lib_feat_id]["USAGE_TYPE"] else ""
-                        features_by_id[lib_feat_id]["USAGE_TYPE"] += delim + usage_type2
+                    usage_type1 = features_by_id[lib_feat_id].get("USAGE_TYPE", "")
+                    usage_type2 = feat_record.get("USAGE_TYPE", "")
+                    if usage_type1 and usage_type2 and usage_type2 != usage_type1:
+                        features_by_id[lib_feat_id]["USAGE_TYPE"] += ", " + usage_type2
                 else:
                     features_by_id[lib_feat_id] = feature_data
+        # features_by_type is updated after in case duplicate lib_feat_ids
+        features_by_type = {}
+        for feat_record in features_by_id.values():
+            if feat_record["FTYPE_CODE"] not in features_by_type:
+                features_by_type[feat_record["FTYPE_CODE"]] = [feat_record]
+            else:
+                features_by_type[feat_record["FTYPE_CODE"]].append(feat_record)
+
         return {"BY_ID": features_by_id, "BY_TYPE": features_by_type}
 
     def regroup_by_type(self, features_by_id):
@@ -1342,11 +1341,9 @@ class EdaSdkWrapper:
         score_records = {}
         if match_info.get("WHY_KEY_DETAILS"):
             for best_score in match_info["WHY_KEY_DETAILS"].get("CONFIRMATIONS", []):
-                best_score["TOKEN"] = best_score["TOKEN"]
                 key = f"{best_score['INBOUND_FEAT_ID']}-{best_score['CANDIDATE_FEAT_ID']}"
                 score_records[key] = best_score
             for best_score in match_info["WHY_KEY_DETAILS"].get("DENIALS", []):
-                best_score["TOKEN"] = best_score["TOKEN"]
                 key = f"{best_score['INBOUND_FEAT_ID']}-{best_score['CANDIDATE_FEAT_ID']}"
                 score_records[key] = best_score
         for ftype_code in match_info.get("FEATURE_SCORES", {}):
