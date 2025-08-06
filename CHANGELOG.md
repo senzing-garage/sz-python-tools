@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.27] - 2025-08-06
+
+### Changed in 0.0.27
+
+- Corrected relationship counts in sz_snapshot
+- Corrected reported bugs and requests in sz_explorer
+
 ## [0.0.26] - 2025-07-11
 
 ### Changed in 0.0.26
