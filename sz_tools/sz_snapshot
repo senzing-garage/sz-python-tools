@@ -479,10 +479,8 @@ class SnapshotWriter:
                             stat_keys.extend(["PRINCIPLES", principle_matchkey])
                             self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [entity_id]})
 
-                # if len(entity0_sources) > 1:
-                # include single source so can find non-matches, ie customers not on watch list or in reference file
-                multi_source_key = "||".join(sorted(entity0_sources.keys()))
-                self.update_stat_pack(["ENTITY_SOURCES", multi_source_key], {"ENTITY_COUNT": 1, "SAMPLE": [entity_id]})
+                source_key = "||".join(sorted(entity0_sources.keys()))
+                self.update_stat_pack(["ENTITY_SOURCES", source_key], {"ENTITY_COUNT": 1, "SAMPLE": [entity_id]})
             elif related_id > entity_id:
                 sample = f"{entity_id} {related_id}"
                 principle_matchkey = list(resume_data[related_id]["PRINCIPLES"].keys())[0]
@@ -494,16 +492,21 @@ class SnapshotWriter:
 
                 for data_source1 in entity0_sources:
                     for data_source2 in resume_data[related_id]["DATA_SOURCES"]:
+                        stat_key_list = []
                         if data_source1 == data_source2:
-                            stat_keys = ["DATA_SOURCES", data_source1, match_level]
+                            stat_key_list.append(["DATA_SOURCES", data_source1, match_level])
                         else:
-                            data_source_pair = f"{data_source1}||{data_source2}"
-                            if data_source_pair not in self.stat_pack["CROSS_SOURCES"]:
-                                self.initialize_match_levels(["CROSS_SOURCES", data_source_pair])
-                            stat_keys = ["CROSS_SOURCES", data_source_pair, match_level]
-                        self.update_stat_pack(stat_keys, {"RELATION_COUNT": 1})
-                        stat_keys.extend(["PRINCIPLES", principle_matchkey])
-                        self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [sample]})
+                            for data_source_pair in [
+                                f"{data_source1}||{data_source2}",
+                                f"{data_source2}||{data_source1}",
+                            ]:
+                                if data_source_pair not in self.stat_pack["CROSS_SOURCES"]:
+                                    self.initialize_match_levels(["CROSS_SOURCES", data_source_pair])
+                                stat_key_list.append(["CROSS_SOURCES", data_source_pair, match_level])
+                        for stat_keys in stat_key_list:
+                            self.update_stat_pack(stat_keys, {"RELATION_COUNT": 1})
+                            stat_keys.extend(["PRINCIPLES", principle_matchkey])
+                            self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [sample]})
 
 
 def check_stat_pack(stats_file_name, csv_file_name, args):
