@@ -293,9 +293,9 @@ def check_environment() -> None:
             ERROR: SENZING_ROOT or SENZING_ENGINE_CONFIGURATION_JSON environment variable is not set:
 
                 - If using a Senzing project on a bare metal install, source the setupEnv file in the project root path
-                - or set the SENZING_ENGINE_CONFIGURATION_JSON environment variable
+                  or set the SENZING_ENGINE_CONFIGURATION_JSON environment variable
 
-                        https://senzing.zendesk.com/hc/en-us/articles/115002408867-Introduction-G2-Quickstart
+                        https://senzing.com/v4-linux-quickstart-guide/
 
                 - If running within a container set the SENZING_ENGINE_CONFIGURATION_JSON environment variable.
 
