@@ -62,9 +62,7 @@ class SzDatabase:
                         self.pyodbc = import_module("pyodbc")
                         self.imports.append("pyodbc")
                 except ImportError as err:
-                    raise ImportError(
-                        "ERROR: could not import pyodbc module\n\nPlease check the Senzing help center: https://senzing.zendesk.com/hc/en-us/search?utf8=%E2%9C%93&query=pyodbc\n\t"
-                    )
+                    raise ImportError("ERROR: could not import pyodbc module\n\n")
         elif self.connections[node]["dbtype"] == "OCI":
             try:
                 if "cx_Oracle" not in self.imports:

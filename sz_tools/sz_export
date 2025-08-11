@@ -437,7 +437,7 @@ if __name__ == "__main__":
                 Beyond 100M+ data source records isn't suggested. For exporting overview entity and relationship data for
                 analytical purposes outside of Senzing please review the following article:
 
-                https://senzing.zendesk.com/hc/en-us/articles/360010716274--Advanced-Replicating-the-Senzing-results-to-a-Data-Warehouse
+                https://senzing.com/v4-replicating-to-data-warehouse/
 
                 ************************************************************************************************************************
                 """

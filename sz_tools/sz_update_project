@@ -28,7 +28,7 @@ MODULE_NAME = Path(__file__).stem
 V3_BUILD = "g2BuildVersion.json"
 V3_SYS_PATH = SZ_SYS_PATH / "g2"
 V3_SYS_BUILD = V3_SYS_PATH / V3_BUILD
-UPGRADE_URL = "https://www.senzing.com/docs/4_beta/index.html"
+UPGRADE_URL = "https://senzing.com/releases/#api-releases"
 
 V3_BACKUP_PROJ = {
     "bin": {"files": ["g2dbencrypt", "g2saltadm", "g2ssadm"], "excludes": []},

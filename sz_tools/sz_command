@@ -1109,14 +1109,14 @@ class SzCmdShell(cmd.Cmd):
             - Available csv_column_list columns
                 - RESOLVED_ENTITY_ID,RELATED_ENTITY_ID,MATCH_LEVEL,MATCH_KEY,DATA_SOURCE,RECORD_ID,RESOLVED_ENTITY_NAME,ERRULE_CODE,JSON_DATA
 
-            - Engine flag details https://docs.senzing.com/flags/index.html
+            - Engine flag details https://senzing.com/v4-sdk-flags/
 
         Caution:
             - Export isn't intended for exporting large numbers of entities and associated data source record information.
               Beyond 100M+ data source records isn't suggested. For exporting overview entity and relationship data for
               analytical purposes outside of Senzing please review the following article.
 
-              https://senzing.zendesk.com/hc/en-us/articles/360010716274--Advanced-Replicating-the-Senzing-results-to-a-Data-Warehouse
+              https://senzing.com/v4-replicating-to-data-warehouse/
         """
         rec_cnt = 0
 
@@ -1160,14 +1160,14 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html
+            - Engine flag details https://senzing.com/v4-sdk-flags/
 
         Caution:
             - Export isn't intended for exporting large numbers of entities and associated data source record information.
               Beyond 100M+ data source records isn't suggested. For exporting overview entity and relationship data for
               analytical purposes outside of Senzing please review the following article.
 
-              https://senzing.zendesk.com/hc/en-us/articles/360010716274--Advanced-Replicating-the-Senzing-results-to-a-Data-Warehouse
+              https://senzing.com/v4-replicating-to-data-warehouse/
         """
 
         rec_cnt = 0
@@ -1209,7 +1209,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html
+            - Engine flag details https://senzing.com/v4-sdk-flags/
 
             - Experimental feature requires additional configuration, contact support@senzing.com
         """
@@ -1244,7 +1244,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html
+            - Engine flag details https://senzing.com/v4-sdk-flags/
 
             - Experimental feature requires additional configuration, contact support@senzing.com
         """
@@ -1282,7 +1282,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         find_network_by_entity_id = functools.partial(
             self.sz_engine.find_network_by_entity_id,
@@ -1315,7 +1315,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         find_network_by_record_id = functools.partial(
             self.sz_engine.find_network_by_record_id,
@@ -1351,7 +1351,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         find_path_by_entity_id = functools.partial(
             self.sz_engine.find_path_by_entity_id,
@@ -1388,7 +1388,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         find_path_by_record_id = functools.partial(
             self.sz_engine.find_path_by_record_id,
@@ -1433,7 +1433,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         get_entity = functools.partial(
             self.sz_engine.get_entity_by_entity_id,
@@ -1461,7 +1461,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         get_entity = functools.partial(
             self.sz_engine.get_entity_by_record_id,
@@ -1490,7 +1490,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         get_record = functools.partial(
             self.sz_engine.get_record,
@@ -1563,7 +1563,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         get_virtual = functools.partial(
             self.sz_engine.get_virtual_entity_by_record_id,
@@ -1589,7 +1589,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         how_entity = functools.partial(
             self.sz_engine.how_entity_by_entity_id,
@@ -1653,7 +1653,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         reevaluate = functools.partial(
             self.sz_engine.reevaluate_entity,
@@ -1684,7 +1684,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         reevaluate = functools.partial(
             self.sz_engine.reevaluate_record,
@@ -1716,7 +1716,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         if "flags" in kwargs:
             response = self.sz_engine.search_by_attributes(
@@ -1750,7 +1750,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         why_entities = functools.partial(
             self.sz_engine.why_entities,
@@ -1779,7 +1779,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         why_record = functools.partial(
             self.sz_engine.why_record_in_entity,
@@ -1810,7 +1810,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         why_records = functools.partial(
             self.sz_engine.why_records,
@@ -1841,7 +1841,7 @@ class SzCmdShell(cmd.Cmd):
             flag = Space separated list of engine flag(s) to determine output (don't specify for defaults)
 
         Notes:
-            - Engine flag details https://docs.senzing.com/flags/index.html"""
+            - Engine flag details https://senzing.com/v4-sdk-flags/"""
 
         if "flags" in kwargs:
             response = self.sz_engine.why_search(
