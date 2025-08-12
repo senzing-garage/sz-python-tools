@@ -3554,7 +3554,11 @@ class EdaCmd(cmd.Cmd):
                 entity_cache[entity_id] = True
                 entity_cnt += 1
                 if entity_cnt <= 1000:
-                    json_data = sdk_wrapper.call_sdk("get_entity_by_entity_id", get_flag_list, entity_id)
+                    try:
+                        json_data = sdk_wrapper.call_sdk("get_entity_by_entity_id", get_flag_list, entity_id)
+                    except SzError as err:
+                        print_message(err, "error")
+                        continue
                     entity_name = json_data["RESOLVED_ENTITY"]["ENTITY_NAME"]
                     tbl1.rows.append(
                         [
@@ -3904,8 +3908,15 @@ class EdaCmd(cmd.Cmd):
             print_message("Invalid parameter: expected a numeric entity ID", "warning")
             return
 
-        sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
-        view_report(sdk_wrapper.get_relationship_tree(root_entity_id, **kwargs))
+        try:
+            sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
+            view_report(sdk_wrapper.get_relationship_tree(root_entity_id, **kwargs))
+        except SzError as err:
+            print_message(err, "error")
+            return
+        except Exception as ex:
+            print_exception(ex)
+            return
 
     def help_why(self):
         print(
@@ -4010,7 +4021,13 @@ class EdaCmd(cmd.Cmd):
             return
 
         sdk_wrapper.begin_call_cache(inspect.stack()[0].function)
-        sdk_wrapper.how_viewer(int(arg), **kwargs)
+        try:
+            sdk_wrapper.how_viewer(int(arg), **kwargs)
+        except SzError as err:
+            print_message(err, "error")
+        except Exception as ex:
+            print_exception(ex)
+            return
 
     def help_score(self):
         print(
@@ -4141,8 +4158,6 @@ class EdaCmd(cmd.Cmd):
             return
         if not file_name:
             file_name = f"{entity_list[0]}.jsonl" if len(entity_list) == 1 else "records.jsonl"
-
-        print(entity_list)
 
         json_lines = sdk_wrapper.export_records(entity_list, degree=degree)
         if json_lines:

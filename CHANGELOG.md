@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.29] - 2025-08-12
+
+### Changed in 0.0.29
+
+- Ensure all sdk calls in sz_explorer wrapped in try/except structure
+
 ## [0.0.28] - 2025-08-11
 
 ### Changed in 0.0.28
