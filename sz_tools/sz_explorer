@@ -4159,8 +4159,6 @@ class EdaCmd(cmd.Cmd):
         if not file_name:
             file_name = f"{entity_list[0]}.jsonl" if len(entity_list) == 1 else "records.jsonl"
 
-        print(entity_list)
-
         json_lines = sdk_wrapper.export_records(entity_list, degree=degree)
         if json_lines:
             with open(file_name, "a" if additive else "w", encoding="utf-8") as f:
