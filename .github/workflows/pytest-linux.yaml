@@ -26,6 +26,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12"]
+        senzingsdk-version: [production-v4, staging-v4]
 
     steps:
       - name: Checkout repository
@@ -54,8 +55,7 @@ jobs:
       - name: Install Senzing SDK
         uses: senzing-factory/github-action-install-senzing-sdk@v3
         with:
-          senzingsdk-repository-package: ${{ secrets.SENZING_APT_BETA_STAGING_REPOSITORY_PACKAGE }}
-          senzingsdk-repository-path: ${{ secrets.SENZING_APT_BETA_STAGING_REPOSITORY_URL }}
+          senzingsdk-version: ${{ matrix.senzingsdk-version }}
 
       - name: Copy /etc files
         run: |
@@ -74,15 +74,15 @@ jobs:
 
       - name: Rename coverage file
         env:
-          COVERAGE_FILE: "coverage.${{ matrix.python-version }}"
+          COVERAGE_FILE: "coverage.${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
         run: |
           mv .coverage "$COVERAGE_FILE"
 
       - name: Store coverage file
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ matrix.python-version }}
-          path: coverage.${{ matrix.python-version }}
+          name: "coverage-${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
+          path: "coverage.${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
 
   coverage:
     name: Coverage
