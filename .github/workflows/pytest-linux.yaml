@@ -8,8 +8,7 @@ on:
     - cron: "15 7 * * *"
 
 env:
-  LD_LIBRARY_PATH: /opt/senzing/er/lib
-  PYTHONPATH: /home/runner/work/sz-python-tools/sz-python-tools/sz_tools
+  PYTHONPATH: ${{ github.workspace }}/src
   SENZING_TOOLS_DATABASE_URL: sqlite3://na:na@nowhere/tmp/sqlite/G2C.db
 
 permissions:
@@ -17,7 +16,7 @@ permissions:
 
 jobs:
   pytest-linux:
-    name: "pytest OS: ${{ matrix.os }}; Python ${{ matrix.python-version }}"
+    name: "pytest with Senzing: ${{ matrix.senzingsdk-version }}; OS: ${{ matrix.os }}; Python ${{ matrix.python-version }}"
     outputs:
       status: ${{ job.status }}
     runs-on: ${{ matrix.os }}
@@ -31,6 +30,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -43,11 +44,11 @@ jobs:
           source ./venv/bin/activate
           echo "PATH=${PATH}" >> "${GITHUB_ENV}"
           python -m pip install --upgrade pip
+          python -m pip install --requirement development-requirements.txt
           python -m pip install --requirement requirements.txt
-          python -m pip install psutil pytest pytest-cov pytest-schema
 
-      - if: matrix.python-version == '3.8' || matrix.python-version == '3.9' || matrix.python-version == '3.10'
-        name: Install python libraries for python 3.8, 3.9, and 3.10
+      - if: matrix.python-version == '3.9' || matrix.python-version == '3.10'
+        name: Install python libraries for python 3.9 and 3.10
         run: |
           source ./venv/bin/activate
           python -m pip install typing_extensions
@@ -57,6 +58,14 @@ jobs:
         with:
           senzingsdk-version: ${{ matrix.senzingsdk-version }}
 
+      - name: Set environment variables
+        run: |
+          SENZING_PATH="/opt/senzing"
+          {
+            echo "SENZING_PATH=${SENZING_PATH}"
+            echo "LD_LIBRARY_PATH=${SENZING_PATH}/er/lib"
+          } >> "$GITHUB_ENV"
+
       - name: Copy /etc files
         run: |
           sudo mkdir -p /etc/opt/senzing
@@ -64,10 +73,10 @@ jobs:
 
       - name: Copy test database files
         run: |
-          mkdir /tmp/sqlite
-          cp testdata/sqlite/G2C.db /tmp/sqlite/G2C.db
+          mkdir -p /tmp/sqlite
+          cp testdata/sqlite/G2C.db /tmp/sqlite/
 
-      - name: Run pytest on tests
+      - name: Run pytest
         run: |
           source ./venv/bin/activate
           pytest tests/ --verbose --capture=no --cov=src --cov-append

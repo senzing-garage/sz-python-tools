@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -30,8 +32,8 @@ jobs:
           source ./venv/bin/activate
           echo "PATH=${PATH}" >> "${GITHUB_ENV}"
           python -m pip install --upgrade pip
+          python -m pip install --requirement development-requirements.txt
           python -m pip install --requirement requirements.txt
-          python -m pip install wheel
           python -m pip wheel -r requirements.txt --wheel-dir=vendor
 
       - name: Run fpvs scan
@@ -50,6 +52,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
