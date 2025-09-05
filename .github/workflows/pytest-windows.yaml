@@ -73,6 +73,7 @@ jobs:
       - name: Run pytest
         run: |
           .\\venv\\Scripts\\activate
+          #shellcheck disable=SC2086,SC2283
           $Env:SENZING_PATH = "$Env:USERPROFILE\Senzing"
           pytest tests/ --verbose --capture=no --cov=src
 
