@@ -434,7 +434,7 @@ class EdaReports:
             entity_features = sdk_wrapper.get_entity_features(json_data["RESOLVED_ENTITY"]["FEATURES"])["BY_ID"]
             for record in json_data["RESOLVED_ENTITY"]["RECORDS"]:
                 record_key = record["RECORD_ID"] + "||" + record["DATA_SOURCE"]
-                features = sdk_wrapper.get_record_features(entity_features, record["FEATURES"])["BY_TYPE"]
+                features = sdk_wrapper.get_record_features(entity_features, record["FEATURE_IDS"])["BY_TYPE"]
                 features_by_record[record_key] = features
 
         ftypes_used = []
@@ -1433,7 +1433,7 @@ class EdaSdkWrapper:
             entity_features[lib_feat_id]["RECORD_COUNT"] = 0
 
         for record in entity_records:
-            for feature in record["FEATURES"]:
+            for feature in record["FEATURE_IDS"]:
                 lib_feat_id = feature["LIB_FEAT_ID"]
                 entity_features[lib_feat_id]["RECORD_COUNT"] += 1
 
@@ -1460,7 +1460,7 @@ class EdaSdkWrapper:
                         entity_record = next(
                             x for x in entity_records if x["DATA_SOURCE"] == data_source and x["RECORD_ID"] == record_id
                         )
-                        features.update(self.get_record_features(entity_features, entity_record["FEATURES"])["BY_ID"])
+                        features.update(self.get_record_features(entity_features, entity_record["FEATURE_IDS"])["BY_ID"])
                 entity_list.append(
                     {
                         "VIRTUAL_ID": step[ve_num]["VIRTUAL_ENTITY_ID"],
@@ -1928,7 +1928,7 @@ class EdaSdkWrapper:
             data_source = record["DATA_SOURCE"]
             record_id = record["RECORD_ID"]
             record_source = {"DATA_SOURCE": data_source, "RECORD_ID": record_id}
-            record_features = self.get_record_features(entity_features, record["FEATURES"])["BY_ID"]
+            record_features = self.get_record_features(entity_features, record["FEATURE_IDS"])["BY_ID"]
             unmapped_items = self.get_unmapped_list(record.get("UNMAPPED_DATA"))
             if report_type == "summary":
                 table_key = data_source
@@ -2498,7 +2498,7 @@ class EdaSdkWrapper:
                 record = next(
                     x for x in entity_records if x["DATA_SOURCE"] == data_source and x["RECORD_ID"] == record_id
                 )
-                features.update(self.get_record_features(entity_features, record["FEATURES"])["BY_ID"])
+                features.update(self.get_record_features(entity_features, record["FEATURE_IDS"])["BY_ID"])
             entity_data[internal_id] = {
                 "RECORDS": why_result[record_field],
                 "FEATURES": features,
@@ -3024,6 +3024,10 @@ class EdaCmd(cmd.Cmd):
             )
         else:
             cmd.Cmd.do_help(self, help_topic)
+
+    def help_all(self):
+        args = ("",)
+        cmd.Cmd.do_help(self, *args)
 
     def help_knowledgeCenter(self):
         print(

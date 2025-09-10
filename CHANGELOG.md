@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.30] - 2025-09-10
+
+### Changed in 0.0.30
+
+- Attribute name for FEATURES: [] at the record level renamed to FEATURE_IDS: []
+
 ## [0.0.29] - 2025-08-12
 
 ### Changed in 0.0.29
