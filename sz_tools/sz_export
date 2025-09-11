@@ -17,7 +17,7 @@ from _tool_helpers import (
     print_error,
     print_warning,
 )
-from senzing import SzEngineFlags, SzError
+from senzing import SzError
 from senzing_core import SzAbstractFactoryCore
 
 MODULE_NAME = pathlib.Path(__file__).stem
@@ -66,7 +66,6 @@ VALID_FLAGS = [
 
 def csv_fetch_next(handle, csv_header=None):
     """Fetch next for CSV output"""
-
     try:
         export_record = sz_engine.fetch_next(handle)
     except SzError as err:
@@ -79,9 +78,8 @@ def csv_fetch_next(handle, csv_header=None):
     # Check data doesn't exceed the csv field limit
     if len(export_record) > csv.field_size_limit():
         csv.field_size_limit(int(len(export_record) * 1.5))
-        print(
-            f"    Increased CSV field limit size to: {csv.field_size_limit()}",
-        )
+        print(f"Increased CSV field limit size to: {csv.field_size_limit()}")
+
     export_record_dict = next(csv.DictReader([export_record], fieldnames=csv_header)) if export_record else None
 
     return export_record, export_record_dict
@@ -89,7 +87,6 @@ def csv_fetch_next(handle, csv_header=None):
 
 def json_fetch_next(handle):
     """Fetch next for JSON output"""
-
     try:
         export_record = sz_engine.fetch_next(handle)
     except SzError as err:
@@ -100,7 +97,6 @@ def json_fetch_next(handle):
 
 def do_stats_output(total_entity_count, start_time, batch_row_count):
     """Print stats if output frequency interval and not disabled with -1. Reset batch row count if triggered"""
-
     if args.outputFrequency != -1 and total_entity_count % args.outputFrequency == 0:
         time_now = datetime.now().strftime("%I:%M:%S %p").lower()
         rows_per_sec = int(
@@ -121,7 +117,6 @@ def do_stats_output(total_entity_count, start_time, batch_row_count):
 
 def csv_export():
     """Export data in CSV format"""
-
     bad_count_inner = 0
     bad_count_outer = 0
     batch_row_count = 0
@@ -135,12 +130,7 @@ def csv_export():
 
     # Create writer object and write the header row
     try:
-        writer = csv.DictWriter(
-            output_file,
-            fieldnames=csv_header,
-            dialect=csv.excel,
-            quoting=csv.QUOTE_ALL,
-        )
+        writer = csv.DictWriter(output_file, fieldnames=csv_header, dialect=csv.excel, quoting=csv.QUOTE_ALL)
         writer.writeheader()
     except csv.Error as err:
         print_error(f"Could not create CSV writer for output or write CSF header: {err}", exit_=True)
@@ -151,7 +141,6 @@ def csv_export():
     export_record, export_record_dict = csv_fetch_next(export_handle, csv_header)
 
     while export_record:
-
         row_list = []
         fetched_rec_count += 1
         batch_row_count += 1
@@ -168,7 +157,6 @@ def csv_export():
 
         # Keep fetching all export rows for the current RES_ENT
         while export_record_dict and export_record_dict["RESOLVED_ENTITY_ID"] == resolved_entity_id:
-
             # Bypass bad rows
             if "RECORD_ID" not in export_record_dict:
                 print_error(f"RECORD_ID is missing at line: {fetched_rec_count} - {export_record.strip()}")
@@ -208,14 +196,12 @@ def csv_export():
 
 def json_export():
     """Export data in JSON format"""
-
     row_count = batch_row_count = 0
     start_time = time.time()
 
     export_record = json_fetch_next(export_handle)
 
     while export_record:
-
         row_count += 1
         batch_row_count += 1
 
@@ -226,7 +212,6 @@ def json_export():
             return row_count, 0, 1
 
         start_time, batch_row_count = do_stats_output(row_count, start_time, batch_row_count)
-
         export_record = json_fetch_next(export_handle)
 
     return row_count, 0, 0
@@ -257,7 +242,7 @@ if __name__ == "__main__":
         help=textwrap.dedent(
             """\
 
-            Path and file name to send output to.
+            Path and file name to write output to.
 
             """
         ),
@@ -410,8 +395,7 @@ if __name__ == "__main__":
         print_warning(
             textwrap.dedent(
                 f"""
-
-                ***************************************************** WARNING ****************************************************
+                **************************************************** WARNING *****************************************************
 
                 Using the --extendCSVRelates (-xcr) argument with CSV output format will result in excessive and repeated data for
                 related entities. Very rarely, if ever, is this option required!
@@ -420,48 +404,27 @@ if __name__ == "__main__":
 
                 Review the help with {MODULE_NAME} --help
 
-                ******************************************************************************************************************
+                **************************************************** WARNING *****************************************************
                 """
             ),
         )
-
         time.sleep(10)
 
     print_warning(
         textwrap.dedent(
             f"""
-
-                ******************************************************** WARNING *******************************************************
+                ****************************************************** WARNING *****************************************************
 
                 {MODULE_NAME} isn't intended for exporting large numbers of entities and associated data source record information.
-                Beyond 100M+ data source records isn't suggested. For exporting overview entity and relationship data for
-                analytical purposes outside of Senzing please review the following article:
+                Exporting this way does not scale, exporting more than a few million records isn't recommended!
 
-                https://senzing.com/v4-replicating-to-data-warehouse/
+                For better options see: https://senzing.com/v4-replicating-to-data-warehouse/
 
-                ************************************************************************************************************************
+                ****************************************************** WARNING *****************************************************
                 """
         ),
     )
-
     time.sleep(5)
-
-    # Some CSV exports can be large especially with extended data. Is checked and increased in csv_fetch_next()
-    csv.field_size_limit(300000)
-
-    # Fields to use with CSV output, list of fields to request data
-    # For CSV these are unioned with the data returned by the flags to give final output
-    csvFields = [
-        "RESOLVED_ENTITY_ID",
-        "RELATED_ENTITY_ID",
-        "MATCH_LEVEL",
-        "MATCH_KEY",
-        "DATA_SOURCE",
-        "RECORD_ID",
-    ]
-    if args.extended:
-        csvFields.insert(2, "RESOLVED_ENTITY_NAME")
-        csvFields.insert(6, "JSON_DATA")
 
     # Check can locate an engine configuration
     engine_config = get_engine_config(args.ini_file_name)
@@ -473,7 +436,20 @@ if __name__ == "__main__":
         print_error(err, exit_=True)
         sys.exit(1)
 
-    # Convert strings to upper and if integers supplied convert from string to int
+    # Some CSV exports can be large especially with extended data. Is checked and increased in csv_fetch_next()
+    csv.field_size_limit(300000)
+
+    # For CSV these are unioned with the data returned by the flags to give final output
+    csv_fields = [
+        "RESOLVED_ENTITY_ID",
+        "RELATED_ENTITY_ID",
+        "MATCH_LEVEL",
+        "MATCH_KEY",
+        "DATA_SOURCE",
+        "RECORD_ID",
+    ]
+
+    # Accept string and int flags
     flags = [int(flag) if flag.isdigit() else flag.upper() for flag in args.flags]
 
     # Get only the string flags to check against accepted flags
@@ -484,6 +460,12 @@ if __name__ == "__main__":
         print(", ".join(invalid_string_flags))
 
     valid_flags = [flag for flag in flags if flag not in invalid_string_flags]
+
+    if args.extended:
+        csv_fields.insert(2, "RESOLVED_ENTITY_NAME")
+        csv_fields.insert(6, "JSON_DATA")
+        valid_flags.extend(["SZ_ENTITY_INCLUDE_ENTITY_NAME", "SZ_ENTITY_INCLUDE_RECORD_JSON_DATA"])
+
     final_flags = combine_engine_flags(valid_flags)
 
     # Initialize the export
@@ -491,12 +473,10 @@ if __name__ == "__main__":
     if args.compressFile:
         export_output = f"{args.output_file}.gz"
 
-    # Open file for export output
     with open_file(export_output) as output_file:
-        # Create CSV or JSON export handle to fetch from
         try:
             if args.outputFormat == "CSV":
-                CSV_FIELDS_STR = ", ".join(csvFields)
+                CSV_FIELDS_STR = ", ".join(csv_fields)
                 export_handle = sz_engine.export_csv_entity_report(CSV_FIELDS_STR, final_flags)
             else:
                 export_handle = sz_engine.export_json_entity_report(final_flags)
@@ -504,7 +484,6 @@ if __name__ == "__main__":
             print_error(f"Could not initialize export: {err}", exit_=True)
 
         export_start = time.time()
-
         row_count, bad_rec_count, exit_code = csv_export() if args.outputFormat == "CSV" else json_export()
 
         if exit_code:
