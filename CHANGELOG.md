@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.31] - 2025-09-11
+
+### Fixed in 0.0.31
+
+- Extended argument wasn't working for JSON output
+ 
 ## [0.0.30] - 2025-09-10
 
 ### Changed in 0.0.30
