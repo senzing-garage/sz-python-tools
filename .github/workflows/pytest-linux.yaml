@@ -89,7 +89,7 @@ jobs:
           mv .coverage "$COVERAGE_FILE"
 
       - name: Store coverage file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: "coverage-${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
           path: "coverage.${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
