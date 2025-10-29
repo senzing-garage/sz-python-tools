@@ -1,4 +1,7 @@
 rule:
   skip-rule:
-    - "CWE-22"
-    - "CWE-78"
+    - python_lang_os_command_injection
+    - python_lang_path_traversal
+    - python_lang_path_using_user_input
+    - python_lang_sql_injection
+    - python_lang_weak_random
