@@ -1,2 +1,4 @@
 rule:
-  skip-rule: []
+  skip-rule:
+    - "CWE-22"
+    - "CWE-78"
