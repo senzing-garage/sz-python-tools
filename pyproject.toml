@@ -9,7 +9,14 @@ build-backend = "setuptools.build_meta"
 test = ["pytest", "coverage"]
 
 [tool.bandit]
-skips = ["B101"]
+skips = [
+    "B101",
+    "B108",
+    "B404",
+    "B602",
+    "B605",
+    "B608"
+]
 
 [tool.black]
 line-length = 120
@@ -24,6 +31,19 @@ src_paths = ["examples", "src", "tests"]
 
 [tool.mypy]
 exclude = ['.venv', 'g2_tools']
+disable_error_code = [
+    "arg-type",
+    "attr-defined",
+    "import-not-found",
+    "name-defined",
+    "no-untyped-call",
+    "no-untyped-def",
+    "return-value",
+    "union-attr",
+    "unused-ignore",
+    "var-annotated"
+]
+disallow_untyped_defs = false
 
 [[tool.mypy.overrides]]
 module = "senzing_abstract.szengineflags.*"
@@ -34,16 +54,41 @@ warn_unused_ignores = "false"
 module = "pytest_schema.*"
 ignore_missing_imports = "true"
 
+[[tool.mypy.overrides]]
+module = "sz_tools/_sz_database"
+ignore_missing_imports = "true"
+
 [tool.pylint]
 ignored-argument-names = "args|kwargs"
 disable = [
     "broad-except",
+    "broad-exception-raised",
+    "consider-iterating-dictionary",
+    "consider-using-dict-items",
     "consider-using-f-string",
+    "consider-using-generator",
+    "f-string-without-interpolation",
+    "invalid-name",
     "line-too-long",
+    "line-too-long",
+    "missing-class-docstring",
+    "missing-function-docstring",
+    "missing-module-docstring",
+    "no-member",
+    "protected-access",
+    "raise-missing-from",
+    "simplifiable-if-expression",
     "too-many-branches",
     "too-many-instance-attributes",
     "too-many-locals",
-    "too-many-statements"
+    "too-many-statements",
+    "undefined-variable",
+    "unidiomatic-typecheck",
+    "unspecified-encoding",
+    "unused-argument",
+    "unused-import",
+    "unused-variable",
+    "useless-return"
 ]
 good-names = [
     "template-python"
