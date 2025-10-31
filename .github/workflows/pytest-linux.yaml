@@ -45,14 +45,7 @@ jobs:
           source ./venv/bin/activate
           echo "PATH=${PATH}" >> "${GITHUB_ENV}"
           python -m pip install --upgrade pip
-          python -m pip install --requirement development-requirements.txt
-          python -m pip install --requirement requirements.txt
-
-      - if: matrix.python-version == '3.9' || matrix.python-version == '3.10'
-        name: Install python libraries for python 3.9 and 3.10
-        run: |
-          source ./venv/bin/activate
-          python -m pip install typing_extensions
+          python -m pip install --group all .
 
       - name: Install Senzing SDK
         uses: senzing-factory/github-action-install-senzing-sdk@v3

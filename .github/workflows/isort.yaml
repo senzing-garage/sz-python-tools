@@ -1,8 +1,6 @@
 name: isort
 
 on:
-  push:
-    branches-ignore: [main]
   pull_request:
     branches: [main]
 
@@ -35,12 +33,9 @@ jobs:
           source ./venv/bin/activate
           echo "PATH=${PATH}" >> "${GITHUB_ENV}"
           python -m pip install --upgrade pip
-          python -m pip install --requirement development-requirements.txt
-          python -m pip install --requirement requirements.txt
+          python -m pip install --group all .
 
       - name: Run isort
         uses: isort/isort-action@v1
         with:
-          configuration:
-          requirements-files: requirements.txt
           sort-paths: "sz_tools"
