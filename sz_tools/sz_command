@@ -80,7 +80,6 @@ CMDS_NOT_TO_SET_LAST_COMMAND = [
     "response_to_file",
 ]
 
-
 CONFIG_SETTINGS: Dict[str, Dict[str, Any]] = {
     "format_json": {
         "values": ["off", "on"],
@@ -2086,10 +2085,8 @@ class SzCmdShell(cmd.Cmd):
 
     def remove_per_cmd_settings(self, cmd_line: str) -> str:
         """Remove any settings from a command"""
-        cmd_list = [c for c in cmd_line.split() if c.lower() not in PER_CMD_SETTINGS]
-        cmd_line_cleaned = " ".join(cmd_list)
-
-        return cmd_line_cleaned
+        cmd_list_clean = [c for c in self.parse(cmd_line) if c.lower() not in PER_CMD_SETTINGS]
+        return shlex.join(cmd_list_clean)
 
     def parse(self, argument_string: str) -> List[str]:
         """Parses command arguments into a list of argument strings"""
