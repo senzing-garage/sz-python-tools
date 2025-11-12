@@ -285,7 +285,7 @@ class SzCmdShell(cmd.Cmd):
             self.read_config()
 
         # Create config file if one doesn't exist and write it again if it exists. read_config() merges DEFAULT_CONFIG
-        # with the config file incase new config settings are added to DEFAULT_CONFIG in a new release of the tool
+        # with the config file in case new config settings are added to DEFAULT_CONFIG in a new release of the tool
         self.write_config()
 
         # Acquire Senzing engines and information
