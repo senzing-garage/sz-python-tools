@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.32] - 2025-11-12
+
+### Fixed in 0.0.32
+
+- `add_record` using a `record_id` with multiple consecutive spaces added the record but with only 1 space in `record_id`
+
 ## [0.0.31] - 2025-09-11
 
 ### Fixed in 0.0.31
