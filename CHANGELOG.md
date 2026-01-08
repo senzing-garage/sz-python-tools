@@ -2,10 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog], [markdownlint],
-and this project adheres to [Semantic Versioning].
+The changelog format is based on [Keep a Changelog] and [CommonMark].
+This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
+
+## [0.0.33] - 2026-01-08
+
+### Added in 0.0.33
+
+- Security policy documentation
+
+### Changed in 0.0.33
+
+- Updated Code of Conduct from Contributor Covenant 1.4 to version 3.0
+- Removed Docker-related documentation from development guides
 
 ## [0.0.32] - 2025-11-12
 
@@ -18,7 +29,7 @@ and this project adheres to [Semantic Versioning].
 ### Fixed in 0.0.31
 
 - Extended argument wasn't working for JSON output
- 
+
 ## [0.0.30] - 2025-09-10
 
 ### Changed in 0.0.30
@@ -168,7 +179,7 @@ and this project adheres to [Semantic Versioning].
 
 ### Added in 0.0.13
 
-- Autocomplete for per command settings 
+- Autocomplete for per command settings
 
 ### Fixed in 0.0.13
 
@@ -187,7 +198,7 @@ and this project adheres to [Semantic Versioning].
 
 ### Changed in 0.0.11
 
-- Change G2Module.ini to sz_engine_config.ini 
+- Change G2Module.ini to sz_engine_config.ini
 - Improvements to some output
 
 ## [0.0.10] - 2025-02-08
@@ -218,7 +229,7 @@ and this project adheres to [Semantic Versioning].
 ### Changed in 0.0.7
 
 - Continued initial V4 work
-- Align to new SDK and abstract 
+- Align to new SDK and abstract
 
 ## [0.0.6] - 2024-12-20
 
@@ -260,6 +271,6 @@ and this project adheres to [Semantic Versioning].
 
 - Initial V4 work
 
-[Keep a Changelog]: https://keepachangelog.com/en/1.0.0/
-[markdownlint]: https://dlaa.me/markdownlint/
-[Semantic Versioning]: https://semver.org/spec/v2.0.0.html
+[CommonMark]: https://commonmark.org/
+[Keep a Changelog]: https://keepachangelog.com/
+[Semantic Versioning]: https://semver.org/

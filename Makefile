@@ -19,9 +19,6 @@ DIST_DIRECTORY := $(MAKEFILE_DIRECTORY)/dist
 BUILD_TAG := $(shell git describe --always --tags --abbrev=0  | sed 's/v//')
 BUILD_ITERATION := $(shell git log $(BUILD_TAG)..HEAD --oneline | wc -l | sed 's/^ *//')
 BUILD_VERSION := $(shell git describe --always --tags --abbrev=0 --dirty  | sed 's/v//')
-DOCKER_CONTAINER_NAME := $(PROGRAM_NAME)
-DOCKER_IMAGE_NAME := senzing/$(PROGRAM_NAME)
-DOCKER_BUILD_IMAGE_NAME := $(DOCKER_IMAGE_NAME)-build
 GIT_REMOTE_URL := $(shell git config --get remote.origin.url)
 GIT_REPOSITORY_NAME := $(shell basename `git rev-parse --show-toplevel`)
 GIT_VERSION := $(shell git describe --always --tags --long --dirty | sed -e 's/\-0//' -e 's/\-g.......//')
@@ -32,7 +29,6 @@ PATH := $(MAKEFILE_DIRECTORY)/bin:$(PATH)
 # Example: "export LD_LIBRARY_PATH=/path/to/my/senzing/er/lib"
 
 SENZING_DIR ?= /opt/senzing/er
-DOCKER_IMAGE_TAG ?= $(GIT_REPOSITORY_NAME):$(GIT_VERSION)
 LD_LIBRARY_PATH ?= /opt/senzing/er/lib
 PYTHONPATH ?= $(MAKEFILE_DIRECTORY)/src
 
@@ -70,14 +66,20 @@ venv: venv-osarch-specific
 dependencies-for-development: venv dependencies-for-development-osarch-specific
 	$(activate-venv); \
 		python3 -m pip install --upgrade pip; \
-		python3 -m pip install --requirement development-requirements.txt
+		python3 -m pip install --group all
 
 
 .PHONY: dependencies
 dependencies: venv
 	$(activate-venv); \
 		python3 -m pip install --upgrade pip; \
-		python3 -m pip install --requirement requirements.txt
+		python3 -m pip install -e .
+
+
+.PHONY: install-prettier
+install-prettier:
+	@command -v npx >/dev/null 2>&1 || { echo "npm is required but not installed. Aborting." >&2; exit 1; }
+	@npx prettier --version >/dev/null 2>&1 || npm install --save-dev --save-exact prettier
 
 # -----------------------------------------------------------------------------
 # Setup
@@ -94,25 +96,8 @@ setup: setup-osarch-specific
 lint: pylint mypy bandit black flake8 isort
 
 # -----------------------------------------------------------------------------
-# Build
-# -----------------------------------------------------------------------------
-
-.PHONY: docker-build
-docker-build: docker-build-osarch-specific
-
-# -----------------------------------------------------------------------------
 # Run
 # -----------------------------------------------------------------------------
-
-.PHONY: docker-run
-docker-run:
-	@docker run \
-		--interactive \
-		--rm \
-		--tty \
-		--name $(DOCKER_CONTAINER_NAME) \
-		$(DOCKER_IMAGE_NAME)
-
 
 .PHONY: run
 run:
@@ -124,7 +109,6 @@ run:
 
 .PHONY: test
 test: test-osarch-specific
-
 
 # -----------------------------------------------------------------------------
 # Coverage
@@ -145,18 +129,11 @@ documentation: documentation-osarch-specific
 # -----------------------------------------------------------------------------
 
 .PHONY: clean
-clean: clean-osarch-specific docker-rmi-for-build
+clean: clean-osarch-specific
 
 # -----------------------------------------------------------------------------
 # Utility targets
 # -----------------------------------------------------------------------------
-
-.PHONY: docker-rmi-for-build
-docker-rmi-for-build:
-	-docker rmi --force \
-		$(DOCKER_IMAGE_NAME):$(GIT_VERSION) \
-		$(DOCKER_IMAGE_NAME)
-
 
 .PHONY: help
 help:
@@ -179,7 +156,7 @@ print-make-variables:
 bandit:
 	$(info ${\n})
 	$(info --- bandit ---------------------------------------------------------------------)
-	@$(activate-venv); bandit -c pyproject.toml $(shell git ls-files '*.py')
+	@$(activate-venv); bandit -c pyproject.toml $(shell git ls-files '*.py' ':!:docs/source/*')
 
 
 .PHONY: bearer
@@ -193,7 +170,7 @@ bearer:
 black:
 	$(info ${\n})
 	$(info --- black ----------------------------------------------------------------------)
-	@$(activate-venv); black $(shell git ls-files '*.py')
+	@$(activate-venv); black $(shell git ls-files '*.py' ':!:docs/source/*')
 
 
 .PHONY: cspell
@@ -207,22 +184,27 @@ cspell:
 flake8:
 	$(info ${\n})
 	$(info --- flake8 ---------------------------------------------------------------------)
-	@$(activate-venv); flake8 $(shell git ls-files '*.py')
+	@$(activate-venv); flake8 $(shell git ls-files '*.py' ':!:docs/source/*')
 
 
 .PHONY: isort
 isort:
 	$(info ${\n})
 	$(info --- isort ----------------------------------------------------------------------)
-	@$(activate-venv); isort $(shell git ls-files '*.py')
+	@$(activate-venv); isort $(shell git ls-files '*.py' ':!:docs/source/*')
 
 
 .PHONY: mypy
 mypy:
 	$(info ${\n})
 	$(info --- mypy -----------------------------------------------------------------------)
-	@$(activate-venv); mypy --strict $(shell git ls-files '*.py')
+	@$(activate-venv); mypy --strict $(shell git ls-files '*.py' ':!:docs/source/*')
 
+.PHONY: prettier
+prettier:
+	$(info ${\n})
+	$(info --- prettier ----------------------------------------------------------------------)
+	@npx prettier --write "**/*.{json,md,yml,yaml}"
 
 .PHONY: pydoc
 pydoc:
@@ -242,14 +224,14 @@ pydoc-web:
 pylint:
 	$(info ${\n})
 	$(info --- pylint ---------------------------------------------------------------------)
-	@$(activate-venv); pylint $(shell git ls-files '*.py')
+	@$(activate-venv); pylint $(shell git ls-files '*.py' ':!:docs/source/*')
 
 
 .PHONY: pytest
 pytest:
 	$(info ${\n})
 	$(info --- pytest ---------------------------------------------------------------------)
-	@$(activate-venv); pytest $(shell git ls-files '*.py')
+	@$(activate-venv); pytest $(shell git ls-files '*.py' ':!:docs/source/*')
 
 
 .PHONY: sphinx
