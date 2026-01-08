@@ -14,8 +14,6 @@ PATH := $(MAKEFILE_DIRECTORY)/bin:$(PATH)
 
 .PHONY: clean-osarch-specific
 clean-osarch-specific:
-	@docker rm  --force $(DOCKER_CONTAINER_NAME) 2> /dev/null || true
-	@docker rmi --force $(DOCKER_IMAGE_NAME) $(DOCKER_BUILD_IMAGE_NAME) 2> /dev/null || true
 	@rm -f  $(MAKEFILE_DIRECTORY)/.coverage || true
 	@rm -f  $(MAKEFILE_DIRECTORY)/coverage.xml || true
 	@rm -fr $(DIST_DIRECTORY) || true
@@ -38,14 +36,6 @@ coverage-osarch-specific:
 
 .PHONY: dependencies-for-development-osarch-specific
 dependencies-for-development-osarch-specific:
-
-
-.PHONY: docker-build-osarch-specific
-docker-build-osarch-specific:
-	@docker build \
-		--tag $(DOCKER_IMAGE_NAME) \
-		--tag $(DOCKER_IMAGE_NAME):$(BUILD_VERSION) \
-		.
 
 
 .PHONY: documentation-osarch-specific
