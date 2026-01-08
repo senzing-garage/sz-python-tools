@@ -40,6 +40,7 @@ make package
 ```
 
 To run a single test file:
+
 ```bash
 source .venv/bin/activate
 pytest tests/example_test.py
@@ -52,11 +53,13 @@ pytest tests/example_test.py
 All source code is in `sz_tools/` directory. Each tool is a standalone executable Python script (no .py extension):
 
 **Interactive Shell Tools** (using Python's `cmd.Cmd`):
+
 - `sz_command` - Main CLI shell for Senzing engine operations
 - `sz_configtool` - Configuration management shell
 - `sz_explorer` - Entity/database explorer with prettytable output
 
 **Data Processing Tools**:
+
 - `sz_file_loader` - Multi-threaded data file loading (JSON/JSONL)
 - `sz_export` - Entity data export (CSV/JSONL)
 - `sz_snapshot` - Database state snapshots with multi-process support
@@ -64,6 +67,7 @@ All source code is in `sz_tools/` directory. Each tool is a standalone executabl
 - `sz_json_analyzer` - JSON/JSONL file analysis
 
 **Project Management**:
+
 - `sz_create_project` - Create new Senzing project instances
 - `sz_update_project` - V3→V4 and V4→V4 project upgrades
 - `sz_setup_config` - Initialize Senzing configuration
@@ -91,10 +95,12 @@ All source code is in `sz_tools/` directory. Each tool is a standalone executabl
 ## Dependencies
 
 Core runtime dependencies:
+
 - `senzing >= 4.0.2`
 - `senzing-core >= 1.0.0`
 
 Optional (with graceful fallbacks):
+
 - `orjson` - Fast JSON parsing
 - `prettytable` - ASCII table output
 - `pyclip` - Clipboard integration
@@ -103,6 +109,7 @@ Optional (with graceful fallbacks):
 ## Environment
 
 The Senzing C library must be installed:
+
 - `/opt/senzing/er/lib` - Shared objects
 - `/opt/senzing/er/sdk/c` - SDK headers
 - `/etc/opt/senzing` - Configuration
