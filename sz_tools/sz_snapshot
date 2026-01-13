@@ -148,7 +148,7 @@ class IOQueueProcessor:
 class SnapshotReader:
 
     def __init__(self, **kwargs):
-
+        self.engine_config = kwargs.get("engine_config")
         self.sz_config_data = kwargs.get("sz_config_data")
         self.relationship_filter = kwargs.get("relationship_filter")
 
@@ -163,7 +163,7 @@ class SnapshotReader:
         self.ftype_code_lookup = {x["FTYPE_CODE"]: x for x in sz_config_data["G2_CONFIG"]["CFG_FTYPE"]}
         self.esb_ftype_ids = [x["FTYPE_ID"] for x in sz_config_data["G2_CONFIG"]["CFG_FTYPE"] if x["DERIVED"] == "No"]
 
-        self.sz_dbo = SzDatabase(self.sz_db_uri)
+        self.sz_dbo = SzDatabase(self.engine_config, print_import_messages=False)
         sql_entities = (
             "select "
             " a.RES_ENT_ID as RESOLVED_ENTITY_ID, "
@@ -176,7 +176,7 @@ class SnapshotReader:
             "join DSRC_RECORD c on c.ENT_SRC_KEY = b.ENT_SRC_KEY and c.DSRC_ID = b.DSRC_ID "
             "where a.RES_ENT_ID = ?"
         )
-        self.sql_entities = self.sz_dbo.sqlPrep(sql_entities)
+        self.sql_entities = self.sz_dbo.sql_prep(sql_entities)
         sql_relations = (
             "select "
             " a.RES_ENT_ID as RESOLVED_ENTITY_ID, "
@@ -192,7 +192,7 @@ class SnapshotReader:
             "join OBS_ENT d on d.OBS_ENT_ID = c.OBS_ENT_ID "
             "where a.RES_ENT_ID = ?"
         )
-        self.sql_relations = self.sz_dbo.sqlPrep(sql_relations)
+        self.sql_relations = self.sz_dbo.sql_prep(sql_relations)
         # below not currently used in favor of sdk as does a better job identifying unique features
         sql_features = (
             "select "
@@ -202,7 +202,7 @@ class SnapshotReader:
             "and FTYPE_ID in (" + ",".join(str(x) for x in self.esb_ftype_ids) + ")"
             "and SUPPRESSED = 'N'"
         )
-        self.sql_features = self.sz_dbo.sqlPrep(sql_features)
+        self.sql_features = self.sz_dbo.sql_prep(sql_features)
 
     def close(self):
         self.sz_dbo.close()
@@ -211,13 +211,13 @@ class SnapshotReader:
         if queue_data[0] == "RESUME":
             entity_id = queue_data[1]
             resume_rows = []
-            cursor = self.sz_dbo.sqlExec(self.sql_entities, [entity_id])
-            for row_data in self.sz_dbo.fetchAllDicts(cursor):
+            cursor = self.sz_dbo.sql_exec(self.sql_entities, [entity_id])
+            for row_data in self.sz_dbo.fetch_all_dicts(cursor):
                 row_data = self.complete_resume_db(row_data)
                 resume_rows.append(row_data)
             if resume_rows and self.relationship_filter in (2, 3):
-                cursor = self.sz_dbo.sqlExec(self.sql_relations, [entity_id])
-                for row_data in self.sz_dbo.fetchAllDicts(cursor):
+                cursor = self.sz_dbo.sql_exec(self.sql_relations, [entity_id])
+                for row_data in self.sz_dbo.fetch_all_dicts(cursor):
                     row_data = self.complete_resume_db(row_data)
                     resume_rows.append(row_data)
             if len(resume_rows) == 0:
@@ -254,10 +254,10 @@ class SnapshotReader:
     def review_features(self, queue_data):
         entity_id = queue_data[1]
         entity_size = queue_data[2]
-        cursor = self.sz_dbo.sqlExec(self.sql_features, [entity_id])
+        cursor = self.sz_dbo.sql_exec(self.sql_features, [entity_id])
         features = {}
         if entity_size > 1:
-            for row in self.sz_dbo.fetchAllRows(cursor):
+            for row in self.sz_dbo.fetch_all_rows(cursor):
                 ftype_code = self.ftype_lookup[row[0]]["FTYPE_CODE"]
                 if ftype_code not in features:
                     features[ftype_code] = 1
@@ -566,7 +566,7 @@ def database_snapshot(sz_dbo, kwargs):
     if not dsrc_id_filter:
         max_sql = "select max(RES_ENT_ID) from RES_ENT"
         min_entity_id = 0
-        max_entity_id = sz_dbo.fetchRow(sz_dbo.sqlExec(max_sql))[0]
+        max_entity_id = sz_dbo.fetch_row(sz_dbo.sql_exec(max_sql))[0]
         entity_sql = "select RES_ENT_ID from RES_ENT where RES_ENT_ID between ? and ?"
     else:
         max_sql = (
@@ -577,7 +577,7 @@ def database_snapshot(sz_dbo, kwargs):
             "join RES_ENT_OKEY b on b.OBS_ENT_ID = a.OBS_ENT_ID "
             "where a.DSRC_ID = " + str(dsrc_id_filter)
         )
-        min_entity_id, max_entity_id = sz_dbo.fetchRow(sz_dbo.sqlExec(max_sql))
+        min_entity_id, max_entity_id = sz_dbo.fetch_row(sz_dbo.sql_exec(max_sql))
         entity_sql = (
             "select distinct"
             " a.RES_ENT_ID "
@@ -589,7 +589,7 @@ def database_snapshot(sz_dbo, kwargs):
     if not max_entity_id:
         logging.error("No entities found for data source filter!")
         sys.exit(1)
-    entity_sql = sz_dbo.sqlPrep(entity_sql)
+    entity_sql = sz_dbo.sql_prep(entity_sql)
 
     queue_processor = IOQueueProcessor(SnapshotReader, SnapshotWriter, **kwargs)
     logging.info("Starting %s processes" % queue_processor.process_count)
@@ -600,7 +600,7 @@ def database_snapshot(sz_dbo, kwargs):
     end_entity_id = beg_entity_id + chunk_size
     while True:
         logging.info("Getting entities from %s to %s..." % (beg_entity_id, end_entity_id))
-        batch = sz_dbo.fetchAllRows(sz_dbo.sqlExec(entity_sql, (beg_entity_id, end_entity_id)))
+        batch = sz_dbo.fetch_all_rows(sz_dbo.sql_exec(entity_sql, (beg_entity_id, end_entity_id)))
         if batch:
             last_row_entity_id = batch[-1][0]
             for row in batch:
@@ -807,8 +807,41 @@ if __name__ == "__main__":
         print("Please use -o to select an output path and root file name such as /project/audit/snap1")
         sys.exit(1)
 
+    if os.path.splitext(args.output_file_root)[1] == ".json":
+        args.output_file_root = os.path.splitext(args.output_file_root)[0]
+
+    stats_file_name = args.output_file_root + ".json"
+    csv_file_name = args.output_file_root + ".csv"
+    stat_pack = {}
+    if os.path.exists(stats_file_name):
+        stat_pack, abort = check_stat_pack(stats_file_name, csv_file_name, args)
+        if abort:
+            sys.exit(1)
+
+    engine_config = get_engine_config(args.config_file_name)
+
+    # NOTE Must get SzDatabase before creating Sz engine objects otherwise pyodbc with MySQL throws an error, see GDEV-4099
     try:
-        engine_config = get_engine_config(args.config_file_name)
+        sz_dbo = SzDatabase(engine_config)
+    except Exception as err:
+        sz_dbo = None
+        print(f"\n{err}")
+        print(
+            textwrap.dedent(
+                """\
+            Direct database access not available, performing an SDK only snapshot at this time. Installing direct database access
+            drivers can significantly reduce the time it takes to snapshot on very large databases.
+            """
+            )
+        )
+
+        if not args.quiet:
+            if input("Continue? (y/n) ").lower() not in ("y", "yes"):
+                sys.exit(1)
+        args.force_sdk = True
+
+    # NOTE Must get SzDatabase before creating Sz engine objects otherwise pyodbc with MySQL throws an error, see GDEV-4099
+    try:
         sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config)
         sz_configmgr = sz_factory.create_configmanager()
         sz_engine = sz_factory.create_engine()
@@ -821,26 +854,6 @@ if __name__ == "__main__":
         print_exception_info()
         sys.exit(1)
 
-    try:
-        sz_dbo = SzDatabase(sz_db_uri)
-    except Exception as err:
-        print(f"\n{err}")
-        print(
-            textwrap.dedent(
-                """\
-
-            Direct database access not available, performing an SDK only snapshot at this time. Installing direct database access
-            drivers can significantly reduce the time it takes to snapshot on very large databases.
-
-            """
-            )
-        )
-
-        if not args.quiet:
-            if input("Continue? (y/n) ").lower() not in ("y", "yes"):
-                sys.exit(1)
-        args.force_sdk = True
-
     dsrc_id_filter = None
     if args.dsrc_filter:
         dsrc_filter = args.dsrc_filter.upper()
@@ -851,19 +864,9 @@ if __name__ == "__main__":
         else:
             dsrc_id_filter = dsrc_code_lookup[dsrc_filter]["DSRC_ID"]
 
-    if os.path.splitext(args.output_file_root)[1] == ".json":
-        args.output_file_root = os.path.splitext(args.output_file_root)[0]
-
-    stats_file_name = args.output_file_root + ".json"
-    csv_file_name = args.output_file_root + ".csv"
-    stat_pack = {}
-    if os.path.exists(stats_file_name):
-        stat_pack, abort = check_stat_pack(stats_file_name, csv_file_name, args)
-        if abort:
-            sys.exit(1)
-
     proc_start_time = time.time()
     kwargs = {
+        "engine_config": engine_config,
         "sz_db_uri": sz_db_uri,
         "sdk_version": sdk_version,
         "sz_config_data": sz_config_data,
@@ -896,4 +899,8 @@ if __name__ == "__main__":
     elapsed_mins = round((time.time() - proc_start_time) / 60, 1)
     logging.info(f"Process completed successfully in {elapsed_mins} minutes")
     print()
+
+    if sz_dbo:
+        sz_dbo.close()
+
     sys.exit(0)
