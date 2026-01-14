@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning].
 
 ### Changes in 0.0.34
 
-- Method names in _sz_database.py to be pythonic
-- sz_explorer and sz_snapshot for changes to_sz_database.py 
+- Method names in _sz_database.py to follow PEP8
+- sz_explorer and sz_snapshot for changes to_sz_database.py
 
 ## [0.0.32] - 2025-11-12
 

@@ -1,6 +1,5 @@
 #! /usr/bin/env python3
 
-
 import json
 import urllib.parse
 from multiprocessing import Lock, Value
@@ -356,12 +355,12 @@ class SzDatabase:
 
         # Check if ANY connection is Aurora PostgreSQL
         if any(conn["dbtype"] == "AURORAPOSTGRESQL" and conn["iam_auth"] for conn in self.connections.values()):
-            # Check flag once with double-checked locking
+            # Double-checked locking to print message only once across processes
             if not SzDatabase.get_aurora_clean_up_msg_flag():
                 with SzDatabase._aurora_clean_up_msg_lock:
                     if not SzDatabase._aurora_clean_up_msg_flag.value:
-                        SzDatabase.set_aurora_clean_up_msg_flag(True)
-                print_info("Cleaning up Aurora database resources, this can take a minute or two...", end_str="\n")
+                        SzDatabase._aurora_clean_up_msg_flag.value = True
+                        print_info("Cleaning up Aurora database resources, this can take a minute or two...", end_str="\n")
 
             # Release resources for all Aurora nodes with IAM auth
             for node in self.connections.keys():
