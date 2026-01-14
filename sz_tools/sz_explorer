@@ -25,10 +25,13 @@ from _tool_helpers import (
     get_char,
     get_char_with_prompt,
     get_engine_config,
+    print_error,
+    print_warning,
 )
 from senzing import SzError
 from senzing_core import SzAbstractFactoryCore
 
+DIRECT_DB_ACCESS_CMDS = ("quick_look", "feature_search")
 MODULE_NAME = pathlib.Path(__file__).stem
 LF = "\n"
 LFTAB = "\n\t"
@@ -1085,7 +1088,7 @@ class EdaSdkWrapper:
             sz_config_data = json.loads(sz_config.export())
 
         except SzError as err:
-            raise Exception(err)
+            raise err
 
         self.dsrc_lookup = {item["DSRC_ID"]: item for item in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
         self.dsrc_code_lookup = {item["DSRC_CODE"]: item for item in sz_config_data["G2_CONFIG"]["CFG_DSRC"]}
@@ -1460,7 +1463,9 @@ class EdaSdkWrapper:
                         entity_record = next(
                             x for x in entity_records if x["DATA_SOURCE"] == data_source and x["RECORD_ID"] == record_id
                         )
-                        features.update(self.get_record_features(entity_features, entity_record["FEATURE_IDS"])["BY_ID"])
+                        features.update(
+                            self.get_record_features(entity_features, entity_record["FEATURE_IDS"])["BY_ID"]
+                        )
                 entity_list.append(
                     {
                         "VIRTUAL_ID": step[ve_num]["VIRTUAL_ENTITY_ID"],
@@ -3221,7 +3226,7 @@ class EdaCmd(cmd.Cmd):
         )
         tbl.rows = []
         actual_count = distinct_count = 0
-        for row in sz_dbo.fetchAllDicts(sz_dbo.sqlExec(sql)):
+        for row in sz_dbo.fetch_all_dicts(sz_dbo.sql_exec(sql)):
             tbl.rows.append(
                 [
                     colorize(row["DSRC_ID"], "row_title"),
@@ -3435,13 +3440,13 @@ class EdaCmd(cmd.Cmd):
         finds entities by feature description or id
 
         {colorize('Syntax:', 'highlight2')}
-            featureSearch id = 123
-            featureSearch address = 123 first str
-            featureSearch name like anderson
+            feature_search id = 123
+            feature_search address = 123 first str
+            feature_search name like anderson
 
         {colorize('Warning:', 'bad')}
-            featureSearch is intended to be used during smallish POCs to help find entities by feature ID or description when they are not returned by search.
-            featureSearch can take a long time and return a lot of entities!
+            feature_search is intended to be used during smallish POCs to help find entities by feature ID or description when they are not returned by search.
+            feature_search can take a long time and return a lot of entities!
 
         """
             )
@@ -3481,19 +3486,26 @@ class EdaCmd(cmd.Cmd):
             feat_select += f"where LIB_FEAT_ID = {value}"
         elif ftype in sdk_wrapper.ftype_code_lookup:
             ftype_id = sdk_wrapper.ftype_code_lookup[ftype]["FTYPE_ID"]
+            feat_select_feat_desc = f"and FEAT_DESC {operator} '{value}'"
+
             if operator == "LIKE":
-                if sz_dbo_uri.startswith("postgres"):
-                    operator = "ILIKE"  # makes case insensitive
-                elif sz_dbo_uri.startswith("sqlite"):
-                    sz_dbo.sqlExec("PRAGMA case_sensitive_like=OFF")
                 if "%" not in value:
-                    value = "%" + value + "%"
-            feat_select += f"where FTYPE_ID = {ftype_id} and FEAT_DESC {operator} '{value}'"
+                    value = f"%{value}%"
+                    feat_select_feat_desc = f"and FEAT_DESC {operator} '{value}'"
+                if sz_dbo.main_db_type.lower().startswith("postgres") or sz_dbo.main_db_type.lower().startswith(
+                    "aurorapostgresql"
+                ):
+                    # NOTE - ILIKE is usually slower and not supported if connection is via ODBC
+                    # operator = "ILIKE"  # makes case insensitive
+                    # feat_select += f"where FTYPE_ID = {ftype_id} and LOWER(FEAT_DESC) {operator} LOWER('{value}')"
+                    feat_select_feat_desc = f"and LOWER(FEAT_DESC) {operator} LOWER('{value}')"
+                elif sz_dbo.main_db_type.lower().startswith("sqlite"):
+                    sz_dbo.sql_exec("PRAGMA case_sensitive_like=OFF")
+            feat_select += f"where FTYPE_ID = {ftype_id} "
+            feat_select += f"{feat_select_feat_desc}"
         else:
             print_message(f"{ftype} is not a feature", "error")
             return
-
-        # print(feat_select)
 
         tbl = eda_table()
         tbl.columns = [
@@ -3507,14 +3519,14 @@ class EdaCmd(cmd.Cmd):
         tbl.rows = []
         feat_cache = {}
         feat_count = 0
-        for row in sz_dbo.fetchAllRows(sz_dbo.sqlExec(feat_select)):
+        for row in sz_dbo.fetch_all_rows(sz_dbo.sql_exec(feat_select)):
             feat_count += 1
             feat_id = row[0]
             ftype = sdk_wrapper.ftype_lookup[row[1]]["FTYPE_CODE"]
             feat_desc = row[2]
             feat_cache[feat_id] = feat_desc
 
-            stat_row = sz_dbo.fetchRow(sz_dbo.sqlExec(stat_select + f" {feat_id}"))
+            stat_row = sz_dbo.fetch_row(sz_dbo.sql_exec(stat_select + f" {feat_id}"))
             if not stat_row:
                 stat_row = [0, 0, "U", "U"]
 
@@ -3551,7 +3563,7 @@ class EdaCmd(cmd.Cmd):
         tbl1.rows = []
         for lib_feat_id, feat_desc in feat_cache.items():
             sql = f"select distinct RES_ENT_ID from RES_FEAT_EKEY where LIB_FEAT_ID = {lib_feat_id} order by RES_ENT_ID"
-            for row in sz_dbo.fetchAllRows(sz_dbo.sqlExec(sql)):
+            for row in sz_dbo.fetch_all_rows(sz_dbo.sql_exec(sql)):
                 entity_id = row[0]
                 if entity_id in entity_cache:
                     continue
@@ -3808,7 +3820,7 @@ class EdaCmd(cmd.Cmd):
             #    data_source = parm.upper()
 
         sql = f"select RES_ENT_ID from RES_ENT_OKEY where RES_ENT_ID {operator} ?"
-        next_row = sz_dbo.fetchRow(sz_dbo.sqlExec(sz_dbo.sqlPrep(sql), starting_id))
+        next_row = sz_dbo.fetch_row(sz_dbo.sql_exec(sz_dbo.sql_prep(sql), starting_id))
         if not next_row:
             print_message("no more entities", "warning")
         else:
@@ -4251,19 +4263,27 @@ if __name__ == "__main__":
     eda_splash()
 
     engine_config = get_engine_config(args.config_file_name)
+
+    try:
+        sz_dbo = SzDatabase(engine_config, True if args.debug_trace else False)
+    except Exception as err:
+        if err.args:
+            print_error(err, end_str="\n")
+        print_warning(
+            f"Error establishing direct database access, these commands will not be available: {', '.join(DIRECT_DB_ACCESS_CMDS)}",
+            end_str="\n",
+        )
+        sz_dbo = None
+
     try:
         sdk_wrapper = EdaSdkWrapper(engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url)
     except SzError as ex:
         print_message(ex, "error")
         sys.exit(1)
 
-    try:
-        sz_dbo_uri = json.loads(engine_config)["SQL"]["CONNECTION"]
-        sz_dbo = SzDatabase(sz_dbo_uri)
-    except Exception as err:
-        print_message(err, "warning")
-        sz_dbo = None
-
     EdaCmd(args).cmdloop()
+
+    if sz_dbo:
+        sz_dbo.close()
 
     sys.exit()

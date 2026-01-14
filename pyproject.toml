@@ -1,6 +1,6 @@
 [project]
 name = "sz-python-tools"
-version = "0.0.33"
+version = "0.0.34"
 description = "Senzing Python Tools"
 authors = [{ name = "senzing", email = "support@senzing.com" }]
 readme = "README.md"
@@ -159,6 +159,7 @@ disable = [
   "too-many-branches",
   "too-many-instance-attributes",
   "too-many-locals",
+  "too-many-public-methods",
   "too-many-statements",
   "undefined-variable",
   "unidiomatic-typecheck",

@@ -7,16 +7,20 @@ This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
-## [0.0.33] - 2026-01-08
+## [0.0.34] - 2026-01-13
 
-### Added in 0.0.33
+### Added in 0.0.34
 
-- Security policy documentation
+- _sz_database.py support for AURORAPOSTGRESQL and new connection string parameters
 
-### Changed in 0.0.33
+### Fixed in 0.0.34
 
-- Updated Code of Conduct from Contributor Covenant 1.4 to version 3.0
-- Removed Docker-related documentation from development guides
+- Numerous small issues in _sz_database.py
+
+### Changed in 0.0.34
+
+- Method names in _sz_database.py to follow PEP8
+- sz_explorer and sz_snapshot for changes to_sz_database.py
 
 ## [0.0.32] - 2025-11-12
 
