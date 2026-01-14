@@ -81,7 +81,7 @@ class SzDatabase:
                 raise err
 
         # # Check early if there is the expected stanza and supported DB type
-        if not (connection_string := engine_configuration.get("SQL").get("CONNECTION")):
+        if not (connection_string := engine_configuration.get("SQL", {}).get("CONNECTION")):
             raise LookupError(f"Database connection settings appear to be missing or invalid")
 
         self.main_db_type, _ = connection_string.split("://") if "://" in connection_string else ("UNKNOWN_DB", "")
@@ -297,8 +297,10 @@ class SzDatabase:
                     encoding="UTF-8",
                 )
 
-        except Exception as err:
-            raise Exception(err)
+        # except Exception as err:
+        #     raise Exception(err)
+        except Exception:
+            raise
 
         if self.connections[node]["schema"] is not None and len(self.connections[node]["schema"]) != 0:
             if self.connections[node]["dbtype"] == "SQLITE3":
@@ -308,8 +310,10 @@ class SzDatabase:
                     self.sql_exec("use " + self.connections[node]["schema"])
                 if self.connections[node]["dbtype"] in ("AURORAPOSTGRESQL", "POSTGRESQL"):
                     self.sql_exec("SET search_path TO " + self.connections[node]["schema"])
-            except Exception as err:
-                raise Exception(err)
+            # except Exception as err:
+            #     raise Exception(err)
+            except Exception:
+                raise
 
     def set_node(self, sql: str) -> str:
         if len(self.connections) == 1:
