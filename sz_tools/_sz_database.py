@@ -5,7 +5,7 @@ import urllib.parse
 from multiprocessing import Lock, Value
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict, List, Union
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 from _tool_helpers import print_debug, print_error, print_info, print_warning
 
@@ -49,14 +49,14 @@ class SzDatabase:
 
         self.aws_wrapper: ModuleType | None = None
         self.cx_oracle: ModuleType | None = None
-        self.mssql_connect: ModuleType | None = None
+        self.mssql_connect: Callable[..., Any] | None = None
         self.mysql_connector: ModuleType | None = None
         self.psycopg_connection: ModuleType | None = None
         self.psycopg2: ModuleType | None = None
         self.pyodbc: ModuleType | None = None
         self.sqlite3: ModuleType | None = None
-        self.imported_aws_wrapper = False
 
+        self.imported_aws_wrapper = False
         self.imported_aws_wrapper_error: ImportError | None = None
         self.imported_cx_oracle = False
         self.imported_cx_oracle_error: ImportError | None = None
@@ -84,7 +84,7 @@ class SzDatabase:
         if not (connection_string := engine_configuration.get("SQL").get("CONNECTION")):
             raise LookupError(f"Database connection settings appear to be missing or invalid")
 
-        self.main_db_type, _ = connection_string.split("://") if "://" in connection_string else ("UNKNOWN_DB")
+        self.main_db_type, _ = connection_string.split("://") if "://" in connection_string else ("UNKNOWN_DB", "")
         if (main_db_type_upper := self.main_db_type.upper()) not in SUPPORTED_DBS:
             raise LookupError(f"Unsupported database type: {self.main_db_type}")
 
@@ -94,7 +94,7 @@ class SzDatabase:
         self.connect("MAIN")
 
         for table_name in engine_configuration.get("HYBRID", {}).keys():
-            node = engine_configuration["HYBRID"][table_name]
+            node = engine_configuration["HYBRID"][table_name]  # type: ignore
             if node not in self.connections:
                 self.connections[node] = {}
                 # self.connect(node, engine_configuration[node]["DB_1"])
@@ -256,7 +256,7 @@ class SzDatabase:
                             conn_str, self.connections[node]["query_params"], ["driver"]
                         )
 
-                    self.connections[node]["dbo"] = self.mssql_connect(conn_str)
+                    self.connections[node]["dbo"] = self.mssql_connect(conn_str)  # type: ignore
 
                 # pyodbc for engine config: CONNECTION=mssql://username:password@database
                 else:
@@ -311,7 +311,7 @@ class SzDatabase:
             except Exception as err:
                 raise Exception(err)
 
-    def set_node(self, sql: str) -> Union[str, List[str]]:
+    def set_node(self, sql: str) -> str:
         if len(self.connections) == 1:
             return "MAIN"
 
@@ -360,14 +360,16 @@ class SzDatabase:
                 with SzDatabase._aurora_clean_up_msg_lock:
                     if not SzDatabase._aurora_clean_up_msg_flag.value:
                         SzDatabase._aurora_clean_up_msg_flag.value = True
-                        print_info("Cleaning up Aurora database resources, this can take a minute or two...", end_str="\n")
+                        print_info(
+                            "Cleaning up Aurora database resources, this can take a minute or two...", end_str="\n"
+                        )
 
             # Release resources for all Aurora nodes with IAM auth
             for node in self.connections.keys():
                 if self.connections[node]["dbtype"] == "AURORAPOSTGRESQL" and self.connections[node]["iam_auth"]:
                     self.connections[node]["dbo"].release_resources()
 
-    def sql_prep(self, sql: str, return_node: bool = False) -> str:  # left in for backwards compatibility
+    def sql_prep(self, sql: str, return_node: bool = False) -> Union[str, Tuple[str, str]]:
         node = self.set_node(sql)
 
         if (
@@ -392,7 +394,7 @@ class SzDatabase:
             sql = self.statement_cache[raw_sql]["sql"]
             node = self.statement_cache[raw_sql]["node"]
         else:
-            sql, node = self.sql_prep(raw_sql, return_node=True)
+            sql, node = self.sql_prep(raw_sql, return_node=True)  # type: ignore
             self.statement_cache[raw_sql] = {"sql": sql, "node": node}
 
         if param_list and type(param_list) not in (list, tuple):
@@ -483,7 +485,7 @@ class SzDatabase:
 
     def dburi_parse(self, node: str, db_uri: str) -> None:
         """Parse the database URI"""
-        uri_dict = {}
+        uri_dict: dict[str, Any] = {}
 
         try:
             uri_dict["TABLE"] = uri_dict["SCHEMA"] = uri_dict["PORT"] = uri_dict["DBURI_PARMS"] = uri_dict[
@@ -746,7 +748,7 @@ class SzDatabase:
     def import_psycopg2(self):
         """Try and import psycopg2"""
         try:
-            import psycopg2
+            import psycopg2  # type: ignore
 
             self.psycopg2 = psycopg2
             self.imported_psycopg2 = True
@@ -776,7 +778,7 @@ class SzDatabase:
     # pylint: enable=C0415
 
     def append_uri_query_params(
-        self, string_to_append: str, params_dict: Dict[str, str], keys_to_ignore: List[str] = None
+        self, string_to_append: str, params_dict: Dict[str, str], keys_to_ignore: List[str] | None = None
     ) -> str:
         """
         Add any query parameters to connection strings when specified, for example with:
