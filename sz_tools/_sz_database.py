@@ -5,7 +5,7 @@ import urllib.parse
 from multiprocessing import Lock, Value
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Callable, Dict, List, Tuple, Union
+from typing import Any, Callable, Dict, List, Tuple, Union, cast
 
 from _tool_helpers import print_debug, print_error, print_info, print_warning
 
@@ -24,13 +24,9 @@ class SzDatabase:
     _aurora_clean_up_msg_lock = Lock()
 
     @classmethod
-    def get_aurora_clean_up_msg_flag(cls):
+    def get_aurora_clean_up_msg_flag(cls) -> bool:
         with cls._aurora_clean_up_msg_lock:
-            return cls._aurora_clean_up_msg_flag.value
-
-    @classmethod
-    def set_aurora_clean_up_msg_flag(cls, value):
-        cls._aurora_clean_up_msg_flag.value = value
+            return cast(bool, cls._aurora_clean_up_msg_flag.value)
 
     def __init__(
         self,
@@ -45,7 +41,7 @@ class SzDatabase:
         self.print_import_messages = print_import_messages
         self.statement_cache = {}
         self.success = False
-        self.tables_by_connection = {}
+        self.tables_by_connection: dict[str, str] = {}
 
         self.aws_wrapper: ModuleType | None = None
         self.cx_oracle: ModuleType | None = None
@@ -93,8 +89,7 @@ class SzDatabase:
         self.dburi_parse("MAIN", self.connection_string)
         self.connect("MAIN")
 
-        for table_name in engine_configuration.get("HYBRID", {}).keys():
-            node = engine_configuration["HYBRID"][table_name]  # type: ignore
+        for table_name, node in engine_configuration.get("HYBRID", {}).items():
             if node not in self.connections:
                 self.connections[node] = {}
                 # self.connect(node, engine_configuration[node]["DB_1"])
@@ -104,216 +99,203 @@ class SzDatabase:
 
     def connect(self, node: str) -> None:
         """Connect to the database defined in the connection string in the Senzing Engine Configuration"""
-        try:
-            if self.connections[node]["dbtype"] == "AURORAPOSTGRESQL":
-                if self.connections[node]["iam_auth"]:
-                    if self.debug:
-                        print_debug("Using AWS Advanced Wrapper with IAM authentication", end_str="\n")
+        if self.connections[node]["dbtype"] == "AURORAPOSTGRESQL":
+            if self.connections[node]["iam_auth"]:
+                if self.debug:
+                    print_debug("Using AWS Advanced Wrapper with IAM authentication", end_str="\n")
 
-                    self.connections[node]["dbo"] = self.aws_wrapper.connect(
-                        self.psycopg_connection.connect,
-                        host=self.connections[node]["host"],
-                        database=self.connections[node]["dsn"],
-                        iam_region=self.connections[node]["region"],
-                        user=self.connections[node]["userid"],
-                        plugins="iam",
-                        wrapper_dialect="aurora-pg",
-                        autocommit=True,
-                    )
+                self.connections[node]["dbo"] = self.aws_wrapper.connect(
+                    self.psycopg_connection.connect,
+                    host=self.connections[node]["host"],
+                    database=self.connections[node]["dsn"],
+                    iam_region=self.connections[node]["region"],
+                    user=self.connections[node]["userid"],
+                    plugins="iam",
+                    wrapper_dialect="aurora-pg",
+                    autocommit=True,
+                )
 
-                    # NOTE Tried using the AWS driver for password authentication but it caused errors when used, psycopg2
-                    # NOTE is used for password for now.
-                    # Connect using password authentication when iam_auth == False
-                    # if not self.connections[node]["iam_auth"]:
-                    #     if self.debug:
-                    #         print_debug("Using AWS Advanced Wrapper - with password", end_str="\n")
-
-                    #     self.connections[node]["dbo"] = self.aws_wrapper.connect(
-                    #         self.psycopg_connection.connect,
-                    #         host=self.connections[node]["host"],
-                    #         database=self.connections[node]["dsn"],
-                    #         user=self.connections[node]["userid"],
-                    #         password=self.connections[node]["password"],
-                    #         wrapper_dialect="aurora-pg",
-                    #         autocommit=True,
-                    #     )
-
-                else:
-                    if self.debug:
-                        print_debug(
-                            "Using psycopg2 with password authentication",
-                            end_str="\n",
-                        )
-
-                    self.connections[node]["dbo"] = self.psycopg2.connect(
-                        host=self.connections[node]["host"],
-                        port=self.connections[node]["port"],
-                        dbname=self.connections[node]["dsn"],
-                        user=self.connections[node]["userid"],
-                        password=self.connections[node]["password"],
-                    )
-                    self.connections[node]["dbo"].set_session(autocommit=True)
-
-            if self.connections[node]["dbtype"] == "POSTGRESQL":
-                if self.imported_psycopg2:
-                    if self.debug:
-                        print_debug("Using psycopg2", end_str="\n")
-
-                    options = (
-                        (f"-c search_path={self.connections[node]['schema']}")
-                        if self.connections[node].get("schema")
-                        else ""
-                    )
-
-                    self.connections[node]["dbo"] = self.psycopg2.connect(
-                        host=self.connections[node]["host"],
-                        port=self.connections[node]["port"],
-                        dbname=self.connections[node]["dsn"],
-                        user=self.connections[node]["userid"],
-                        password=self.connections[node]["password"],
-                        options=options,
-                    )
-                    self.connections[node]["dbo"].set_session(autocommit=True)
-                else:
-                    if self.debug:
-                        print_debug("Using pyodbc", end_str="\n")
-
-                    conn_str = (
-                        f"DRIVER={{{self.connections[node]['dbtype']}}};"
-                        f"SERVER={self.connections[node]['host']};"
-                        f"PORT={self.connections[node]['port']};"
-                        f"DATABASE={self.connections[node]['dsn']};"
-                        f"UID={self.connections[node]['userid']};"
-                        f"PWD={self.connections[node]['password']};"
-                        "autocommit=True"
-                    )
-                    if self.connections[node].get("schema"):
-                        conn_str = f"{conn_str};search_path={self.connections[node]['schema']}"
-
-                    self.connections[node]["dbo"] = self.pyodbc.connect(conn_str)
-
-            if self.connections[node]["dbtype"] == "MYSQL":
-                # NOTE Errors with MYSQL connector using next and previous in sz_explorer, only pyodbc support currently
-                # # if self.mysql_connector:
-                # if self.imported_mysql:
+                # NOTE Tried using the AWS driver for password authentication but it caused errors when used, psycopg2
+                # NOTE is used for password for now.
+                # Connect using password authentication when iam_auth == False
+                # if not self.connections[node]["iam_auth"]:
                 #     if self.debug:
-                #         print_debug("Using MYSQL connector", end_str="\n")
+                #         print_debug("Using AWS Advanced Wrapper - with password", end_str="\n")
 
-                #     connector_config = {
-                #         "host": self.connections[node]["host"],
-                #         "port": self.connections[node]["port"],
-                #         "database": self.connections[node]["schema"],
-                #         "user": self.connections[node]["userid"],
-                #         "password": self.connections[node]["password"],
-                #         "autocommit": True,
-                #     }
-                #     self.connections[node]["dbo"] = self.mysql_connector.connect(**connector_config)
-                # else:
-                #     if self.debug:
-                #         print_debug("Using pyodbc", end_str="\n")
-
-                #     conn_str = (
-                #         f"DRIVER={{{self.connections[node]['dbtype']}}};"
-                #         f"Server={self.connections[node]['host']};"
-                #         f"Port={self.connections[node]['port']};"
-                #         f"Database={self.connections[node]['schema']};"
-                #         f"Uid={self.connections[node]['userid']};"
-                #         f"Pwd={self.connections[node]['password']};"
-                #         f"autocommit=True"
+                #     self.connections[node]["dbo"] = self.aws_wrapper.connect(
+                #         self.psycopg_connection.connect,
+                #         host=self.connections[node]["host"],
+                #         database=self.connections[node]["dsn"],
+                #         user=self.connections[node]["userid"],
+                #         password=self.connections[node]["password"],
+                #         wrapper_dialect="aurora-pg",
+                #         autocommit=True,
                 #     )
-                #     self.connections[node]["dbo"] = self.pyodbc.connect(conn_str)
+
+            else:
+                if self.debug:
+                    print_debug(
+                        "Using psycopg2 with password authentication",
+                        end_str="\n",
+                    )
+
+                self.connections[node]["dbo"] = self.psycopg2.connect(
+                    host=self.connections[node]["host"],
+                    port=self.connections[node]["port"],
+                    dbname=self.connections[node]["dsn"],
+                    user=self.connections[node]["userid"],
+                    password=self.connections[node]["password"],
+                )
+                self.connections[node]["dbo"].set_session(autocommit=True)
+
+        if self.connections[node]["dbtype"] == "POSTGRESQL":
+            if self.imported_psycopg2:
+                if self.debug:
+                    print_debug("Using psycopg2", end_str="\n")
+
+                options = (
+                    (f"-c search_path={self.connections[node]['schema']}")
+                    if self.connections[node].get("schema")
+                    else ""
+                )
+
+                self.connections[node]["dbo"] = self.psycopg2.connect(
+                    host=self.connections[node]["host"],
+                    port=self.connections[node]["port"],
+                    dbname=self.connections[node]["dsn"],
+                    user=self.connections[node]["userid"],
+                    password=self.connections[node]["password"],
+                    options=options,
+                )
+                self.connections[node]["dbo"].set_session(autocommit=True)
+            else:
                 if self.debug:
                     print_debug("Using pyodbc", end_str="\n")
 
                 conn_str = (
                     f"DRIVER={{{self.connections[node]['dbtype']}}};"
-                    f"Server={self.connections[node]['host']};"
-                    f"Port={self.connections[node]['port']};"
-                    f"Database={self.connections[node]['schema']};"
-                    f"Uid={self.connections[node]['userid']};"
-                    f"Pwd={self.connections[node]['password']};"
-                    f"autocommit=True"
+                    f"SERVER={self.connections[node]['host']};"
+                    f"PORT={self.connections[node]['port']};"
+                    f"DATABASE={self.connections[node]['dsn']};"
+                    f"UID={self.connections[node]['userid']};"
+                    f"PWD={self.connections[node]['password']};"
+                    "autocommit=True"
                 )
+                if self.connections[node].get("schema"):
+                    conn_str = f"{conn_str};search_path={self.connections[node]['schema']}"
+
                 self.connections[node]["dbo"] = self.pyodbc.connect(conn_str)
 
-            if self.connections[node]["dbtype"] == "MSSQL":
-                # Python connector for engine config: CONNECTION=mssql://username:password@server:port:database/?driver=mssqldriver
-                if not self.connections[node]["host"] == self.connections[node]["dsn"] and self.connections[node][
-                    "query_params"
-                ].get("driver"):
-                    if self.debug:
-                        print_debug("Using MSSQL connector", end_str="\n")
+        if self.connections[node]["dbtype"] == "MYSQL":
+            # NOTE Errors with MYSQL connector using next and previous in sz_explorer, only pyodbc support currently
+            # # if self.mysql_connector:
+            # if self.imported_mysql:
+            #     if self.debug:
+            #         print_debug("Using MYSQL connector", end_str="\n")
 
-                    conn_str = (
-                        f"SERVER={self.connections[node]['host']},{self.connections[node]['port']};"
-                        f"DATABASE={self.connections[node]['dsn']};"
-                        f"UID={self.connections[node]['userid']};"
-                        f"PWD={self.connections[node]['password']}"
-                    )
+            #     connector_config = {
+            #         "host": self.connections[node]["host"],
+            #         "port": self.connections[node]["port"],
+            #         "database": self.connections[node]["schema"],
+            #         "user": self.connections[node]["userid"],
+            #         "password": self.connections[node]["password"],
+            #         "autocommit": True,
+            #     }
+            #     self.connections[node]["dbo"] = self.mysql_connector.connect(**connector_config)
+            # else:
+            #     if self.debug:
+            #         print_debug("Using pyodbc", end_str="\n")
 
-                    if self.connections[node]["query_params"]:
-                        conn_str = self.append_uri_query_params(
-                            conn_str, self.connections[node]["query_params"], ["driver"]
-                        )
+            #     conn_str = (
+            #         f"DRIVER={{{self.connections[node]['dbtype']}}};"
+            #         f"Server={self.connections[node]['host']};"
+            #         f"Port={self.connections[node]['port']};"
+            #         f"Database={self.connections[node]['schema']};"
+            #         f"Uid={self.connections[node]['userid']};"
+            #         f"Pwd={self.connections[node]['password']};"
+            #         f"autocommit=True"
+            #     )
+            #     self.connections[node]["dbo"] = self.pyodbc.connect(conn_str)
+            if self.debug:
+                print_debug("Using pyodbc", end_str="\n")
 
-                    self.connections[node]["dbo"] = self.mssql_connect(conn_str)  # type: ignore
+            conn_str = (
+                f"DRIVER={{{self.connections[node]['dbtype']}}};"
+                f"Server={self.connections[node]['host']};"
+                f"Port={self.connections[node]['port']};"
+                f"Database={self.connections[node]['schema']};"
+                f"Uid={self.connections[node]['userid']};"
+                f"Pwd={self.connections[node]['password']};"
+                f"autocommit=True"
+            )
+            self.connections[node]["dbo"] = self.pyodbc.connect(conn_str)
 
-                # pyodbc for engine config: CONNECTION=mssql://username:password@database
-                else:
-                    if self.debug:
-                        print_debug("Using pyodbc", end_str="\n")
-
-                    conn_str = (
-                        f"DSN={{{self.connections[node]['dsn']}}};"
-                        f"UID={self.connections[node]['userid']};"
-                        f"PWD={self.connections[node]['password']};"
-                    )
-
-                    if self.connections[node]["query_params"]:
-                        conn_str = self.append_uri_query_params(conn_str, self.connections[node]["query_params"])
-
-                    self.connections[node]["dbo"] = self.pyodbc.connect(conn_str)
-
-            if self.connections[node]["dbtype"] == "SQLITE3":
+        if self.connections[node]["dbtype"] == "MSSQL":
+            # Python connector for engine config: CONNECTION=mssql://username:password@server:port:database/?driver=mssqldriver
+            if self.connections[node]["host"] != self.connections[node]["dsn"] and self.connections[node][
+                "query_params"
+            ].get("driver"):
                 if self.debug:
-                    print_debug("Using sqlite3", end_str="\n")
+                    print_debug("Using MSSQL connector", end_str="\n")
 
-                if not Path(self.connections[node]["dsn"]).is_file():
-                    raise Exception(f"ERROR: sqlite3 database file not found {self.connections[node]['dsn']}")
-
-                self.connections[node]["dbo"] = self.sqlite3.connect(
-                    self.connections[node]["dsn"], isolation_level=None
-                )
-                self.connections[node]["dbo"].text_factory = str
-                c = self.connections[node]["dbo"].cursor()
-                c.execute("PRAGMA journal_mode=wal")
-                c.execute("PRAGMA synchronous=0")
-
-            if self.connections[node]["dbtype"] == "OCI":
-                self.connections[node]["dbo"] = self.cx_Oracle.connect(
-                    user=self.connections[node]["userid"],
-                    password=self.connections[node]["password"],
-                    dsn=f"{self.connections[node]['host']}:{self.connections[node]['port']}/{self.connections[node]['schema']}",
-                    encoding="UTF-8",
+                conn_str = (
+                    f"SERVER={self.connections[node]['host']},{self.connections[node]['port']};"
+                    f"DATABASE={self.connections[node]['dsn']};"
+                    f"UID={self.connections[node]['userid']};"
+                    f"PWD={self.connections[node]['password']}"
                 )
 
-        # except Exception as err:
-        #     raise Exception(err)
-        except Exception:
-            raise
+                if self.connections[node]["query_params"]:
+                    conn_str = self.append_uri_query_params(
+                        conn_str, self.connections[node]["query_params"], ["driver"]
+                    )
+
+                self.connections[node]["dbo"] = self.mssql_connect(conn_str)  # type: ignore
+
+            # pyodbc for engine config: CONNECTION=mssql://username:password@database
+            else:
+                if self.debug:
+                    print_debug("Using pyodbc", end_str="\n")
+
+                conn_str = (
+                    f"DSN={{{self.connections[node]['dsn']}}};"
+                    f"UID={self.connections[node]['userid']};"
+                    f"PWD={self.connections[node]['password']};"
+                )
+
+                if self.connections[node]["query_params"]:
+                    conn_str = self.append_uri_query_params(conn_str, self.connections[node]["query_params"])
+
+                self.connections[node]["dbo"] = self.pyodbc.connect(conn_str)
+
+        if self.connections[node]["dbtype"] == "SQLITE3":
+            if self.debug:
+                print_debug("Using sqlite3", end_str="\n")
+
+            if not Path(self.connections[node]["dsn"]).is_file():
+                raise Exception(f"ERROR: sqlite3 database file not found {self.connections[node]['dsn']}")
+
+            self.connections[node]["dbo"] = self.sqlite3.connect(self.connections[node]["dsn"], isolation_level=None)
+            self.connections[node]["dbo"].text_factory = str
+            c = self.connections[node]["dbo"].cursor()
+            c.execute("PRAGMA journal_mode=wal")
+            c.execute("PRAGMA synchronous=0")
+
+        if self.connections[node]["dbtype"] == "OCI":
+            self.connections[node]["dbo"] = self.cx_Oracle.connect(
+                user=self.connections[node]["userid"],
+                password=self.connections[node]["password"],
+                dsn=f"{self.connections[node]['host']}:{self.connections[node]['port']}/{self.connections[node]['schema']}",
+                encoding="UTF-8",
+            )
 
         if self.connections[node]["schema"] is not None and len(self.connections[node]["schema"]) != 0:
             if self.connections[node]["dbtype"] == "SQLITE3":
                 raise Exception("""WARNING: SQLITE3 doesn't support schema URI argument""")
-            try:
-                if self.connections[node]["dbtype"] == "MYSQL":
-                    self.sql_exec("use " + self.connections[node]["schema"])
-                if self.connections[node]["dbtype"] in ("AURORAPOSTGRESQL", "POSTGRESQL"):
-                    self.sql_exec("SET search_path TO " + self.connections[node]["schema"])
-            # except Exception as err:
-            #     raise Exception(err)
-            except Exception:
-                raise
+            if self.connections[node]["dbtype"] == "MYSQL":
+                self.sql_exec("use " + self.connections[node]["schema"])
+            if self.connections[node]["dbtype"] in ("AURORAPOSTGRESQL", "POSTGRESQL"):
+                self.sql_exec("SET search_path TO " + self.connections[node]["schema"])
 
     def set_node(self, sql: str) -> str:
         if len(self.connections) == 1:
@@ -392,7 +374,7 @@ class SzDatabase:
             return sql, node
         return sql
 
-    def sql_exec(self, raw_sql: str, param_list=None, **kwargs):
+    def sql_exec(self, raw_sql: str, param_list: Any = None, **kwargs: Any) -> dict[str, Any]:
         """Make a database call"""
         if raw_sql in self.statement_cache:
             sql = self.statement_cache[raw_sql]["sql"]
@@ -436,7 +418,7 @@ class SzDatabase:
 
         return cursor_data
 
-    def fetch_next(self, cursor_data):
+    def fetch_next(self, cursor_data: dict[str, Any]) -> dict[str, Any] | None:
         """Fetch the next row from a cursor"""
         if "COLUMN_HEADERS" in cursor_data:
             row_values = cursor_data["CURSOR"].fetchone()
@@ -450,20 +432,20 @@ class SzDatabase:
 
         return row_data
 
-    def fetch_row(self, cursor_data):
+    def fetch_row(self, cursor_data: dict[str, Any]) -> tuple[Any, ...] | None:
         """Fetch the next row from a cursor"""
         if "COLUMN_HEADERS" in cursor_data:
             row_data = cursor_data["CURSOR"].fetchone()
         else:
             raise Exception("WARNING: Previous SQL was not a query.")
 
-        return row_data
+        return cast(tuple[Any, ...] | None, row_data)
 
-    def fetch_all_rows(self, cursor_data):
+    def fetch_all_rows(self, cursor_data: dict[str, Any]) -> list[tuple[Any, ...]]:
         """Fetch all the rows without column names"""
-        return cursor_data["CURSOR"].fetchall()
+        return cast(list[tuple[Any, ...]], cursor_data["CURSOR"].fetchall())
 
-    def fetch_all_dicts(self, cursor_data):
+    def fetch_all_dicts(self, cursor_data: dict[str, Any]) -> list[dict[str, Any]]:
         """Fetch all the rows with column names"""
         row_list = []
         for row_values in cursor_data["CURSOR"].fetchall():
@@ -473,11 +455,11 @@ class SzDatabase:
 
         return row_list
 
-    def fetch_many_rows(self, cursor_data, row_count):
+    def fetch_many_rows(self, cursor_data: dict[str, Any], row_count: int) -> list[tuple[Any, ...]]:
         """Fetch all the rows without column names"""
-        return cursor_data["CURSOR"].fetchmany(row_count)
+        return cast(list[tuple[Any, ...]], cursor_data["CURSOR"].fetchmany(row_count))
 
-    def fetch_many_dicts(self, cursor_data, row_count):
+    def fetch_many_dicts(self, cursor_data: dict[str, Any], row_count: int) -> list[dict[str, Any]]:
         """Fetch all the rows with column names"""
         row_list = []
         for row_values in cursor_data["CURSOR"].fetchmany(row_count):
@@ -699,7 +681,7 @@ class SzDatabase:
                 raise ImportError
 
     # pylint: disable=C0415
-    def import_aws_wrapper(self):
+    def import_aws_wrapper(self) -> None:
         """Try and import AWS Python wrapper"""
         try:
             from aws_advanced_python_wrapper import AwsWrapperConnection
@@ -709,7 +691,7 @@ class SzDatabase:
         except ImportError as err:
             self.imported_aws_wrapper_error = err
 
-    def import_psycopg(self):
+    def import_psycopg(self) -> None:
         """Try and import psycopg"""
         try:
             from psycopg import Connection
@@ -719,7 +701,7 @@ class SzDatabase:
         except ImportError as err:
             self.imported_psycopg_error = err
 
-    def import_cx_oracle(self):
+    def import_cx_oracle(self) -> None:
         """Try and import cx_oracle"""
         try:
             import cx_Oracle
@@ -729,7 +711,7 @@ class SzDatabase:
         except ImportError as err:
             self.imported_cx_oracle_error = err
 
-    def import_mssql(self):
+    def import_mssql(self) -> None:
         """Try and import mssql_python"""
         try:
             from mssql_python import connect as mssql_connect
@@ -739,7 +721,7 @@ class SzDatabase:
         except ImportError as err:
             self.imported_mssql_error = err
 
-    def import_mysql_connector(self):
+    def import_mysql_connector(self) -> None:
         """Try and import mysql_connector"""
         try:
             import mysql.connector
@@ -749,7 +731,7 @@ class SzDatabase:
         except ImportError as err:
             self.imported_mysql_error = err
 
-    def import_psycopg2(self):
+    def import_psycopg2(self) -> None:
         """Try and import psycopg2"""
         try:
             import psycopg2  # type: ignore
@@ -759,7 +741,7 @@ class SzDatabase:
         except ImportError as err:
             self.imported_psycopg2_error = err
 
-    def import_pyodbc(self):
+    def import_pyodbc(self) -> None:
         """Try and import pyodbc"""
         try:
             import pyodbc
@@ -769,7 +751,7 @@ class SzDatabase:
         except ImportError as err:
             self.imported_pyodbc_error = err
 
-    def import_sqlite3(self):
+    def import_sqlite3(self) -> None:
         """Try and import sqlite3"""
         try:
             import sqlite3
