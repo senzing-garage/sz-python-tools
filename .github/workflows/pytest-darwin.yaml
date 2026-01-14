@@ -1,4 +1,4 @@
-name: pytest darwin
+name: Pytest darwin
 
 on:
   pull_request:
@@ -6,6 +6,10 @@ on:
   schedule:
     - cron: "15 7 * * *"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 env:
   PYTHONPATH: ${{ github.workspace }}/src
@@ -15,9 +19,7 @@ permissions: {}
 
 jobs:
   pytest-darwin:
-    name: "pytest with Senzing: ${{ matrix.senzingsdk-version }}; OS: ${{ matrix.os }}; Python ${{ matrix.python-version }}"
-    outputs:
-      status: ${{ job.status }}
+    name: "Pytest with Senzing: ${{ matrix.senzingsdk-version }}; OS: ${{ matrix.os }}; Python ${{ matrix.python-version }}"
     permissions:
       contents: read
     runs-on: ${{ matrix.os }}
@@ -25,8 +27,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
         senzingsdk-version: [production-v4, staging-v4]
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -46,6 +49,12 @@ jobs:
           echo "PATH=${PATH}" >> "${GITHUB_ENV}"
           python -m pip install --upgrade pip
           python -m pip install --group all .
+
+      - if: matrix.python-version == '3.10'
+        name: Install python libraries for python 3.10
+        run: |
+          source ./venv/bin/activate
+          python -m pip install typing_extensions
 
       - name: Install Senzing SDK
         uses: senzing-factory/github-action-install-senzing-sdk@v3
@@ -83,12 +92,13 @@ jobs:
           mv .coverage "$COVERAGE_FILE"
 
       - name: Store coverage file
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: "coverage-${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
           path: "coverage.${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
 
   coverage:
+    if: github.event_name == 'pull_request'
     name: Coverage
     needs: pytest-darwin
     permissions:
@@ -98,9 +108,9 @@ jobs:
 
   slack-notification:
     needs: [pytest-darwin]
-    if: ${{ always() && contains(fromJSON('["failure", "cancelled"]'), needs.pytest-darwin.outputs.status ) && github.event_name == 'schedule' }}
+    if: ${{ always() && contains(fromJSON('["failure", "cancelled"]'), needs.pytest-darwin.result ) && github.event_name == 'schedule' }}
     secrets:
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
     uses: senzing-factory/build-resources/.github/workflows/build-failure-slack-notification.yaml@v3
     with:
-      job-status: ${{ needs.pytest-darwin.outputs.status }}
+      job-status: ${{ needs.pytest-darwin.result }}

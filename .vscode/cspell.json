@@ -50,6 +50,7 @@
     "CONNECTSTR",
     "contextlib",
     "contextmanager",
+    "cooldown",
     "copyfile",
     "copytree",
     "CORNFLOWERBLUE",
@@ -102,6 +103,7 @@
     "ents",
     "erfrag",
     "ERRULE",
+    "esbenp",
     "etail",
     "ETYPE",
     "evar",
@@ -352,7 +354,8 @@
     "xclip",
     "xport",
     "YESPURGE",
-    "YESPURGESENZING"
+    "YESPURGESENZING",
+    "zizmor"
   ],
   "ignorePaths": [
     ".git/**",
