@@ -14,11 +14,10 @@ import textwrap
 import time
 import tty
 from contextlib import suppress
-from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
 from signal import SIGALRM, alarm, signal
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Tuple, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, TypeVar, Union
 
 from senzing import SzEngineFlags, SzError, constants
 

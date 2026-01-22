@@ -59,7 +59,7 @@ jobs:
         with:
           senzingsdk-version: ${{ matrix.senzingsdk-version }}
 
-      - name: Add to "Path" environment variable
+      - name: Set environment variables
         run: |
           Add-Content "$env:GITHUB_PATH" "$Env:USERPROFILE\Senzing\er\lib"
 

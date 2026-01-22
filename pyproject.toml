@@ -46,7 +46,7 @@ development = [
   "pytest==9.0.2; python_version > '3.11'",
   "twine==6.2.0",
   "typing_extensions==4.15.0; python_version < '3.11'",
-  "virtualenv==20.36.0",
+  "virtualenv==20.36.1",
   "wheel==0.45.1",
 ]
 documentation = [
