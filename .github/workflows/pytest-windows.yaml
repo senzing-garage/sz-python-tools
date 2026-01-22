@@ -59,7 +59,7 @@ jobs:
         with:
           senzingsdk-version: ${{ matrix.senzingsdk-version }}
 
-      - name: Add to "Path" environment variable
+      - name: Set environment variables
         run: |
           Add-Content "$env:GITHUB_PATH" "$Env:USERPROFILE\Senzing\er\lib"
 
@@ -90,21 +90,3 @@ jobs:
         with:
           name: "coverage-${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
           path: "coverage.${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
-
-  coverage:
-    if: github.event_name == 'pull_request'
-    name: Coverage
-    needs: pytest-windows
-    permissions:
-      pull-requests: write
-      contents: write
-    uses: senzing-factory/build-resources/.github/workflows/python-coverage-comment.yaml@v3
-
-  slack-notification:
-    needs: [pytest-windows]
-    if: ${{ always() && contains(fromJSON('["failure", "cancelled"]'), needs.pytest-windows.result ) && github.event_name == 'schedule' }}
-    secrets:
-      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-    uses: senzing-factory/build-resources/.github/workflows/build-failure-slack-notification.yaml@v3
-    with:
-      job-status: ${{ needs.pytest-windows.result }}

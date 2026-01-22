@@ -46,7 +46,7 @@ development = [
   "pytest==9.0.2; python_version > '3.11'",
   "twine==6.2.0",
   "typing_extensions==4.15.0; python_version < '3.11'",
-  "virtualenv==20.36.0",
+  "virtualenv==20.36.1",
   "wheel==0.45.1",
 ]
 documentation = [
@@ -91,7 +91,7 @@ test = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["sz_tools"]
 
 [tool.bandit]
 skips = ["B101", "B108", "B404", "B602", "B605", "B608"]
@@ -105,7 +105,7 @@ max-line-length = 120
 
 [tool.isort]
 profile = "black"
-src_paths = ["examples", "src", "tests"]
+src_paths = ["examples", "tests"]
 
 [tool.mypy]
 exclude = ['.venv', 'g2_tools']

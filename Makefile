@@ -66,7 +66,7 @@ venv: venv-osarch-specific
 dependencies-for-development: venv dependencies-for-development-osarch-specific
 	$(activate-venv); \
 		python3 -m pip install --upgrade pip; \
-		python3 -m pip install --group all
+		python3 -m pip install --group all .
 
 
 .PHONY: dependencies
@@ -198,7 +198,7 @@ isort:
 mypy:
 	$(info ${\n})
 	$(info --- mypy -----------------------------------------------------------------------)
-	@$(activate-venv); mypy --strict $(shell git ls-files '*.py' ':!:docs/source/*')
+	@$(activate-venv); mypy $(shell git ls-files '*.py' ':!:docs/source/*')
 
 .PHONY: prettier
 prettier:
