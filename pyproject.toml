@@ -105,7 +105,7 @@ max-line-length = 120
 
 [tool.isort]
 profile = "black"
-src_paths = ["examples", "sz_tools", "tests"]
+src_paths = ["examples", "tests"]
 
 [tool.mypy]
 exclude = ['.venv', 'g2_tools']
