@@ -91,7 +91,7 @@ test = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["sz_tools"]
 
 [tool.bandit]
 skips = ["B101", "B108", "B404", "B602", "B605", "B608"]
@@ -105,7 +105,7 @@ max-line-length = 120
 
 [tool.isort]
 profile = "black"
-src_paths = ["examples", "src", "tests"]
+src_paths = ["examples", "sz_tools", "tests"]
 
 [tool.mypy]
 exclude = ['.venv', 'g2_tools']
