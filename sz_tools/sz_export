@@ -253,7 +253,6 @@ if __name__ == "__main__":
         "--iniFile",
         dest="ini_file_name",
         default=None,
-        nargs=1,
         help=textwrap.dedent(
             """\
 

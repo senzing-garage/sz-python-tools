@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.35] - 2026-01-22
+
+### Fixed in 0.0.35
+
+- Error when using `-c` (`--iniFile`) with sz_export
+
 ## [0.0.34] - 2026-01-13
 
 ### Added in 0.0.34

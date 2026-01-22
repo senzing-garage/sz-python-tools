@@ -1,6 +1,6 @@
 [project]
 name = "sz-python-tools"
-version = "0.0.34"
+version = "0.0.35"
 description = "Senzing Python Tools"
 authors = [{ name = "senzing", email = "support@senzing.com" }]
 readme = "README.md"
