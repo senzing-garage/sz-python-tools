@@ -165,42 +165,42 @@ class SnapshotReader:
 
         self.sz_dbo = SzDatabase(self.engine_config, print_import_messages=False)
         sql_entities = (
-            "select "
-            " a.RES_ENT_ID as RESOLVED_ENTITY_ID, "
-            " a.ERRULE_ID, "
-            " a.MATCH_KEY, "
-            " b.DSRC_ID, "
-            " c.RECORD_ID "
-            "from RES_ENT_OKEY a "
-            "join OBS_ENT b on b.OBS_ENT_ID = a.OBS_ENT_ID "
-            "join DSRC_RECORD c on c.ENT_SRC_KEY = b.ENT_SRC_KEY and c.DSRC_ID = b.DSRC_ID "
-            "where a.RES_ENT_ID = ?"
+            "SELECT "
+            " A.RES_ENT_ID AS RESOLVED_ENTITY_ID, "
+            " A.ERRULE_ID, "
+            " A.MATCH_KEY, "
+            " B.DSRC_ID, "
+            " C.RECORD_ID "
+            "FROM RES_ENT_OKEY A "
+            "JOIN OBS_ENT B ON B.OBS_ENT_ID = A.OBS_ENT_ID "
+            "JOIN DSRC_RECORD C ON C.ENT_SRC_KEY = B.ENT_SRC_KEY AND C.DSRC_ID = B.DSRC_ID "
+            "WHERE A.RES_ENT_ID = ?"
         )
         self.sql_entities = self.sz_dbo.sql_prep(sql_entities)
         sql_relations = (
-            "select "
-            " a.RES_ENT_ID as RESOLVED_ENTITY_ID, "
-            " a.REL_ENT_ID as RELATED_ENTITY_ID, "
-            " b.LAST_ERRULE_ID as ERRULE_ID, "
-            " b.IS_DISCLOSED, "
-            " b.IS_AMBIGUOUS, "
-            " b.MATCH_KEY, "
-            " d.DSRC_ID "
-            "from RES_REL_EKEY a "
-            "join RES_RELATE b on b.RES_REL_ID = a.RES_REL_ID "
-            "join RES_ENT_OKEY c on c.RES_ENT_ID = a.REL_ENT_ID "
-            "join OBS_ENT d on d.OBS_ENT_ID = c.OBS_ENT_ID "
-            "where a.RES_ENT_ID = ?"
+            "SELECT "
+            " A.RES_ENT_ID AS RESOLVED_ENTITY_ID, "
+            " A.REL_ENT_ID AS RELATED_ENTITY_ID, "
+            " B.LAST_ERRULE_ID AS ERRULE_ID, "
+            " B.IS_DISCLOSED, "
+            " B.IS_AMBIGUOUS, "
+            " B.MATCH_KEY, "
+            " D.DSRC_ID "
+            "FROM RES_REL_EKEY A "
+            "JOIN RES_RELATE B ON B.RES_REL_ID = A.RES_REL_ID "
+            "JOIN RES_ENT_OKEY C ON C.RES_ENT_ID = A.REL_ENT_ID "
+            "JOIN OBS_ENT D ON D.OBS_ENT_ID = C.OBS_ENT_ID "
+            "WHERE A.RES_ENT_ID = ?"
         )
         self.sql_relations = self.sz_dbo.sql_prep(sql_relations)
         # below not currently used in favor of sdk as does a better job identifying unique features
         sql_features = (
-            "select "
+            "SELECT "
             " FTYPE_ID "
-            "from RES_FEAT_EKEY a "
-            "where RES_ENT_ID = ?"
-            "and FTYPE_ID in (" + ",".join(str(x) for x in self.esb_ftype_ids) + ")"
-            "and SUPPRESSED = 'N'"
+            "FROM RES_FEAT_EKEY A "
+            "WHERE RES_ENT_ID = ?"
+            "AND FTYPE_ID IN (" + ",".join(str(x) for x in self.esb_ftype_ids) + ")"
+            "AND SUPPRESSED = 'N'"
         )
         self.sql_features = self.sz_dbo.sql_prep(sql_features)
 
@@ -570,20 +570,20 @@ def database_snapshot(sz_dbo, kwargs):
         entity_sql = "select RES_ENT_ID from RES_ENT where RES_ENT_ID between ? and ?"
     else:
         max_sql = (
-            "select  "
-            " min(b.RES_ENT_ID), "
-            " max(b.RES_ENT_ID) "
-            "from OBS_ENT a "
-            "join RES_ENT_OKEY b on b.OBS_ENT_ID = a.OBS_ENT_ID "
-            "where a.DSRC_ID = " + str(dsrc_id_filter)
+            "SELECT  "
+            " MIN(B.RES_ENT_ID), "
+            " MAX(B.RES_ENT_ID) "
+            "FROM OBS_ENT A "
+            "JOIN RES_ENT_OKEY B ON B.OBS_ENT_ID = A.OBS_ENT_ID "
+            "WHERE A.DSRC_ID = " + str(dsrc_id_filter)
         )
         min_entity_id, max_entity_id = sz_dbo.fetch_row(sz_dbo.sql_exec(max_sql))
         entity_sql = (
-            "select distinct"
-            " a.RES_ENT_ID "
-            "from RES_ENT_OKEY a "
-            "join OBS_ENT b on b.OBS_ENT_ID = a.OBS_ENT_ID "
-            "where a.RES_ENT_ID between ? and ? and b.DSRC_ID = " + str(dsrc_id_filter)
+            "SELECT DISTINCT"
+            " A.RES_ENT_ID "
+            "FROM RES_ENT_OKEY A "
+            "JOIN OBS_ENT B ON B.OBS_ENT_ID = A.OBS_ENT_ID "
+            "WHERE A.RES_ENT_ID BETWEEN ? AND ? AND B.DSRC_ID = " + str(dsrc_id_filter)
         )
 
     if not max_entity_id:
