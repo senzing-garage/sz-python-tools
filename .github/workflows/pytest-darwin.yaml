@@ -18,8 +18,17 @@ env:
 permissions: {}
 
 jobs:
+  sdk-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      senzingsdk-versions: ${{ steps.cfg.outputs.senzingsdk-versions }}
+    steps:
+      - id: cfg
+        uses: senzing-factory/build-resources/sdk-versions@v4
+
   pytest-darwin:
     name: "Pytest with Senzing: ${{ matrix.senzingsdk-version }}; OS: ${{ matrix.os }}; Python ${{ matrix.python-version }}"
+    needs: sdk-versions
     permissions:
       contents: read
     runs-on: ${{ matrix.os }}
@@ -28,7 +37,7 @@ jobs:
       matrix:
         os: [macos-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
-        senzingsdk-version: [production-v4, staging-v4]
+        senzingsdk-version: ${{ fromJSON(needs.sdk-versions.outputs.senzingsdk-versions) }}
     timeout-minutes: 30
 
     steps:
