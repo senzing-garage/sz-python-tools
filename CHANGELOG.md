@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.36] - 2026-04-01
+
+### Changed in 0.0.36
+
+- Updated line to DB tuning document in `sz_file_loader`
+
 ## [0.0.35] - 2026-01-22
 
 ### Fixed in 0.0.35
