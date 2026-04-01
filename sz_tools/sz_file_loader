@@ -654,7 +654,7 @@ def startup_info(
     # Skip perf check if specified on CLI args or container env var
     if not skip_ds_perf:
         max_time_per_insert = 0.5
-        db_tune_article = "https://senzing.zendesk.com/hc/en-us/articles/360016288254-Tuning-Your-Database"
+        db_tune_article = "https://www.senzing.com/docs/tutorials/database/database_tuning/"
 
         logger.info("")
         logger.info("Repository Performance")
