@@ -327,7 +327,7 @@ class SzCfgShell(cmd.Cmd):
         {colorize('To understand more about configuring Senzing, please review:', '')}
             {colorize('https://senzing.com/wp-content/uploads/Entity-Resolution-Processes-021320.pdf', 'highlight1, underline')}
             {colorize('https://senzing.com/wp-content/uploads/Principle-Based-Entity-Resolution-092519.pdf', 'highlight1, underline')}
-            {colorize('https://senzing.zendesk.com/hc/en-us/articles/231925448-Generic-Entity-Specification-JSON-CSV-Mapping', 'highlight1, underline')}
+            {colorize('https://senzing.com/docs/entity_specification/', 'highlight1, underline')}
 
         """
             )
@@ -442,7 +442,7 @@ class SzCfgShell(cmd.Cmd):
         print(
             textwrap.dedent(
                 f"""
-        {colorize('Senzing Knowledge Center:', 'dim')} {colorize('https://senzing.zendesk.com/hc/en-us', 'highlight1,underline')}
+        {colorize('Senzing Knowledge Center:', 'dim')} {colorize('https://senzing.com/docs/', 'highlight1,underline')}
 
         {colorize('Senzing Support Request:', 'dim')} {colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight1,underline')}
         """

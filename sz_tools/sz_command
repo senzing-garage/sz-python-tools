@@ -798,7 +798,7 @@ class SzCmdShell(cmd.Cmd):
 
         {colorize_str('Support', 'highlight2')}
             {colorize_str('- Senzing Support:', 'dim')} {colorize_str('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight1,underline')}
-            {colorize_str('- Senzing Knowledge Center:', 'dim')} {colorize_str('https://senzing.zendesk.com/hc/en-us', 'highlight1,underline')}
+            {colorize_str('- Senzing Knowledge Center:', 'dim')} {colorize_str('https://senzing.com/docs/', 'highlight1,underline')}
             {colorize_str('- SDK Docs:', 'dim')} {colorize_str('https://docs.senzing.com', 'highlight1,underline')}
 
         """

@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.37] - 2026-04-02
+
+### Changed in 0.0.37
+
+- Updated couple of documentation links in `sz_command` and `sz_configtool`
+
 ## [0.0.36] - 2026-04-01
 
 ### Changed in 0.0.36
