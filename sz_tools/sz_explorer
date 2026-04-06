@@ -71,6 +71,50 @@ def print_message(msg_text, msg_type_or_color=""):
 
 
 # -------------------
+# PII masking
+# -------------------
+
+PII_KEYS = frozenset({
+    "ENTITY_NAME",
+    "FEAT_DESC",
+    "INBOUND_FEAT_DESC",
+    "CANDIDATE_FEAT_DESC",
+    "FELEM_VALUE",
+})
+
+
+def mask_pii(text):
+    """Mask PII: preserve first 2 chars of each token, replace rest with *."""
+    if not text:
+        return text
+    tokens = []
+    for token in re.split(r'(\s+|[,;:|/\\-])', str(text)):
+        if token and not token.isspace() and token not in ',;:|/\\-':
+            if len(token) <= 2:
+                tokens.append(token)
+            else:
+                tokens.append(token[:2] + '*' * (len(token) - 2))
+        else:
+            tokens.append(token)
+    return ''.join(tokens)
+
+
+def mask_json_pii(data):
+    """Recursively walk a dict/list and mask string values under PII_KEYS."""
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in PII_KEYS and isinstance(value, str):
+                data[key] = mask_pii(value)
+            elif isinstance(value, (dict, list)):
+                mask_json_pii(value)
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, (dict, list)):
+                mask_json_pii(item)
+    return data
+
+
+# -------------------
 # colorizers
 # -------------------
 
@@ -1077,6 +1121,7 @@ class EdaSdkWrapper:
     def __init__(self, engine_config, **kwargs):
         self.webapp_url = kwargs.get("webapp_url")
         self.debug_trace = kwargs.get("debug_trace")
+        self.mask_pii = kwargs.get("mask_pii", False)
         try:
             self.sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config, verbose_logging=self.debug_trace)
             self.sz_engine = self.sz_factory.create_engine()
@@ -1193,6 +1238,9 @@ class EdaSdkWrapper:
             response_data: Dict[str, Any] = json.loads(response)
         except SzError as err:
             raise SzError(f"{api_name}: {err}") from None
+
+        if self.mask_pii:
+            mask_json_pii(response_data)
 
         self.last_call_cache.append([caller, api_name, flags, parms, response_data])
 
@@ -1853,6 +1901,8 @@ class EdaSdkWrapper:
             except SzError as err:
                 raise err from err
             feature_data = json.loads(response)
+            if self.mask_pii:
+                mask_json_pii(feature_data)
 
             if feature_filter and feature_data["FTYPE_CODE"] not in feature_filter:
                 continue
@@ -3524,6 +3574,8 @@ class EdaCmd(cmd.Cmd):
             feat_id = row[0]
             ftype = sdk_wrapper.ftype_lookup[row[1]]["FTYPE_CODE"]
             feat_desc = row[2]
+            if sdk_wrapper.mask_pii:
+                feat_desc = mask_pii(feat_desc)
             feat_cache[feat_id] = feat_desc
 
             stat_row = sz_dbo.fetch_row(sz_dbo.sql_exec(stat_select + f" {feat_id}"))
@@ -4250,6 +4302,13 @@ if __name__ == "__main__":
         default=False,
         help="output debug trace information",
     )
+    argParser.add_argument(
+        "-M",
+        "--mask_pii",
+        action="store_true",
+        default=False,
+        help="mask PII data such as names, addresses, and feature descriptions",
+    )
     args = argParser.parse_args()
 
     if args.snapshot_json_file and not os.path.exists(args.snapshot_json_file):
@@ -4276,7 +4335,7 @@ if __name__ == "__main__":
         sz_dbo = None
 
     try:
-        sdk_wrapper = EdaSdkWrapper(engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url)
+        sdk_wrapper = EdaSdkWrapper(engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url, mask_pii=args.mask_pii)
     except SzError as ex:
         print_message(ex, "error")
         sys.exit(1)
