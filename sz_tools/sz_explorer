@@ -3868,12 +3868,16 @@ class EdaCmd(cmd.Cmd):
             if parm.isdigit():
                 starting_id = int(parm)
 
+        if not starting_id and operator == "<":
+            print_message("no more entities", "warning")
+            return
+
         order = "ASC" if operator == ">" else "DESC"
         sql = sz_dbo.sql_prep(f"select RES_ENT_ID from RES_ENT where RES_ENT_ID {operator} ? order by RES_ENT_ID {order}")
         verify_sql = sz_dbo.sql_prep("select 1 from RES_ENT_OKEY where RES_ENT_ID = ?")
-        for row in sz_dbo.fetch_all_rows(sz_dbo.sql_exec(sql, starting_id)):
+        for row in sz_dbo.fetch_all_rows(sz_dbo.sql_exec(sql, [starting_id])):
             candidate_id = row[0]
-            if sz_dbo.fetch_row(sz_dbo.sql_exec(verify_sql, candidate_id)):
+            if sz_dbo.fetch_row(sz_dbo.sql_exec(verify_sql, [candidate_id])):
                 self.do_get(str(candidate_id))
                 return
         print_message("no more entities", "warning")
