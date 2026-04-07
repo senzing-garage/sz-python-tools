@@ -3863,20 +3863,20 @@ class EdaCmd(cmd.Cmd):
 
     def find(self, operator, arg):
         starting_id = self.last_entity_id
-        # data_source = None  # to support find a record in a data source
         arg_list = arg.split()
         for parm in arg_list:
             if parm.isdigit():
                 starting_id = int(parm)
-            # else:
-            #    data_source = parm.upper()
 
-        sql = f"select RES_ENT_ID from RES_ENT_OKEY where RES_ENT_ID {operator} ?"
-        next_row = sz_dbo.fetch_row(sz_dbo.sql_exec(sz_dbo.sql_prep(sql), starting_id))
-        if not next_row:
-            print_message("no more entities", "warning")
-        else:
-            self.do_get(str(next_row[0]))
+        order = "ASC" if operator == ">" else "DESC"
+        sql = sz_dbo.sql_prep(f"select RES_ENT_ID from RES_ENT where RES_ENT_ID {operator} ? order by RES_ENT_ID {order}")
+        verify_sql = sz_dbo.sql_prep("select 1 from RES_ENT_OKEY where RES_ENT_ID = ?")
+        for row in sz_dbo.fetch_all_rows(sz_dbo.sql_exec(sql, starting_id)):
+            candidate_id = row[0]
+            if sz_dbo.fetch_row(sz_dbo.sql_exec(verify_sql, candidate_id)):
+                self.do_get(str(candidate_id))
+                return
+        print_message("no more entities", "warning")
 
     def do_next(self, arg):
         self.find(">", arg)
