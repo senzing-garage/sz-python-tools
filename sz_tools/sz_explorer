@@ -1209,12 +1209,6 @@ class EdaSdkWrapper:
 
         self.how_views = {"T": "tree", "S": "summary", "C": "columnar"}
 
-    def close(self):
-        try:
-            self.sz_factory.destroy()
-        except Exception:
-            pass
-
     @staticmethod
     def behavior_rank(behavior):
         freq_rank = {"F1": 1, "FF": 2, "FM": 3, "FVM": 4, "NAME": 5}
@@ -4397,6 +4391,5 @@ if __name__ == "__main__":
 
     if sz_dbo:
         sz_dbo.close()
-    sdk_wrapper.close()
 
     sys.exit()
