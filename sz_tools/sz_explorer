@@ -3862,6 +3862,10 @@ class EdaCmd(cmd.Cmd):
             self.last_entity_id = int(arg_tokens[0])
 
     def find(self, operator, arg):
+        if not sz_dbo:
+            print_message("next/previous requires direct database access", "warning")
+            return
+
         starting_id = self.last_entity_id
         arg_list = arg.split()
         for parm in arg_list:
