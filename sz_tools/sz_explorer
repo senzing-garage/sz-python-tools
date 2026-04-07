@@ -1170,6 +1170,15 @@ class EdaSdkWrapper:
             else:
                 self.ftype_code_lookup[ftype_code]["SORT_ORDER"] = 30000 + ftype_id
 
+        self.ftype_behavior = {}
+        for ftype_code, ftype_data in self.ftype_code_lookup.items():
+            behavior = ftype_data.get("FTYPE_FREQ", "")
+            if ftype_data.get("FTYPE_EXCL") == "Yes":
+                behavior += "E"
+            if ftype_data.get("FTYPE_STAB") == "Yes":
+                behavior += "S"
+            self.ftype_behavior[ftype_code] = behavior
+
         self.ambiguous_ftype_id = self.ftype_code_lookup["AMBIGUOUS_ENTITY"]["FTYPE_ID"]
         # self.ftype_code_lookup["AMBIGUOUS_ENTITY"]["SORT_ORDER"] = 1
 
@@ -1199,6 +1208,24 @@ class EdaSdkWrapper:
         self.last_call_cache = []
 
         self.how_views = {"T": "tree", "S": "summary", "C": "columnar"}
+
+    @staticmethod
+    def behavior_rank(behavior):
+        freq_rank = {"F1": 1, "FF": 2, "FM": 3, "FVM": 4, "NAME": 5}
+        freq = behavior.rstrip("ES")
+        rank = freq_rank.get(freq, 99) * 10
+        if "E" in behavior[len(freq):]:
+            rank -= 2
+        if "S" in behavior[len(freq):]:
+            rank -= 1
+        return rank
+
+    def fmt_behavior_change(self, ftype_code, score_behavior):
+        expected = self.ftype_behavior.get(ftype_code, "")
+        if not score_behavior or score_behavior == expected:
+            return ""
+        arrow = "\u2191" if self.behavior_rank(score_behavior) < self.behavior_rank(expected) else "\u2193"
+        return f" {arrow}{score_behavior}"
 
     def begin_call_cache(self, cmd):
         self.last_command = cmd
@@ -1733,7 +1760,8 @@ class EdaSdkWrapper:
                     if feature["ALL_SCORES"].get("GNR_GN", -1) != -1:
                         score_list.append(f"GIV:{feature['ALL_SCORES'].get('GNR_GN')}")
                     score = "|".join(score_list)
-                matched_desc = f"\u2514\u2500\u2500 {feature['MATCHED_FEAT_DESC']} ({score})"
+                behavior_change = self.fmt_behavior_change(feature["FTYPE_CODE"], feature.get("SCORE_BEHAVIOR", ""))
+                matched_desc = f"\u2514\u2500\u2500 {feature['MATCHED_FEAT_DESC']} ({score}){behavior_change}"
                 display_list.extend(wrap_text(matched_desc, attr_width, feat_color))
         if attr_limit > 0 and line_cnt > attr_limit:
             display_list.append(f"+{line_cnt - attr_limit} more")
@@ -2402,11 +2430,16 @@ class EdaSdkWrapper:
             else:
                 feat_color = "caution"
 
+            behavior_change = self.fmt_behavior_change(ftype_code, best_score.get("SCORE_BEHAVIOR", ""))
+            score_display = colorize(score_value, feat_color)
+            if behavior_change:
+                score_display += f"\n{colorize(behavior_change.strip(), 'caution')}"
+
             tbl.rows.append(
                 [
                     colorize(ftype_code, "dim"),
                     best_score[left_side_feat],
-                    colorize(score_value, feat_color),
+                    score_display,
                     best_score[right_side_feat],
                 ]
             )
