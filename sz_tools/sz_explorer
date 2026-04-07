@@ -1520,6 +1520,7 @@ class EdaSdkWrapper:
                         "MEMBER_COUNT": len(step[ve_num]["MEMBER_RECORDS"]),
                         "RECORDS": record_list,
                         "FEATURES": features,
+                        "ROLE": "INBOUND" if ve_num == "VIRTUAL_ENTITY_1" else "CANDIDATE",
                     }
                 )
             entity_list = sorted(entity_list, key=lambda k: k["MEMBER_COUNT"])
@@ -2368,12 +2369,12 @@ class EdaSdkWrapper:
                 self.fmt_record_list(step_data["ENTITY_LIST"][1]["RECORDS"], **kwargs),  # .replace("\n", " | ")[0:80],
             ],
         ]
-        if step_data["STEP_TYPE"] == "Create virtual entity":
-            left_side_feat = "CANDIDATE_FEAT_DESC"
-            right_side_feat = "INBOUND_FEAT_DESC"
-        else:
+        if step_data["ENTITY_LIST"][0]["ROLE"] == "INBOUND":
             left_side_feat = "INBOUND_FEAT_DESC"
             right_side_feat = "CANDIDATE_FEAT_DESC"
+        else:
+            left_side_feat = "CANDIDATE_FEAT_DESC"
+            right_side_feat = "INBOUND_FEAT_DESC"
 
         match_key = step_data["MATCH_INFO"].get("MATCH_KEY", "")
         feature_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"]
