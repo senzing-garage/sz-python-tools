@@ -7,6 +7,20 @@ This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.38] - 2026-04-07
+
+### Added in 0.0.38
+
+- `sz_explorer`: `--mask_pii` (`-M`) CLI flag for PII data masking (#363)
+- `sz_explorer`: Scoring behavior downgrade/upgrade indicator on why/how displays (#364)
+
+### Fixed in 0.0.38
+
+- `sz_explorer`: `previous` command going to beginning instead of previous entity (#340)
+- `sz_explorer`: `next`/`previous` crash when no prior `get` command issued (#340)
+- `sz_explorer`: `next`/`previous` error when direct database access is not available (#340)
+- `sz_explorer`: `how` columnar view sometimes showing features reversed (#341)
+
 ## [0.0.37] - 2026-04-02
 
 ### Changed in 0.0.37

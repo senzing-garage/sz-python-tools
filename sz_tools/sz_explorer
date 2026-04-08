@@ -71,6 +71,50 @@ def print_message(msg_text, msg_type_or_color=""):
 
 
 # -------------------
+# PII masking
+# -------------------
+
+PII_KEYS = frozenset({
+    "ENTITY_NAME",
+    "FEAT_DESC",
+    "INBOUND_FEAT_DESC",
+    "CANDIDATE_FEAT_DESC",
+    "FELEM_VALUE",
+})
+
+
+def mask_pii(text, visible=2):
+    """Mask PII: preserve first N chars of each token, replace rest with *."""
+    if not text:
+        return text
+    tokens = []
+    for token in re.split(r'(\s+|[,;:|/\\-])', str(text)):
+        if token and not token.isspace() and token not in ',;:|/\\-':
+            if len(token) <= visible:
+                tokens.append(token)
+            else:
+                tokens.append(token[:visible] + '*' * (len(token) - visible))
+        else:
+            tokens.append(token)
+    return ''.join(tokens)
+
+
+def mask_json_pii(data, visible=2):
+    """Recursively walk a dict/list and mask string values under PII_KEYS."""
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in PII_KEYS and isinstance(value, str):
+                data[key] = mask_pii(value, visible)
+            elif isinstance(value, (dict, list)):
+                mask_json_pii(value, visible)
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, (dict, list)):
+                mask_json_pii(item, visible)
+    return data
+
+
+# -------------------
 # colorizers
 # -------------------
 
@@ -1077,6 +1121,7 @@ class EdaSdkWrapper:
     def __init__(self, engine_config, **kwargs):
         self.webapp_url = kwargs.get("webapp_url")
         self.debug_trace = kwargs.get("debug_trace")
+        self.mask_pii = kwargs.get("mask_pii", False)
         try:
             self.sz_factory = SzAbstractFactoryCore(MODULE_NAME, engine_config, verbose_logging=self.debug_trace)
             self.sz_engine = self.sz_factory.create_engine()
@@ -1125,6 +1170,15 @@ class EdaSdkWrapper:
             else:
                 self.ftype_code_lookup[ftype_code]["SORT_ORDER"] = 30000 + ftype_id
 
+        self.ftype_behavior = {}
+        for ftype_code, ftype_data in self.ftype_code_lookup.items():
+            behavior = ftype_data.get("FTYPE_FREQ", "")
+            if ftype_data.get("FTYPE_EXCL") == "Yes":
+                behavior += "E"
+            if ftype_data.get("FTYPE_STAB") == "Yes":
+                behavior += "S"
+            self.ftype_behavior[ftype_code] = behavior
+
         self.ambiguous_ftype_id = self.ftype_code_lookup["AMBIGUOUS_ENTITY"]["FTYPE_ID"]
         # self.ftype_code_lookup["AMBIGUOUS_ENTITY"]["SORT_ORDER"] = 1
 
@@ -1154,6 +1208,24 @@ class EdaSdkWrapper:
         self.last_call_cache = []
 
         self.how_views = {"T": "tree", "S": "summary", "C": "columnar"}
+
+    @staticmethod
+    def behavior_rank(behavior):
+        freq_rank = {"F1": 1, "FF": 2, "FM": 3, "FVM": 4, "NAME": 5}
+        freq = behavior.rstrip("ES")
+        rank = freq_rank.get(freq, 99) * 10
+        if "E" in behavior[len(freq):]:
+            rank -= 2
+        if "S" in behavior[len(freq):]:
+            rank -= 1
+        return rank
+
+    def fmt_behavior_change(self, ftype_code, score_behavior):
+        expected = self.ftype_behavior.get(ftype_code, "")
+        if not score_behavior or score_behavior == expected:
+            return ""
+        arrow = "\u2191" if self.behavior_rank(score_behavior) < self.behavior_rank(expected) else "\u2193"
+        return f" {arrow}{score_behavior}"
 
     def begin_call_cache(self, cmd):
         self.last_command = cmd
@@ -1193,6 +1265,9 @@ class EdaSdkWrapper:
             response_data: Dict[str, Any] = json.loads(response)
         except SzError as err:
             raise SzError(f"{api_name}: {err}") from None
+
+        if self.mask_pii:
+            mask_json_pii(response_data, self.mask_pii)
 
         self.last_call_cache.append([caller, api_name, flags, parms, response_data])
 
@@ -1438,7 +1513,10 @@ class EdaSdkWrapper:
         for record in entity_records:
             for feature in record["FEATURE_IDS"]:
                 lib_feat_id = feature["LIB_FEAT_ID"]
-                entity_features[lib_feat_id]["RECORD_COUNT"] += 1
+                if lib_feat_id in entity_features:
+                    entity_features[lib_feat_id]["RECORD_COUNT"] += 1
+                else:
+                    print_message(f"Feature ID {lib_feat_id} on record {record['DATA_SOURCE']}: {record['RECORD_ID']} not in entity features", "warning")
 
         how_flag_list = ["SZ_HOW_ENTITY_DEFAULT_FLAGS"]
         try:
@@ -1472,6 +1550,7 @@ class EdaSdkWrapper:
                         "MEMBER_COUNT": len(step[ve_num]["MEMBER_RECORDS"]),
                         "RECORDS": record_list,
                         "FEATURES": features,
+                        "ROLE": "INBOUND" if step[ve_num]["VIRTUAL_ENTITY_ID"] == step["INBOUND_VIRTUAL_ENTITY_ID"] else "CANDIDATE",
                     }
                 )
             entity_list = sorted(entity_list, key=lambda k: k["MEMBER_COUNT"])
@@ -1684,7 +1763,8 @@ class EdaSdkWrapper:
                     if feature["ALL_SCORES"].get("GNR_GN", -1) != -1:
                         score_list.append(f"GIV:{feature['ALL_SCORES'].get('GNR_GN')}")
                     score = "|".join(score_list)
-                matched_desc = f"\u2514\u2500\u2500 {feature['MATCHED_FEAT_DESC']} ({score})"
+                behavior_change = self.fmt_behavior_change(feature["FTYPE_CODE"], feature.get("SCORE_BEHAVIOR", ""))
+                matched_desc = f"\u2514\u2500\u2500 {feature['MATCHED_FEAT_DESC']} ({score}){behavior_change}"
                 display_list.extend(wrap_text(matched_desc, attr_width, feat_color))
         if attr_limit > 0 and line_cnt > attr_limit:
             display_list.append(f"+{line_cnt - attr_limit} more")
@@ -1853,6 +1933,8 @@ class EdaSdkWrapper:
             except SzError as err:
                 raise err from err
             feature_data = json.loads(response)
+            if self.mask_pii:
+                mask_json_pii(feature_data, self.mask_pii)
 
             if feature_filter and feature_data["FTYPE_CODE"] not in feature_filter:
                 continue
@@ -2318,12 +2400,12 @@ class EdaSdkWrapper:
                 self.fmt_record_list(step_data["ENTITY_LIST"][1]["RECORDS"], **kwargs),  # .replace("\n", " | ")[0:80],
             ],
         ]
-        if step_data["STEP_TYPE"] == "Create virtual entity":
-            left_side_feat = "CANDIDATE_FEAT_DESC"
-            right_side_feat = "INBOUND_FEAT_DESC"
-        else:
+        if step_data["ENTITY_LIST"][0]["ROLE"] == "INBOUND":
             left_side_feat = "INBOUND_FEAT_DESC"
             right_side_feat = "CANDIDATE_FEAT_DESC"
+        else:
+            left_side_feat = "CANDIDATE_FEAT_DESC"
+            right_side_feat = "INBOUND_FEAT_DESC"
 
         match_key = step_data["MATCH_INFO"].get("MATCH_KEY", "")
         feature_scores = step_data["MATCH_INFO"]["FEATURE_SCORES"]
@@ -2351,11 +2433,16 @@ class EdaSdkWrapper:
             else:
                 feat_color = "caution"
 
+            behavior_change = self.fmt_behavior_change(ftype_code, best_score.get("SCORE_BEHAVIOR", ""))
+            score_display = colorize(score_value, feat_color)
+            if behavior_change:
+                score_display += f"\n{colorize(behavior_change.strip(), 'caution')}"
+
             tbl.rows.append(
                 [
                     colorize(ftype_code, "dim"),
                     best_score[left_side_feat],
-                    colorize(score_value, feat_color),
+                    score_display,
                     best_score[right_side_feat],
                 ]
             )
@@ -3524,6 +3611,8 @@ class EdaCmd(cmd.Cmd):
             feat_id = row[0]
             ftype = sdk_wrapper.ftype_lookup[row[1]]["FTYPE_CODE"]
             feat_desc = row[2]
+            if sdk_wrapper.mask_pii:
+                feat_desc = mask_pii(feat_desc, sdk_wrapper.mask_pii)
             feat_cache[feat_id] = feat_desc
 
             stat_row = sz_dbo.fetch_row(sz_dbo.sql_exec(stat_select + f" {feat_id}"))
@@ -3810,21 +3899,29 @@ class EdaCmd(cmd.Cmd):
             self.last_entity_id = int(arg_tokens[0])
 
     def find(self, operator, arg):
+        if not sz_dbo:
+            print_message("next/previous requires direct database access", "warning")
+            return
+
         starting_id = self.last_entity_id
-        # data_source = None  # to support find a record in a data source
         arg_list = arg.split()
         for parm in arg_list:
             if parm.isdigit():
                 starting_id = int(parm)
-            # else:
-            #    data_source = parm.upper()
 
-        sql = f"select RES_ENT_ID from RES_ENT_OKEY where RES_ENT_ID {operator} ?"
-        next_row = sz_dbo.fetch_row(sz_dbo.sql_exec(sz_dbo.sql_prep(sql), starting_id))
-        if not next_row:
+        if not starting_id and operator == "<":
             print_message("no more entities", "warning")
-        else:
-            self.do_get(str(next_row[0]))
+            return
+
+        order = "ASC" if operator == ">" else "DESC"
+        sql = sz_dbo.sql_prep(f"select RES_ENT_ID from RES_ENT where RES_ENT_ID {operator} ? order by RES_ENT_ID {order}")
+        verify_sql = sz_dbo.sql_prep("select 1 from RES_ENT_OKEY where RES_ENT_ID = ?")
+        for row in sz_dbo.fetch_all_rows(sz_dbo.sql_exec(sql, [starting_id])):
+            candidate_id = row[0]
+            if sz_dbo.fetch_row(sz_dbo.sql_exec(verify_sql, [candidate_id])):
+                self.do_get(str(candidate_id))
+                return
+        print_message("no more entities", "warning")
 
     def do_next(self, arg):
         self.find(">", arg)
@@ -4250,6 +4347,15 @@ if __name__ == "__main__":
         default=False,
         help="output debug trace information",
     )
+    argParser.add_argument(
+        "-M",
+        "--mask_pii",
+        nargs="?",
+        const=2,
+        default=0,
+        type=int,
+        help="mask PII data, optionally specify number of visible characters (default: 2)",
+    )
     args = argParser.parse_args()
 
     if args.snapshot_json_file and not os.path.exists(args.snapshot_json_file):
@@ -4276,7 +4382,7 @@ if __name__ == "__main__":
         sz_dbo = None
 
     try:
-        sdk_wrapper = EdaSdkWrapper(engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url)
+        sdk_wrapper = EdaSdkWrapper(engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url, mask_pii=args.mask_pii)
     except SzError as ex:
         print_message(ex, "error")
         sys.exit(1)
