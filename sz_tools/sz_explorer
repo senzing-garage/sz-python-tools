@@ -1475,7 +1475,10 @@ class EdaReports:
                             summarized_match_key = 1
                             summarized_key = f"||{len(keys)-9} more match_keys"
                             if summarized_key not in summarized_data:
-                                summarized_data[summarized_key] = select_data[key]
+                                summarized_data[summarized_key] = {
+                                    "COUNT": select_data[key]["COUNT"],
+                                    "SAMPLE": list(select_data[key]["SAMPLE"]),
+                                }
                             else:
                                 summarized_data[summarized_key]["COUNT"] += select_data[key]["COUNT"]
                                 summarized_data[summarized_key]["SAMPLE"] += select_data[key]["SAMPLE"]
