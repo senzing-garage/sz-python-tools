@@ -280,7 +280,8 @@ def audit(file_name1, file_name2, output_root, debug):
                     audit_record["newer_score"] = newer_match_keys[audit_record["newer_id"]][0]
                 else:
                     audit_record["newer_score"] = "multiple"
-            score_counts = count_by_key(score_counts, audit_record["newer_score"])
+            if audit_record["newer_score"]:
+                score_counts = count_by_key(score_counts, audit_record["newer_score"])
 
             csv_rows.append(
                 [
@@ -514,9 +515,11 @@ def count_by_key(_dict, _key):
 
 
 def list_by_key(_dict, _key, _item):
+    if not _item:
+        return _dict
     if _key not in _dict:
         _dict[_key] = [_item]
-    elif _item and _item not in _dict[_key]:
+    elif _item not in _dict[_key]:
         _dict[_key].append(_item)
     return _dict
 
