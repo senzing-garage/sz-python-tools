@@ -224,23 +224,24 @@ def view_report(report, **kwargs):
 
     # Lesskey config: remap s to quit with exit code 83
     lesskey_path = os.path.join(tempfile.gettempdir(), ".sz_lesskey")
-    lesskey_env = {}
+    less_cmd = ["less"]
     try:
         with open(lesskey_path, "w") as f:
             f.write("#command\ns   quit S\n")
-        lesskey_env = {"LESSKEYIN": lesskey_path}
+        less_cmd.append(f"--lesskey-src={lesskey_path}")
     except Exception:
         pass
 
     prompt = "\u2191\u2193 scroll, /search, s save, q quit      %lt-%lb of %L"
     less_options += f"P{prompt}"
-    env = dict(os.environ, **lesskey_env)
+    less_cmd.append(less_options)
 
-    less = subprocess.Popen(["less", less_options], stdin=subprocess.PIPE, env=env)
+    less = subprocess.Popen(less_cmd, stdin=subprocess.PIPE)
     with suppress(Exception):
         less.stdin.write(report.encode())
+    with suppress(Exception):
         less.stdin.close()
-        less.wait()
+    less.wait()
     print()
     return less.returncode
 
@@ -1351,15 +1352,25 @@ class EdaReports:
                 if not isinstance(value, dict):
                     continue
                 clean_key = self._strip_ansi(str(key))
+                new_breadcrumbs = dict(breadcrumbs)
                 # Colorize based on level type
                 if level_name.startswith("DATA_SOURCE"):
-                    display_key = colorize_dsrc(clean_key)
+                    new_breadcrumbs[f"BY_{level_name}"] = colorize_dsrc(clean_key)
                 elif level_name == "MATCH_KEY":
-                    display_key = self.fmt_match_key_category(clean_key, sep=" ")
+                    if "||" in clean_key:
+                        principle, mk = clean_key.split("||", 1)
+                    else:
+                        principle, mk = "", clean_key
+                    if "(" in mk and ":" in mk:
+                        new_breadcrumbs["BY_MATCH_KEY"] = colorize(mk, "highlight2")
+                    elif "+" in mk:
+                        new_breadcrumbs["BY_MATCH_KEY"] = colorize_match_key(mk)
+                    else:
+                        new_breadcrumbs["BY_MATCH_KEY"] = mk
+                    if principle:
+                        new_breadcrumbs["BY_PRINCIPLE"] = colorize(principle, "dim")
                 else:
-                    display_key = clean_key
-                new_breadcrumbs = dict(breadcrumbs)
-                new_breadcrumbs[f"BY_{level_name}"] = display_key
+                    new_breadcrumbs[f"BY_{level_name}"] = clean_key
                 # Check if value has SAMPLE directly or needs to go through a structural key
                 if "SAMPLE" in value:
                     add_samples(value, new_breadcrumbs)
@@ -1385,18 +1396,35 @@ class EdaReports:
                 if k.startswith("BY_DATA_SOURCE"):
                     colorized_prior[k] = colorize_dsrc(v)
                 elif k == "BY_MATCH_KEY":
-                    colorized_prior[k] = self.fmt_match_key_category(v, sep=" ")
+                    if "||" in v:
+                        principle, mk = v.split("||", 1)
+                    else:
+                        principle, mk = "", v
+                    if "(" in mk and ":" in mk:
+                        colorized_prior["BY_MATCH_KEY"] = colorize(mk, "highlight2")
+                    elif "+" in mk:
+                        colorized_prior["BY_MATCH_KEY"] = colorize_match_key(mk)
+                    else:
+                        colorized_prior["BY_MATCH_KEY"] = mk
+                    if principle:
+                        colorized_prior["BY_PRINCIPLE"] = colorize(principle, "dim")
                 else:
                     colorized_prior[k] = v
             for row in raw_rows:
                 row.update(colorized_prior)
 
         # Build category columns: prior levels + remaining levels that have values
-        cat_columns = list(prior_level_values.keys())
+        cat_columns = []
+        for k in prior_level_values.keys():
+            cat_columns.append(k)
+            if k == "BY_MATCH_KEY" and any(row.get("BY_PRINCIPLE") for row in raw_rows):
+                cat_columns.append("BY_PRINCIPLE")
         for level in remaining_levels:
             by_level = f"BY_{level}"
             if any(row.get(by_level) for row in raw_rows):
                 cat_columns.append(by_level)
+                if by_level == "BY_MATCH_KEY" and any(row.get("BY_PRINCIPLE") for row in raw_rows):
+                    cat_columns.append("BY_PRINCIPLE")
         has_review = any(row.get("Review") for row in raw_rows)
 
         if is_audit:
@@ -1541,8 +1569,6 @@ class EdaReports:
                     prior_key = selected_key
                 prior_keys += " " + prior_key if prior_keys else prior_key
                 clean_selected = self._strip_ansi(str(selected_key))
-                if select_level == "MATCH_KEY" and "||" in clean_selected:
-                    clean_selected = clean_selected.split("||", 1)[1]
                 selected_values[select_level] = clean_selected
 
                 if "SAMPLE" in select_data:
