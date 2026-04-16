@@ -167,6 +167,7 @@ class SnapshotReader:
         sql_entities = (
             "SELECT "
             " A.RES_ENT_ID AS RESOLVED_ENTITY_ID, "
+            " A.OBS_ENT_ID, "
             " A.ERRULE_ID, "
             " A.MATCH_KEY, "
             " B.DSRC_ID, "
@@ -388,6 +389,22 @@ class SnapshotWriter:
         entity_size = 0
         entity_id = resume_rows[0]["RESOLVED_ENTITY_ID"]
         self.random_index = self.get_random_index() if entity_id % 10 == 0 else 0
+
+        # Identify duplicate records (multiple records per obs_ent)
+        obs_ent_records = {}
+        for row_data in resume_rows:
+            if row_data.get("RELATED_ENTITY_ID", 0) == 0:
+                obs_ent_id = row_data.get("OBS_ENT_ID", 0)
+                if obs_ent_id:
+                    if obs_ent_id not in obs_ent_records:
+                        obs_ent_records[obs_ent_id] = []
+                    obs_ent_records[obs_ent_id].append(row_data["RECORD_ID"])
+        duplicate_records = set()
+        for obs_ent_id, record_ids in obs_ent_records.items():
+            if len(record_ids) > 1:
+                for rid in sorted(record_ids)[1:]:
+                    duplicate_records.add(rid)
+
         for row_data in resume_rows:
             related_id = row_data["RELATED_ENTITY_ID"]
             data_source = row_data["DATA_SOURCE"]
@@ -398,6 +415,9 @@ class SnapshotWriter:
                 match_level = "MATCH"
                 entity_size += 1
                 record_list.append(data_source + ":" + record_id)
+                if record_id in duplicate_records:
+                    principle = "duplicate"
+                    match_key = "duplicate"
             elif row_data["IS_DISCLOSED"] != 0:
                 match_level = "DISCLOSED_RELATION"
                 principle = "DISCLOSURE"
@@ -436,10 +456,10 @@ class SnapshotWriter:
         for related_id in sorted(resume_data.keys()):
             match_level = resume_data[related_id]["MATCH_LEVEL"]
             if related_id == 0:
+                total_record_count = sum(resume_data[related_id]["PRINCIPLES"].values())
+                stat_keys = ["TOTALS", match_level]
+                self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": total_record_count})
                 for principle_matchkey in resume_data[related_id]["PRINCIPLES"]:
-                    record_count = resume_data[related_id]["PRINCIPLES"][principle_matchkey]
-                    stat_keys = ["TOTALS", match_level]
-                    self.update_stat_pack(stat_keys, {"ENTITY_COUNT": 1, "RECORD_COUNT": record_count})
                     stat_keys = ["TOTALS", match_level, "PRINCIPLES", principle_matchkey]
                     self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [entity_id]})
                 entity0_sources = resume_data[related_id]["DATA_SOURCES"]
@@ -459,7 +479,7 @@ class SnapshotWriter:
                                 elif len(entity0_sources[data_source1]["PRINCIPLES"]) > 1:
                                     principle_matchkey = "multiple||multiple"
                                 else:
-                                    principle_matchkey = "none||none"
+                                    principle_matchkey = "multiple||multiple"
                                 stat_keys.extend(["PRINCIPLES", principle_matchkey])
                                 self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [entity_id]})
                         else:
@@ -475,7 +495,7 @@ class SnapshotWriter:
                             elif len(entity0_sources[data_source1]["PRINCIPLES"]) == 1:
                                 principle_matchkey = entity0_sources[data_source1]["PRINCIPLES"][0]
                             else:
-                                principle_matchkey = "indeterminate||indeterminate"
+                                principle_matchkey = "multiple||multiple"
                             stat_keys.extend(["PRINCIPLES", principle_matchkey])
                             self.update_stat_pack(stat_keys, {"COUNT": 1, "SAMPLE": [entity_id]})
 
@@ -826,14 +846,10 @@ if __name__ == "__main__":
     except Exception as err:
         sz_dbo = None
         print(f"\n{err}")
-        print(
-            textwrap.dedent(
-                """\
+        print(textwrap.dedent("""\
             Direct database access not available, performing an SDK only snapshot at this time. Installing direct database access
             drivers can significantly reduce the time it takes to snapshot on very large databases.
-            """
-            )
-        )
+            """))
 
         if not args.quiet:
             if input("Continue? (y/n) ").lower() not in ("y", "yes"):

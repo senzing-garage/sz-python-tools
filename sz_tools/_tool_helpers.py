@@ -74,7 +74,7 @@ class TimedOut(Exception):
 
 
 class Colors:
-    AVAILABLE_THEMES = ["DEFAULT", "LIGHT", "DARK", "TERMINAL"]
+    AVAILABLE_THEMES = ["DEFAULT", "VIBRANT", "LIGHT", "DARK", "TERMINAL"]
 
     @classmethod
     def apply(cls, to_color: Union[int, str], colors_list: str = "") -> Union[int, str]:
@@ -109,6 +109,27 @@ class Colors:
             cls.DISCLOSED = cls.SZ_PURPLE
             cls.JSONKEYCOLOR = cls.SZ_BLUE
             cls.JSONVALUECOLOR = cls.SZ_YELLOW
+        elif theme == "VIBRANT":
+            # High-saturation palette for easier readability on dark backgrounds
+            cls.TABLE_TITLE = cls.FG_GREY42
+            cls.ROW_TITLE = cls.FG_GREY42
+            cls.COLUMN_HEADER = cls.FG_GREY42
+            cls.ENTITY_COLOR = cls.FG_MEDIUMORCHID1
+            cls.DSRC_COLOR = cls.FG_ORANGERED1
+            cls.ATTR_COLOR = cls.FG_DEEPSKYBLUE1
+            cls.GOOD = cls.FG_CHARTREUSE1
+            cls.BAD = cls.SZ_RED
+            cls.CAUTION = cls.FG_GOLD1
+            cls.DEBUG = cls.FG_MAGENTA
+            cls.HIGHLIGHT1 = cls.FG_HOTPINK
+            cls.HIGHLIGHT2 = cls.FG_CYAN1
+            cls.MATCH = cls.FG_DEEPSKYBLUE1
+            cls.AMBIGUOUS = cls.FG_NAVAJOWHITE
+            cls.POSSIBLE = cls.FG_ORANGERED1
+            cls.RELATED = cls.FG_CHARTREUSE1
+            cls.DISCLOSED = cls.FG_MEDIUMORCHID1
+            cls.JSONKEYCOLOR = cls.FG_DEEPSKYBLUE1
+            cls.JSONVALUECOLOR = cls.FG_GOLD1
         elif theme == "LIGHT":
             cls.TABLE_TITLE = cls.FG_LIGHTBLACK
             cls.ROW_TITLE = cls.FG_LIGHTBLACK
@@ -239,7 +260,11 @@ class Colors:
     FG_YELLOW3 = "\033[38;5;184m"
     FG_CYAN3 = "\033[38;5;43m"
     FG_CHARTREUSE3 = "\033[38;5;70m"
+    FG_CHARTREUSE1 = "\033[38;5;118m"
     FG_ORANGERED1 = "\033[38;5;202m"
+    FG_GOLD1 = "\033[38;5;220m"
+    FG_CYAN1 = "\033[38;5;51m"
+    FG_NAVAJOWHITE = "\033[38;5;223m"
 
     # Senzing
     SZ_BLUE = "\033[38;5;25m"

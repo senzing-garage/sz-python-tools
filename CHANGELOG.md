@@ -7,12 +7,16 @@ This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
-## [0.0.38] - 2026-04-07
+## [0.0.38] - 2026-04-16
 
 ### Added in 0.0.38
 
 - `sz_explorer`: `--mask_pii` (`-M`) CLI flag for PII data masking (#363)
 - `sz_explorer`: Scoring behavior downgrade/upgrade indicator on why/how displays (#364)
+- `sz_explorer`: (L)ist view for drill-into reports with save to CSV/HTML/JSON (#367)
+- `sz_explorer`: mouse wheel scrolling and `VIBRANT` color scheme
+- `sz_explorer`: PII masking extended to unmapped data
+- `sz_snapshot`: duplicate record detection via `OBS_ENT_ID`
 
 ### Fixed in 0.0.38
 
@@ -20,6 +24,9 @@ This project adheres to [Semantic Versioning].
 - `sz_explorer`: `next`/`previous` crash when no prior `get` command issued (#340)
 - `sz_explorer`: `next`/`previous` error when direct database access is not available (#340)
 - `sz_explorer`: `how` columnar view sometimes showing features reversed (#341)
+- `sz_explorer`: match_key summarization corrupting drill-in counts
+- `sz_snapshot`: inflated TOTALS MATCH entity count
+- `sz_audit`: false "multiple" match_key categorization
 
 ## [0.0.37] - 2026-04-02
 

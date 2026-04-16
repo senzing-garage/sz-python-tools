@@ -22,7 +22,6 @@ bugtracker = "https://github.com/senzing-garage/sz-python-tools/issues"
 changelog = "https://github.com/senzing-garage/sz-python-tools/blob/main/CHANGELOG.md"
 source = "https://github.com/senzing-garage/sz-python-tools"
 
-
 [build-system]
 requires = ["setuptools>=80", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -157,6 +156,7 @@ disable = [
   "simplifiable-if-expression",
   "too-many-branches",
   "too-many-instance-attributes",
+  "too-many-lines",
   "too-many-locals",
   "too-many-public-methods",
   "too-many-statements",

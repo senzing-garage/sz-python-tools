@@ -12,6 +12,7 @@ import re
 import readline
 import subprocess
 import sys
+import tempfile
 import textwrap
 import traceback
 from contextlib import suppress
@@ -74,13 +75,15 @@ def print_message(msg_text, msg_type_or_color=""):
 # PII masking
 # -------------------
 
-PII_KEYS = frozenset({
-    "ENTITY_NAME",
-    "FEAT_DESC",
-    "INBOUND_FEAT_DESC",
-    "CANDIDATE_FEAT_DESC",
-    "FELEM_VALUE",
-})
+PII_KEYS = frozenset(
+    {
+        "ENTITY_NAME",
+        "FEAT_DESC",
+        "INBOUND_FEAT_DESC",
+        "CANDIDATE_FEAT_DESC",
+        "FELEM_VALUE",
+    }
+)
 
 
 def mask_pii(text, visible=2):
@@ -88,23 +91,27 @@ def mask_pii(text, visible=2):
     if not text:
         return text
     tokens = []
-    for token in re.split(r'(\s+|[,;:|/\\-])', str(text)):
-        if token and not token.isspace() and token not in ',;:|/\\-':
+    for token in re.split(r"(\s+|[,;:|/\\-])", str(text)):
+        if token and not token.isspace() and token not in ",;:|/\\-":
             if len(token) <= visible:
                 tokens.append(token)
             else:
-                tokens.append(token[:visible] + '*' * (len(token) - visible))
+                tokens.append(token[:visible] + "*" * (len(token) - visible))
         else:
             tokens.append(token)
-    return ''.join(tokens)
+    return "".join(tokens)
 
 
 def mask_json_pii(data, visible=2):
-    """Recursively walk a dict/list and mask string values under PII_KEYS."""
+    """Recursively walk a dict/list and mask string values under PII_KEYS and UNMAPPED_DATA."""
     if isinstance(data, dict):
         for key, value in data.items():
             if key in PII_KEYS and isinstance(value, str):
                 data[key] = mask_pii(value, visible)
+            elif key == "UNMAPPED_DATA" and isinstance(value, dict):
+                for ukey, uval in value.items():
+                    if isinstance(uval, str):
+                        value[ukey] = mask_pii(uval, visible)
             elif isinstance(value, (dict, list)):
                 mask_json_pii(value, visible)
     elif isinstance(data, list):
@@ -216,29 +223,33 @@ def view_report(report, **kwargs):
         return
 
     if kwargs.get("force_scroll"):
-        less_options = "-MXSR"
+        less_options = "-XSR"
     else:
-        less_options = "-FMXSR"
+        less_options = "-FXSR"
 
-    less = subprocess.Popen(["less", less_options], stdin=subprocess.PIPE)
+    less_cmd = ["less", "--mouse"]
+    if kwargs.get("saveable"):
+        lesskey_path = os.path.join(tempfile.gettempdir(), ".sz_lesskey")
+        try:
+            with open(lesskey_path, "w") as f:
+                f.write("#command\ns   quit S\n")
+            less_cmd.append(f"--lesskey-src={lesskey_path}")
+        except Exception:
+            pass
+        prompt = "\u2191\u2193\u2190\u2192 scroll, /search, s save, h help, q quit      %lt-%lb of %L"
+    else:
+        prompt = "\u2191\u2193\u2190\u2192 scroll, /search, h help, q quit      %lt-%lb of %L"
+    less_options += f"P{prompt}"
+    less_cmd.append(less_options)
+
+    less = subprocess.Popen(less_cmd, stdin=subprocess.PIPE)
     with suppress(Exception):
         less.stdin.write(report.encode())
+    with suppress(Exception):
         less.stdin.close()
-        less.wait()
-    print()
-
-
-def scroll(report, **kwargs):
-    print()
-    less_options = "-MXSR"
-    less = subprocess.Popen(["less", less_options], stdin=subprocess.PIPE)
-    try:
-        less.stdin.write(report.encode())
-    except IOError:
-        pass
-    less.stdin.close()
     less.wait()
     print()
+    return less.returncode
 
 
 class eda_node(object):
@@ -313,12 +324,23 @@ class eda_table:
 
     def render_table(self, **kwargs):
         org_mode = kwargs.get("org_mode")
+        report_style = kwargs.get("report_style")
         super_header = kwargs.get("super_header")
         no_lines = kwargs.get("no_lines")
         side_header = kwargs.get("side_header")
+        divide_by = kwargs.get("divide_by")
         table_object = prettytable.PrettyTable()
 
-        if org_mode:
+        if report_style:
+            if hasattr(prettytable, "TableStyle"):
+                table_object.set_style(prettytable.TableStyle.SINGLE_BORDER)
+            else:
+                table_object.set_style(prettytable.SINGLE_BORDER)
+            if hasattr(prettytable, "HRuleStyle"):
+                table_object.hrules = prettytable.HRuleStyle.FRAME
+            else:
+                table_object.hrules = prettytable.FRAME
+        elif org_mode:
             table_object.horizontal_char = "\u2500"
             table_object.vertical_char = "\u2502"
             table_object.junction_char = "\u253c"
@@ -327,11 +349,17 @@ class eda_table:
                 table_object.set_style(prettytable.TableStyle.SINGLE_BORDER)
             else:
                 table_object.set_style(prettytable.SINGLE_BORDER)
-        if not no_lines:
-            if hasattr(prettytable, "HRuleStyle"):
-                table_object.hrules = prettytable.HRuleStyle.ALL
-            else:
-                table_object.hrules = prettytable.ALL
+        if not report_style:
+            if not no_lines:
+                if hasattr(prettytable, "HRuleStyle"):
+                    table_object.hrules = prettytable.HRuleStyle.ALL
+                else:
+                    table_object.hrules = prettytable.ALL
+            if divide_by:
+                if hasattr(prettytable, "HRuleStyle"):
+                    table_object.hrules = prettytable.HRuleStyle.HEADER
+                else:
+                    table_object.hrules = prettytable.HEADER
 
         field_name_list = []
         column_header_list = []
@@ -343,13 +371,27 @@ class eda_table:
                 column_header_list.append(
                     "\n".join(Colors.apply(str(x), "column_header") for x in str(column_data["name"]).split("\n"))
                 )
-        table_object.field_names = field_name_list
+        try:
+            table_object.field_names = field_name_list
+        except Exception as ex:
+            debug_print(f"{ex}\nfield_names: {field_name_list}", "render_table error")
+            raise
         if not no_lines:
             table_object.header = False
             table_object.add_row(column_header_list)
+            if report_style:
+                table_object.add_divider()
 
+        divide_idx = (
+            next((i for i, c in enumerate(self.columns) if c["name"] == divide_by), None) if divide_by else None
+        )
+        last_divide_value = None
         total_row_cnt = 0
         for row in self.rows:
+            if divide_idx is not None:
+                if last_divide_value is not None and row[divide_idx] != last_divide_value:
+                    table_object.add_divider()
+                last_divide_value = row[divide_idx]
             total_row_cnt += 1
             row[0] = "\n".join([i for i in str(row[0]).split("\n")])
             if side_header:
@@ -414,6 +456,7 @@ class EdaReports:
         self.snapshot_data = None
         self.audit_data = None
         self.default_how_view = kwargs.get("default_how_view", "columnar")
+        self.current_report_title = ""
 
     def fmt_statistic(self, amt):
         amt = int(amt)
@@ -502,7 +545,7 @@ class EdaReports:
         tbl = eda_table()
         tbl.title = f'Audit Result ID {audit_records[0]["AUDIT_ID"]} {audit_records[0]["AUDIT_CATEGORY"]}'
         tbl.columns = [
-            {"name": "DataSource", "width": 30, "align": "left"},
+            {"name": "Data Source", "width": 30, "align": "left"},
             {"name": "Record ID", "width": 30, "align": "left"},
             {"name": "Prior ID", "width": 20, "align": "left"},
             {"name": "Prior Score", "width": 75, "align": "left"},
@@ -601,7 +644,9 @@ class EdaReports:
         for category in self.audit_data["AUDIT"]:
             report_data[category] = {
                 "COUNT": self.audit_data["AUDIT"][category]["COUNT"],
-                "MATCH_KEY": self.audit_data["AUDIT"][category]["SUB_CATEGORY"],
+                "MATCH_KEY": {
+                    self._format_match_key(k): v for k, v in self.audit_data["AUDIT"][category]["SUB_CATEGORY"].items()
+                },
             }
 
         tbl = eda_table()
@@ -626,7 +671,117 @@ class EdaReports:
         report_table += "\n" + tbl.render_table()
 
         select_levels = ["CATEGORY", "MATCH_KEY"]
+        self.current_report_title = f"Audit Summary from {self.audit_file}"
         self.drill_into(report_table, report_data, select_levels)
+
+    # --- generate helpers ---
+
+    def _build_generate_table(self, all_columns, raw_rows):
+        tbl = eda_table()
+        for name in all_columns:
+            tbl.columns.append({"name": name.upper().replace(" ", "_"), "width": 50, "align": "left"})
+        for row_dict in raw_rows:
+            tbl.rows.append([row_dict.get(name, "") for name in all_columns])
+        return tbl
+
+    def _entity_to_rows(self, entity_ids, sample_num):
+        rows = []
+        feature_columns = []
+        get_flag_list = [
+            "SZ_ENTITY_INCLUDE_ENTITY_NAME",
+            "SZ_ENTITY_INCLUDE_ALL_FEATURES",
+            "SZ_ENTITY_INCLUDE_RECORD_DATA",
+            "SZ_ENTITY_INCLUDE_RECORD_FEATURES",
+            "SZ_ENTITY_INCLUDE_RECORD_MATCHING_INFO",
+        ]
+        review_map = {}
+        related_id = None
+        if isinstance(entity_ids, dict):  # from entity_size_breakdown: {entity_id: review_list}
+            review_map = {str(k): v for k, v in entity_ids.items()}
+            entity_ids = list(entity_ids.keys())
+        elif not isinstance(entity_ids, list):
+            entity_ids = str(entity_ids).split()
+            if len(entity_ids) == 2:
+                related_id = entity_ids[1]
+                entity_ids = [entity_ids[0]]
+        for entity_id in entity_ids:
+            try:
+                json_data = sdk_wrapper.call_sdk("get_entity_by_entity_id", get_flag_list, int(entity_id))
+            except Exception:
+                continue
+            entity = json_data["RESOLVED_ENTITY"]
+            review_list = review_map.get(str(entity_id), [])
+            entity_features = sdk_wrapper.get_entity_features(entity["FEATURES"])["BY_ID"]
+            for record in entity["RECORDS"]:
+                record_features = sdk_wrapper.get_record_features(entity_features, record["FEATURE_IDS"])["BY_TYPE"]
+                row = {
+                    "Sample": sample_num,
+                    "Entity ID": colorize_entity(entity["ENTITY_ID"]),
+                    "Entity Name": entity.get("ENTITY_NAME", ""),
+                    "Data Source": colorize_dsrc(record["DATA_SOURCE"]),
+                    "Record ID": record["RECORD_ID"],
+                }
+                if not related_id:
+                    record_mk = record.get("MATCH_KEY", "")
+                    if record_mk:
+                        row["Match Key"] = colorize_match_key(record_mk)
+                if review_list:
+                    row["Review"] = ", ".join(colorize(x, "caution") for x in review_list)
+                    if "Review" not in feature_columns:
+                        feature_columns.append("Review")
+                for ftype_code in sorted(record_features.keys(), key=lambda k: sdk_wrapper.ftype_code_order[k]):
+                    descs = [f["FEAT_DESC"] for f in record_features[ftype_code]]
+                    row[ftype_code] = " | ".join(descs)
+                    if ftype_code not in feature_columns:
+                        feature_columns.append(ftype_code)
+                rows.append(row)
+        if related_id:
+            try:
+                json_data = sdk_wrapper.call_sdk("get_entity_by_entity_id", get_flag_list, int(related_id))
+                entity = json_data["RESOLVED_ENTITY"]
+                entity_features = sdk_wrapper.get_entity_features(entity["FEATURES"])["BY_ID"]
+                for record in entity["RECORDS"]:
+                    record_features = sdk_wrapper.get_record_features(entity_features, record["FEATURE_IDS"])["BY_TYPE"]
+                    row = {
+                        "Sample": sample_num,
+                        "Related ID": colorize_entity(entity["ENTITY_ID"]),
+                        "Entity Name": entity.get("ENTITY_NAME", ""),
+                        "Data Source": colorize_dsrc(record["DATA_SOURCE"]),
+                        "Record ID": record["RECORD_ID"],
+                    }
+                    for ftype_code in sorted(record_features.keys(), key=lambda k: sdk_wrapper.ftype_code_order[k]):
+                        descs = [f["FEAT_DESC"] for f in record_features[ftype_code]]
+                        row[ftype_code] = " | ".join(descs)
+                        if ftype_code not in feature_columns:
+                            feature_columns.append(ftype_code)
+                    rows.append(row)
+            except Exception:
+                pass
+        return rows, feature_columns
+
+    # --- generate methods ---
+
+    def save_to_file(self, tbl, file_name):
+        if not tbl or not tbl.rows:
+            print_message("No data to save", "warning")
+            return
+        pt = prettytable.PrettyTable()
+        pt.field_names = [self._strip_ansi(c["name"]) for c in tbl.columns]
+        for row in tbl.rows:
+            pt.add_row([self._strip_ansi(str(cell)) for cell in row])
+        ext = os.path.splitext(file_name)[1].lower()
+        if ext == ".csv":
+            output = pt.get_csv_string()
+        elif ext in (".html", ".htm"):
+            output = pt.get_html_string()
+        elif ext == ".json":
+            output = pt.get_json_string()
+        else:
+            print_message(f"Unsupported format: {ext}. Use .csv, .html, or .json", "error")
+            return
+        with open(file_name, "w", encoding="utf-8") as f:
+            f.write(output)
+        print_message(f"{len(tbl.rows)} records written to {file_name}", "success")
 
     def entity_size_breakdown(self):
         self.check_for_snapshot()
@@ -686,6 +841,7 @@ class EdaReports:
             report_data[size_group] = report_segment
         report_table = tbl.render_table()
         select_levels = ["ENTITY_SIZE_GROUP"]
+        self.current_report_title = f"Entity Size Breakdown from {self.snapshot_file}"
         self.drill_into(report_table, report_data, select_levels)
 
     def data_source_summary(self, data_source_filter):
@@ -736,10 +892,14 @@ class EdaReports:
                 if match_level_count:
                     report_data[data_source]["MATCH_LEVEL"][match_level_desc] = {
                         "COUNT": match_level_count,
-                        "MATCH_KEY": report_segment[match_level_tag]["PRINCIPLES"],
+                        "MATCH_KEY": {
+                            self._format_match_key(k): v
+                            for k, v in report_segment[match_level_tag]["PRINCIPLES"].items()
+                        },
                     }
         report_table = tbl.render_table(super_header=True)
         select_levels = ["DATA_SOURCE", "MATCH_LEVEL", "MATCH_KEY"]
+        self.current_report_title = f"Data Source Summary from {self.snapshot_file}"
         self.drill_into(report_table, report_data, select_levels)
 
     def cross_source_summary(self, data_source_filter):
@@ -777,7 +937,8 @@ class EdaReports:
             ]
             tbl.rows.append(row)
 
-            report_data[data_source_pair] = {"COUNT": 0, "MATCH_LEVEL": {}}
+            formatted_pair = data_source_pair.replace("||", "|")
+            report_data[formatted_pair] = {"COUNT": 0, "MATCH_LEVEL": {}}
             for match_level_tag in self.match_level_tags:
                 match_level_desc = self.match_level_tags[match_level_tag]
                 if match_level_tag == "MATCH":
@@ -785,12 +946,16 @@ class EdaReports:
                 else:
                     match_level_count = report_segment[match_level_tag]["RELATION_COUNT"]
                 if match_level_count:
-                    report_data[data_source_pair]["MATCH_LEVEL"][match_level_desc] = {
+                    report_data[formatted_pair]["MATCH_LEVEL"][match_level_desc] = {
                         "COUNT": match_level_count,
-                        "MATCH_KEY": report_segment[match_level_tag]["PRINCIPLES"],
+                        "MATCH_KEY": {
+                            self._format_match_key(k): v
+                            for k, v in report_segment[match_level_tag]["PRINCIPLES"].items()
+                        },
                     }
         report_table = tbl.render_table(super_header=True)
         select_levels = ["DATA_SOURCES", "MATCH_LEVEL", "MATCH_KEY"]
+        self.current_report_title = f"Cross Source Summary from {self.snapshot_file}"
         self.drill_into(report_table, report_data, select_levels)
 
     def entity_source_summary(self, data_source_filter):
@@ -818,10 +983,11 @@ class EdaReports:
                 self.fmt_statistic(report_segment.get("ENTITY_COUNT", 0)),
             ]
             tbl.rows.append(row)
-            report_data[data_sources] = report_segment
+            report_data[data_sources.replace("||", "|")] = report_segment
 
         report_table = tbl.render_table()
         select_levels = ["DATA_SOURCES"]
+        self.current_report_title = f"Entity Source Summary from {self.snapshot_file}"
         self.drill_into(report_table, report_data, select_levels)
 
     def principles_used_report(self):
@@ -837,16 +1003,10 @@ class EdaReports:
             if not match_level_count:
                 continue
             if match_level_desc not in report_data:
-                report_data[match_level_desc] = {"COUNT": match_level_count, "PRINCIPLE": {}}
+                report_data[match_level_desc] = {"COUNT": match_level_count, "MATCH_KEY": {}}
             for principle_match_key in report_segment[match_level_tag]["PRINCIPLES"]:
                 pmk_data = report_segment[match_level_tag]["PRINCIPLES"][principle_match_key]
-                pmk_count = pmk_data["COUNT"]
-                principle, match_key = principle_match_key.split("||")
-                if principle not in report_data[match_level_desc]["PRINCIPLE"]:
-                    report_data[match_level_desc]["PRINCIPLE"][principle] = {"COUNT": pmk_count, "MATCH_KEY": {}}
-                else:
-                    report_data[match_level_desc]["PRINCIPLE"][principle]["COUNT"] += pmk_count
-                report_data[match_level_desc]["PRINCIPLE"][principle]["MATCH_KEY"][principle_match_key] = pmk_data
+                report_data[match_level_desc]["MATCH_KEY"][self._format_match_key(principle_match_key)] = pmk_data
 
         tbl = eda_table()
         tbl.title = f"Principles Used Report from {self.snapshot_file}"
@@ -863,22 +1023,229 @@ class EdaReports:
             tbl.rows.append(row)
 
         report_table = tbl.render_table()
-        select_levels = ["MATCH_LEVEL", "PRINCIPLE", "MATCH_KEY"]
+        select_levels = ["MATCH_LEVEL", "MATCH_KEY"]
+        self.current_report_title = f"Principles Used Report from {self.snapshot_file}"
         self.drill_into(report_table, report_data, select_levels)
 
+    @staticmethod
+    def _simplify_rel_pointer(match_key):
+        """Extract DOMAIN and MIN/MAX roles from REL_POINTER match keys.
+        +REL_POINTER(DOMAIN:X|MIN:role_a|MAX:role_b) -> X(role_a:role_b)
+        Multiple REL_POINTERs are joined with a space.
+        Non-REL_POINTER portions are preserved.
+        """
+        parts = []
+        # Find all REL_POINTER occurrences with their leading sign
+        pattern = r"[+\-]?REL_POINTER\(DOMAIN:([^|]*)\|MIN:([^|]*)\|MAX:([^)]*)\)"
+        last_end = 0
+        for m in re.finditer(pattern, match_key):
+            # Preserve any non-REL_POINTER text before this match
+            before = match_key[last_end : m.start()].lstrip("+-")
+            if before:
+                parts.append(before)
+            domain, min_role, max_role = m.group(1), m.group(2), m.group(3)
+            parts.append(f"{domain}({min_role}:{max_role})")
+            last_end = m.end()
+        # Preserve trailing text
+        tail = match_key[last_end:].lstrip("+-")
+        if tail:
+            parts.append(tail)
+        return " ".join(parts) if parts else match_key
+
+    @staticmethod
+    def _format_match_key(raw_key):
+        """Parse raw principle||match_key into display-ready text (no color).
+        Simplifies REL_POINTER, strips leading +/-, preserves principle||cleaned_key format.
+        """
+        if "||" in raw_key:
+            principle, mk = raw_key.split("||", 1)
+        else:
+            principle, mk = "", raw_key
+        if "REL_POINTER" in mk:
+            mk = EdaReports._simplify_rel_pointer(mk)
+        else:
+            mk = mk.lstrip("+-")
+        if principle:
+            return f"{principle}||{mk}"
+        return mk
+
     def fmt_match_key_category(self, key, **kwargs):
+        """Colorize a pre-formatted match key. Keys are already cleaned by _format_match_key."""
         sep = kwargs.get("sep", "\n ")
         if "||" in key:
-            errule_code, match_key = key.split("||")
+            errule_code, match_key = key.split("||", 1)
         else:
             errule_code = ""
             match_key = key
+        if "(" in match_key and ":" in match_key:
+            colored_mk = colorize(match_key, "highlight2")
+        elif "+" in match_key:
+            colored_mk = colorize_match_key(match_key)
+        else:
+            colored_mk = match_key
         if not errule_code:
-            return colorize_match_key(match_key) if "+" in match_key else match_key
-        return f"{colorize_match_key(match_key)}{sep}{colorize(errule_code, 'dim')}"
+            return colored_mk
+        return f"{colored_mk}{sep}{colorize(errule_code, 'dim')}"
+
+    @staticmethod
+    def _strip_ansi(text):
+        return re.sub(r"\033\[[0-9;]*m", "", str(text))
+
+    def generate_from(self, select_data, remaining_levels=None, prior_level_values=None):
+        """Walk all branches from current point, collect all samples, build eda_table."""
+        remaining_levels = remaining_levels or []
+        sample_column_names = []
+        raw_rows = []
+        sample_cnt = 0
+        is_audit = None
+
+        def add_samples(data, breadcrumbs):
+            nonlocal sample_cnt, is_audit
+            for sample in data["SAMPLE"]:
+                sample_cnt += 1
+                if isinstance(sample, list):  # audit samples
+                    is_audit = True
+                    columns, rows = self.show_audit_sample(sample, use_color=False)
+                    col_names = [c["name"] for c in columns]
+                    for name in col_names:
+                        if name not in sample_column_names:
+                            sample_column_names.append(name)
+                    for row in rows:
+                        row_dict = dict(zip(col_names, row))
+                        row_dict.update(breadcrumbs)
+                        row_dict["Sample"] = sample_cnt
+                        if row_dict.get("Prior Score"):
+                            row_dict["Prior Score"] = str(row_dict["Prior Score"]).lstrip("+-")
+                        if row_dict.get("Newer Score"):
+                            row_dict["Newer Score"] = str(row_dict["Newer Score"]).lstrip("+-")
+                        if row_dict.get("Data Source"):
+                            row_dict["Data Source"] = colorize_dsrc(row_dict["Data Source"])
+                        if row_dict.get("Newer ID"):
+                            row_dict["Newer ID"] = colorize_entity(row_dict["Newer ID"])
+                        raw_rows.append(row_dict)
+                else:  # entity samples
+                    is_audit = False
+                    entity_rows, feat_cols = self._entity_to_rows(sample, sample_cnt)
+                    for fc in feat_cols:
+                        if fc not in sample_column_names:
+                            sample_column_names.append(fc)
+                    for row in entity_rows:
+                        row.update(breadcrumbs)
+                        raw_rows.append(row)
+                if sample_cnt % 100 == 0:
+                    print(f"{sample_cnt} samples processed")
+
+        def collect(data, breadcrumbs, depth):
+            level_name = remaining_levels[depth] if depth < len(remaining_levels) else None
+            if not level_name:
+                if isinstance(data, dict) and "SAMPLE" in data:
+                    add_samples(data, breadcrumbs)
+                return
+            for key, value in data.items():
+                if key in ("COUNT", "REVIEW_COUNT", "REVIEW_FEATURES"):
+                    continue
+                if not isinstance(value, dict):
+                    continue
+                clean_key = self._strip_ansi(str(key))
+                new_breadcrumbs = dict(breadcrumbs)
+                # Colorize based on level type
+                if level_name.startswith("DATA_SOURCE"):
+                    new_breadcrumbs[f"BY_{level_name}"] = colorize_dsrc(clean_key)
+                elif level_name == "MATCH_KEY":
+                    if "||" in clean_key:
+                        principle, mk = clean_key.split("||", 1)
+                    else:
+                        principle, mk = "", clean_key
+                    if "(" in mk and ":" in mk:
+                        new_breadcrumbs["BY_MATCH_KEY"] = colorize(mk, "highlight2")
+                    elif "+" in mk:
+                        new_breadcrumbs["BY_MATCH_KEY"] = colorize_match_key(mk)
+                    else:
+                        new_breadcrumbs["BY_MATCH_KEY"] = mk
+                    if principle:
+                        new_breadcrumbs["BY_PRINCIPLE"] = colorize(principle, "dim")
+                else:
+                    new_breadcrumbs[f"BY_{level_name}"] = clean_key
+                # Check if value has SAMPLE directly or needs to go through a structural key
+                if "SAMPLE" in value:
+                    add_samples(value, new_breadcrumbs)
+                else:
+                    # Look for the next structural key (uppercase level name)
+                    next_struct = remaining_levels[depth + 1].upper() if depth + 1 < len(remaining_levels) else None
+                    if next_struct and next_struct in value:
+                        collect(value[next_struct], new_breadcrumbs, depth + 1)
+                    else:
+                        collect(value, new_breadcrumbs, depth + 1)
+
+        collect(select_data, {}, 0)
+
+        if not raw_rows:
+            print_message("No samples found", "warning")
+            return None
+
+        # Add prior level values to every row (colorized)
+        prior_level_values = prior_level_values or {}
+        if prior_level_values:
+            colorized_prior = {}
+            for k, v in prior_level_values.items():
+                if k.startswith("BY_DATA_SOURCE"):
+                    colorized_prior[k] = colorize_dsrc(v)
+                elif k == "BY_MATCH_KEY":
+                    if "||" in v:
+                        principle, mk = v.split("||", 1)
+                    else:
+                        principle, mk = "", v
+                    if "(" in mk and ":" in mk:
+                        colorized_prior["BY_MATCH_KEY"] = colorize(mk, "highlight2")
+                    elif "+" in mk:
+                        colorized_prior["BY_MATCH_KEY"] = colorize_match_key(mk)
+                    else:
+                        colorized_prior["BY_MATCH_KEY"] = mk
+                    if principle:
+                        colorized_prior["BY_PRINCIPLE"] = colorize(principle, "dim")
+                else:
+                    colorized_prior[k] = v
+            for row in raw_rows:
+                row.update(colorized_prior)
+
+        # Build category columns: prior levels + remaining levels that have values
+        cat_columns = []
+        for k in prior_level_values.keys():
+            cat_columns.append(k)
+            if k == "BY_MATCH_KEY" and any(row.get("BY_PRINCIPLE") for row in raw_rows):
+                cat_columns.append("BY_PRINCIPLE")
+        for level in remaining_levels:
+            by_level = f"BY_{level}"
+            if any(row.get(by_level) for row in raw_rows):
+                cat_columns.append(by_level)
+                if by_level == "BY_MATCH_KEY" and any(row.get("BY_PRINCIPLE") for row in raw_rows):
+                    cat_columns.append("BY_PRINCIPLE")
+        has_review = any(row.get("Review") for row in raw_rows)
+
+        if is_audit:
+            base_columns = cat_columns + ["Sample"]
+        else:
+            base_columns = cat_columns + ["Sample"]
+            if has_review:
+                base_columns.append("Review")
+            if any(row.get("Related ID") for row in raw_rows):
+                base_columns += ["Entity ID", "Related ID", "Entity Name", "Data Source", "Record ID"]
+            else:
+                base_columns += ["Entity ID", "Entity Name", "Data Source", "Record ID"]
+            if any(row.get("Match Key") for row in raw_rows):
+                base_columns.append("Match Key")
+
+        # Remove Review from sample_column_names since it's now in base_columns
+        sample_column_names = [c for c in sample_column_names if c != "Review"]
+
+        all_cols = base_columns + sample_column_names
+        tbl = self._build_generate_table(all_cols, raw_rows)
+
+        return tbl
 
     def drill_into(self, report_table, report_data, select_levels):
         report_levels = [[report_table, report_data, select_levels[0], ""]]
+        selected_values = {}  # level_name -> selected value
         summarized_match_key = 0
         while True:
             select_table, select_data, select_level, prior_keys = report_levels[-1]
@@ -903,7 +1270,10 @@ class EdaReports:
                             summarized_match_key = 1
                             summarized_key = f"||{len(keys)-9} more match_keys"
                             if summarized_key not in summarized_data:
-                                summarized_data[summarized_key] = select_data[key]
+                                summarized_data[summarized_key] = {
+                                    "COUNT": select_data[key]["COUNT"],
+                                    "SAMPLE": list(select_data[key]["SAMPLE"]),
+                                }
                             else:
                                 summarized_data[summarized_key]["COUNT"] += select_data[key]["COUNT"]
                                 summarized_data[summarized_key]["SAMPLE"] += select_data[key]["SAMPLE"]
@@ -923,22 +1293,24 @@ class EdaReports:
 
             view_report(select_table, no_scroll=True)
             # debug_print(f"{select_level} {summarized_match_key}")
-            valid_responses = [str(n + 1) for n in range(len(select_data.keys()))] + ["Q"]
+            valid_responses = [str(n + 1) for n in range(len(select_data.keys()))] + ["Q", "L"]
             if select_level == "ENTITY_SIZE_GROUP":
                 valid_responses.extend(["R" + str(n + 1) for n in range(len(select_data.keys()))])
                 selection = get_char_with_prompt(
-                    'Select row number to review, "R" + row number for review items only, or <enter> if done... ',
+                    'Select row to drill into, "R" + row for review items, (L)ist view, or <enter> to go back... ',
                     valid_responses,
                 )
 
             elif select_level == "MATCH_KEY" and summarized_match_key == 1:
-                valid_responses.append("A")
+                valid_responses.append("F")
                 selection = get_char_with_prompt(
-                    "Select row number to review, (A) for all match_keys, or <enter> if done... ",
+                    "Select row to drill into, (F)ull list, (L)ist view, or <enter> to go back... ",
                     valid_responses,
                 )
             else:
-                selection = get_char_with_prompt("Select row number to review or <enter> if done... ", valid_responses)
+                selection = get_char_with_prompt(
+                    "Select row to drill into, (L)ist view, or <enter> to go back... ", valid_responses
+                )
             if not selection:
                 selection = "Q"
 
@@ -948,11 +1320,31 @@ class EdaReports:
 
             if selection.upper().startswith("Q"):
                 summarized_match_key = 0
+                # Remove value for current level when going back
+                if select_level in selected_values:
+                    del selected_values[select_level]
                 del report_levels[-1]
                 if len(report_levels) == 0:
                     break
-            elif selection.upper().startswith("A"):
+                # Also remove value for the level we're returning to
+                parent_level = report_levels[-1][2]
+                if parent_level in selected_values:
+                    del selected_values[parent_level]
+            elif selection.upper().startswith("F"):
                 summarized_match_key = 2  # turns off summarization
+            elif selection.upper().startswith("L"):
+                remaining = select_levels[len(report_levels) - 1 :]
+                tbl = self.generate_from(select_data, remaining, {f"BY_{k}": v for k, v in selected_values.items()})
+                if tbl:
+                    tbl.title = self.current_report_title
+                    exit_code = view_report(
+                        tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True, saveable=True
+                    )
+                    if exit_code == 83:
+                        file_name = input("\nFile name: ").strip()
+                        if file_name:
+                            remove_from_history()
+                            self.save_to_file(tbl, file_name)
             elif selection.isdigit() and 1 <= int(selection) <= len(select_data.keys()):
                 selected_key = list(select_data.keys())[int(selection) - 1]
                 if review_filter and "REVIEW_COUNT" in select_data[selected_key]:
@@ -978,6 +1370,8 @@ class EdaReports:
                 else:
                     prior_key = selected_key
                 prior_keys += " " + prior_key if prior_keys else prior_key
+                clean_selected = self._strip_ansi(str(selected_key))
+                selected_values[select_level] = clean_selected
 
                 if "SAMPLE" in select_data:
                     sample_records = select_data["REVIEW"] if review_filter else select_data["SAMPLE"]
@@ -988,7 +1382,16 @@ class EdaReports:
                         sample_records = sorted(sample_records, key=lambda d: list(d.keys())[0])
                     elif not isinstance(sample_records[0], list):  # not from audit_summary as it can't be sorted
                         sample_records = sorted(select_data["SAMPLE"])
-                    self.browse_list(prior_keys, sample_records)
+                    self.browse_list(
+                        prior_keys,
+                        sample_records,
+                        select_data=select_data,
+                        prior_keys_for_browse=prior_keys,
+                        select_levels_for_browse=select_levels[len(report_levels) :],
+                        selected_values_for_browse=dict(selected_values),
+                    )
+                    if select_level in selected_values:
+                        del selected_values[select_level]
                 else:
                     select_level = select_levels[len(report_levels)]
                     report_levels.append(["build", select_data, select_level, prior_keys])
@@ -1018,7 +1421,15 @@ class EdaReports:
                 return [entity_id] + entity_set
         return None
 
-    def browse_list(self, list_header, list_records):
+    def browse_list(
+        self,
+        list_header,
+        list_records,
+        select_data=None,
+        prior_keys_for_browse="",
+        select_levels_for_browse=None,
+        selected_values_for_browse=None,
+    ):
         list_count = len(list_records)
         current_index = 0
         while True:
@@ -1048,12 +1459,12 @@ class EdaReports:
                     report = sdk_wrapper.compare_entities(entity_list)
             view_report(report, no_scroll=True, extra_header=item_header)
 
-            valid_responses = ["P", "N", "G", "S", "Q", "E", "C"]
+            valid_responses = ["P", "N", "G", "S", "Q", "E", "C", "L"]
             if len(entity_list) == 1:
-                prompt = "Select (P)revious, (N)ext, (G)oto, (H)ow, (E)xport, (S)croll, (Q)uit..."
+                prompt = "Select (P)revious, (N)ext, (G)oto, (H)ow, (E)xport, (L)ist view, (S)croll, (Q)uit..."
                 valid_responses += ["D", "H"]
             else:
-                prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (S)croll, (Q)uit..."
+                prompt = "Select (P)revious, (N)ext, (G)oto, (W)hy, (E)xport, (L)ist view, (S)croll, (Q)uit..."
                 valid_responses += ["W"]
             for char in valid_responses:
                 prompt = prompt.replace(f"({char})", f"({Colors.apply(char, 'bold')})")
@@ -1066,8 +1477,24 @@ class EdaReports:
 
             if reply.upper().startswith("Q"):
                 break
+            elif reply.upper() == "L" and select_data:
+                # Use the current list_records (which may be filtered for reviews)
+                fake_data = {"SAMPLE": list_records}
+                tbl = self.generate_from(
+                    fake_data, [], {f"BY_{k}": v for k, v in (selected_values_for_browse or {}).items()}
+                )
+                if tbl:
+                    tbl.title = self.current_report_title
+                    exit_code = view_report(
+                        tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True, saveable=True
+                    )
+                    if exit_code == 83:
+                        file_name = input("\nFile name: ").strip()
+                        if file_name:
+                            remove_from_history()
+                            self.save_to_file(tbl, file_name)
             elif reply.upper() == "S":
-                scroll(report)
+                view_report(report, force_scroll=True)
             elif reply.upper().startswith("P"):
                 if current_index == 0:
                     get_char_with_prompt("\nNo prior records, press any key to continue...")
@@ -1214,9 +1641,9 @@ class EdaSdkWrapper:
         freq_rank = {"F1": 1, "FF": 2, "FM": 3, "FVM": 4, "NAME": 5}
         freq = behavior.rstrip("ES")
         rank = freq_rank.get(freq, 99) * 10
-        if "E" in behavior[len(freq):]:
+        if "E" in behavior[len(freq) :]:
             rank -= 2
-        if "S" in behavior[len(freq):]:
+        if "S" in behavior[len(freq) :]:
             rank -= 1
         return rank
 
@@ -1225,7 +1652,7 @@ class EdaSdkWrapper:
         if not score_behavior or score_behavior == expected:
             return ""
         arrow = "\u2191" if self.behavior_rank(score_behavior) < self.behavior_rank(expected) else "\u2193"
-        return f" {arrow}{score_behavior}"
+        return f"{arrow}{score_behavior}"
 
     def begin_call_cache(self, cmd):
         self.last_command = cmd
@@ -1516,7 +1943,10 @@ class EdaSdkWrapper:
                 if lib_feat_id in entity_features:
                     entity_features[lib_feat_id]["RECORD_COUNT"] += 1
                 else:
-                    print_message(f"Feature ID {lib_feat_id} on record {record['DATA_SOURCE']}: {record['RECORD_ID']} not in entity features", "warning")
+                    print_message(
+                        f"Feature ID {lib_feat_id} on record {record['DATA_SOURCE']}: {record['RECORD_ID']} not in entity features",
+                        "warning",
+                    )
 
         how_flag_list = ["SZ_HOW_ENTITY_DEFAULT_FLAGS"]
         try:
@@ -1550,7 +1980,11 @@ class EdaSdkWrapper:
                         "MEMBER_COUNT": len(step[ve_num]["MEMBER_RECORDS"]),
                         "RECORDS": record_list,
                         "FEATURES": features,
-                        "ROLE": "INBOUND" if step[ve_num]["VIRTUAL_ENTITY_ID"] == step["INBOUND_VIRTUAL_ENTITY_ID"] else "CANDIDATE",
+                        "ROLE": (
+                            "INBOUND"
+                            if step[ve_num]["VIRTUAL_ENTITY_ID"] == step["INBOUND_VIRTUAL_ENTITY_ID"]
+                            else "CANDIDATE"
+                        ),
                     }
                 )
             entity_list = sorted(entity_list, key=lambda k: k["MEMBER_COUNT"])
@@ -1764,7 +2198,7 @@ class EdaSdkWrapper:
                         score_list.append(f"GIV:{feature['ALL_SCORES'].get('GNR_GN')}")
                     score = "|".join(score_list)
                 behavior_change = self.fmt_behavior_change(feature["FTYPE_CODE"], feature.get("SCORE_BEHAVIOR", ""))
-                matched_desc = f"\u2514\u2500\u2500 {feature['MATCHED_FEAT_DESC']} ({score}){behavior_change}"
+                matched_desc = f"\u2514\u2500\u2500 {feature['MATCHED_FEAT_DESC']} ({score}{behavior_change})"
                 display_list.extend(wrap_text(matched_desc, attr_width, feat_color))
         if attr_limit > 0 and line_cnt > attr_limit:
             display_list.append(f"+{line_cnt - attr_limit} more")
@@ -2434,15 +2868,14 @@ class EdaSdkWrapper:
                 feat_color = "caution"
 
             behavior_change = self.fmt_behavior_change(ftype_code, best_score.get("SCORE_BEHAVIOR", ""))
-            score_display = colorize(score_value, feat_color)
             if behavior_change:
-                score_display += f"\n{colorize(behavior_change.strip(), 'caution')}"
+                score_value = f"{score_value}{behavior_change}"
 
             tbl.rows.append(
                 [
                     colorize(ftype_code, "dim"),
                     best_score[left_side_feat],
-                    score_display,
+                    colorize(score_value, feat_color),
                     best_score[right_side_feat],
                 ]
             )
@@ -2972,8 +3405,8 @@ class EdaCmd(cmd.Cmd):
         self.configurable_settings_list = [
             {
                 "setting": "color_scheme",
-                "values": ["default", "light", "dark"],
-                "description": "light works better on dark backgrounds and vice-versa",
+                "values": [t.lower() for t in Colors.AVAILABLE_THEMES],
+                "description": "see color themes in _tool_helpers.Colors",
             },
             {
                 "setting": "show_relations_on_get",
@@ -3300,7 +3733,7 @@ class EdaCmd(cmd.Cmd):
         tbl.title = "Data source counts"
         tbl.columns = [
             {"name": "ID", "width": 5, "align": "center"},
-            {"name": "DataSource", "width": 30, "align": "left"},
+            {"name": "Data Source", "width": 30, "align": "left"},
             {"name": "ActualRecordCount", "width": 20, "align": "right"},
             {"name": "DistinctRecordCount", "width": 20, "align": "right"},
         ]
@@ -3435,7 +3868,7 @@ class EdaCmd(cmd.Cmd):
 
         Displays the number of entities resolved into data source groups.  For instance, the number of entities in
         dataSource1, the number of entities in dataSource2 and the number of entities in both.
-        
+
         While similar to the cross_source_summary, it can also show entities in 3 or more data sources.  However, it
         can only show the matches, not the possible matches and relationships.
 
@@ -3692,13 +4125,13 @@ class EdaCmd(cmd.Cmd):
             search robert smith | date_of_birth: 3/31/1954
 
         {colorize('Notes:', 'highlight2')}
-            Searching by name alone may not locate a specific entity.  Try adding a date of birth, address, or phone 
+            Searching by name alone may not locate a specific entity.  Try adding a date of birth, address, or phone
             number if your record is not found by name alone.
 
-            You can either use a valid Senzing json structure or a pipe delimited string of recognized attributes as 
-            shown above.  The value before the first pipe is assumed to be name and use a colon to separate the 
+            You can either use a valid Senzing json structure or a pipe delimited string of recognized attributes as
+            shown above.  The value before the first pipe is assumed to be name and use a colon to separate the
             attribute name from its value.
-            
+
         """
             )
         )
@@ -3914,7 +4347,9 @@ class EdaCmd(cmd.Cmd):
             return
 
         order = "ASC" if operator == ">" else "DESC"
-        sql = sz_dbo.sql_prep(f"select RES_ENT_ID from RES_ENT where RES_ENT_ID {operator} ? order by RES_ENT_ID {order}")
+        sql = sz_dbo.sql_prep(
+            f"select RES_ENT_ID from RES_ENT where RES_ENT_ID {operator} ? order by RES_ENT_ID {order}"
+        )
         verify_sql = sz_dbo.sql_prep("select 1 from RES_ENT_OKEY where RES_ENT_ID = ?")
         for row in sz_dbo.fetch_all_rows(sz_dbo.sql_exec(sql, [starting_id])):
             candidate_id = row[0]
@@ -4043,7 +4478,7 @@ class EdaCmd(cmd.Cmd):
             why <entity_id1> <entity_id2>                               {colorize('shows why two or more different entities did not resolve', 'dim')}
             why <data_source1> <record_id1> <data_source2> <record_id2> {colorize('shows if the two data source records could resolve or relate', 'dim')}
             why search [optional entity_id]                             {colorize('shows the features and keys generated by a search against any candidate entities', 'dim')}
-            
+
         {colorize('Color legend:', 'highlight2')}
             {colorize('green', 'good')} indicates the values matched and contributed to the overall score
             {colorize('red', 'bad')} indicates the values did not match and hurt the overall score
@@ -4382,7 +4817,9 @@ if __name__ == "__main__":
         sz_dbo = None
 
     try:
-        sdk_wrapper = EdaSdkWrapper(engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url, mask_pii=args.mask_pii)
+        sdk_wrapper = EdaSdkWrapper(
+            engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url, mask_pii=args.mask_pii
+        )
     except SzError as ex:
         print_message(ex, "error")
         sys.exit(1)
