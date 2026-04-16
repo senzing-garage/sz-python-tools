@@ -103,11 +103,15 @@ def mask_pii(text, visible=2):
 
 
 def mask_json_pii(data, visible=2):
-    """Recursively walk a dict/list and mask string values under PII_KEYS."""
+    """Recursively walk a dict/list and mask string values under PII_KEYS and UNMAPPED_DATA."""
     if isinstance(data, dict):
         for key, value in data.items():
             if key in PII_KEYS and isinstance(value, str):
                 data[key] = mask_pii(value, visible)
+            elif key == "UNMAPPED_DATA" and isinstance(value, dict):
+                for ukey, uval in value.items():
+                    if isinstance(uval, str):
+                        value[ukey] = mask_pii(uval, visible)
             elif isinstance(value, (dict, list)):
                 mask_json_pii(value, visible)
     elif isinstance(data, list):
@@ -232,9 +236,9 @@ def view_report(report, **kwargs):
             less_cmd.append(f"--lesskey-src={lesskey_path}")
         except Exception:
             pass
-        prompt = "\u2191\u2193 scroll, /search, s save, q quit      %lt-%lb of %L"
+        prompt = "\u2191\u2193\u2190\u2192 scroll, /search, s save, h help, q quit      %lt-%lb of %L"
     else:
-        prompt = "\u2191\u2193 scroll, /search, q quit      %lt-%lb of %L"
+        prompt = "\u2191\u2193\u2190\u2192 scroll, /search, h help, q quit      %lt-%lb of %L"
     less_options += f"P{prompt}"
     less_cmd.append(less_options)
 
@@ -246,19 +250,6 @@ def view_report(report, **kwargs):
     less.wait()
     print()
     return less.returncode
-
-
-def scroll(report, **kwargs):
-    print()
-    less_options = "-MXSR"
-    less = subprocess.Popen(["less", less_options], stdin=subprocess.PIPE)
-    try:
-        less.stdin.write(report.encode())
-    except IOError:
-        pass
-    less.stdin.close()
-    less.wait()
-    print()
 
 
 class eda_node(object):
@@ -1503,7 +1494,7 @@ class EdaReports:
                             remove_from_history()
                             self.save_to_file(tbl, file_name)
             elif reply.upper() == "S":
-                scroll(report)
+                view_report(report, force_scroll=True)
             elif reply.upper().startswith("P"):
                 if current_index == 0:
                     get_char_with_prompt("\nNo prior records, press any key to continue...")
