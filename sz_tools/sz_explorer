@@ -44,7 +44,6 @@ except ImportError as ex:
     sys.exit(1)
 
 
-
 def print_exception(ex):
     print_message(f"{ex}, press any key to continue", "error")
     if get_char() in "tTdD":
@@ -76,13 +75,15 @@ def print_message(msg_text, msg_type_or_color=""):
 # PII masking
 # -------------------
 
-PII_KEYS = frozenset({
-    "ENTITY_NAME",
-    "FEAT_DESC",
-    "INBOUND_FEAT_DESC",
-    "CANDIDATE_FEAT_DESC",
-    "FELEM_VALUE",
-})
+PII_KEYS = frozenset(
+    {
+        "ENTITY_NAME",
+        "FEAT_DESC",
+        "INBOUND_FEAT_DESC",
+        "CANDIDATE_FEAT_DESC",
+        "FELEM_VALUE",
+    }
+)
 
 
 def mask_pii(text, visible=2):
@@ -90,15 +91,15 @@ def mask_pii(text, visible=2):
     if not text:
         return text
     tokens = []
-    for token in re.split(r'(\s+|[,;:|/\\-])', str(text)):
-        if token and not token.isspace() and token not in ',;:|/\\-':
+    for token in re.split(r"(\s+|[,;:|/\\-])", str(text)):
+        if token and not token.isspace() and token not in ",;:|/\\-":
             if len(token) <= visible:
                 tokens.append(token)
             else:
-                tokens.append(token[:visible] + '*' * (len(token) - visible))
+                tokens.append(token[:visible] + "*" * (len(token) - visible))
         else:
             tokens.append(token)
-    return ''.join(tokens)
+    return "".join(tokens)
 
 
 def mask_json_pii(data, visible=2):
@@ -216,7 +217,6 @@ def view_report(report, **kwargs):
                         break
                 print(f" {nline}{Colors.RESET}")
         return
-
 
     if kwargs.get("force_scroll"):
         less_options = "-XSR"
@@ -391,7 +391,9 @@ class eda_table:
             if report_style:
                 table_object.add_divider()
 
-        divide_idx = next((i for i, c in enumerate(self.columns) if c["name"] == divide_by), None) if divide_by else None
+        divide_idx = (
+            next((i for i, c in enumerate(self.columns) if c["name"] == divide_by), None) if divide_by else None
+        )
         last_divide_value = None
         total_row_cnt = 0
         for row in self.rows:
@@ -651,7 +653,9 @@ class EdaReports:
         for category in self.audit_data["AUDIT"]:
             report_data[category] = {
                 "COUNT": self.audit_data["AUDIT"][category]["COUNT"],
-                "MATCH_KEY": {self._format_match_key(k): v for k, v in self.audit_data["AUDIT"][category]["SUB_CATEGORY"].items()},
+                "MATCH_KEY": {
+                    self._format_match_key(k): v for k, v in self.audit_data["AUDIT"][category]["SUB_CATEGORY"].items()
+                },
             }
 
         tbl = eda_table()
@@ -897,7 +901,10 @@ class EdaReports:
                 if match_level_count:
                     report_data[data_source]["MATCH_LEVEL"][match_level_desc] = {
                         "COUNT": match_level_count,
-                        "MATCH_KEY": {self._format_match_key(k): v for k, v in report_segment[match_level_tag]["PRINCIPLES"].items()},
+                        "MATCH_KEY": {
+                            self._format_match_key(k): v
+                            for k, v in report_segment[match_level_tag]["PRINCIPLES"].items()
+                        },
                     }
         report_table = tbl.render_table(super_header=True)
         select_levels = ["DATA_SOURCE", "MATCH_LEVEL", "MATCH_KEY"]
@@ -950,7 +957,10 @@ class EdaReports:
                 if match_level_count:
                     report_data[formatted_pair]["MATCH_LEVEL"][match_level_desc] = {
                         "COUNT": match_level_count,
-                        "MATCH_KEY": {self._format_match_key(k): v for k, v in report_segment[match_level_tag]["PRINCIPLES"].items()},
+                        "MATCH_KEY": {
+                            self._format_match_key(k): v
+                            for k, v in report_segment[match_level_tag]["PRINCIPLES"].items()
+                        },
                     }
         report_table = tbl.render_table(super_header=True)
         select_levels = ["DATA_SOURCES", "MATCH_LEVEL", "MATCH_KEY"]
@@ -1039,7 +1049,7 @@ class EdaReports:
         last_end = 0
         for m in re.finditer(pattern, match_key):
             # Preserve any non-REL_POINTER text before this match
-            before = match_key[last_end:m.start()].lstrip("+-")
+            before = match_key[last_end : m.start()].lstrip("+-")
             if before:
                 parts.append(before)
             domain, min_role, max_role = m.group(1), m.group(2), m.group(3)
@@ -1088,7 +1098,7 @@ class EdaReports:
 
     @staticmethod
     def _strip_ansi(text):
-        return re.sub(r'\033\[[0-9;]*m', '', str(text))
+        return re.sub(r"\033\[[0-9;]*m", "", str(text))
 
     def generate_from(self, select_data, remaining_levels=None, prior_level_values=None):
         """Walk all branches from current point, collect all samples, build eda_table."""
@@ -1307,7 +1317,9 @@ class EdaReports:
                     valid_responses,
                 )
             else:
-                selection = get_char_with_prompt("Select row to drill into, (L)ist view, or <enter> to go back... ", valid_responses)
+                selection = get_char_with_prompt(
+                    "Select row to drill into, (L)ist view, or <enter> to go back... ", valid_responses
+                )
             if not selection:
                 selection = "Q"
 
@@ -1330,11 +1342,13 @@ class EdaReports:
             elif selection.upper().startswith("F"):
                 summarized_match_key = 2  # turns off summarization
             elif selection.upper().startswith("L"):
-                remaining = select_levels[len(report_levels) - 1:]
+                remaining = select_levels[len(report_levels) - 1 :]
                 tbl = self.generate_from(select_data, remaining, {f"BY_{k}": v for k, v in selected_values.items()})
                 if tbl:
                     tbl.title = self.current_report_title
-                    exit_code = view_report(tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True, saveable=True)
+                    exit_code = view_report(
+                        tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True, saveable=True
+                    )
                     if exit_code == 83:
                         file_name = input("\nFile name: ").strip()
                         if file_name:
@@ -1377,7 +1391,14 @@ class EdaReports:
                         sample_records = sorted(sample_records, key=lambda d: list(d.keys())[0])
                     elif not isinstance(sample_records[0], list):  # not from audit_summary as it can't be sorted
                         sample_records = sorted(select_data["SAMPLE"])
-                    self.browse_list(prior_keys, sample_records, select_data=select_data, prior_keys_for_browse=prior_keys, select_levels_for_browse=select_levels[len(report_levels):], selected_values_for_browse=dict(selected_values))
+                    self.browse_list(
+                        prior_keys,
+                        sample_records,
+                        select_data=select_data,
+                        prior_keys_for_browse=prior_keys,
+                        select_levels_for_browse=select_levels[len(report_levels) :],
+                        selected_values_for_browse=dict(selected_values),
+                    )
                     if select_level in selected_values:
                         del selected_values[select_level]
                 else:
@@ -1409,7 +1430,15 @@ class EdaReports:
                 return [entity_id] + entity_set
         return None
 
-    def browse_list(self, list_header, list_records, select_data=None, prior_keys_for_browse="", select_levels_for_browse=None, selected_values_for_browse=None):
+    def browse_list(
+        self,
+        list_header,
+        list_records,
+        select_data=None,
+        prior_keys_for_browse="",
+        select_levels_for_browse=None,
+        selected_values_for_browse=None,
+    ):
         list_count = len(list_records)
         current_index = 0
         while True:
@@ -1460,10 +1489,14 @@ class EdaReports:
             elif reply.upper() == "L" and select_data:
                 # Use the current list_records (which may be filtered for reviews)
                 fake_data = {"SAMPLE": list_records}
-                tbl = self.generate_from(fake_data, [], {f"BY_{k}": v for k, v in (selected_values_for_browse or {}).items()})
+                tbl = self.generate_from(
+                    fake_data, [], {f"BY_{k}": v for k, v in (selected_values_for_browse or {}).items()}
+                )
                 if tbl:
                     tbl.title = self.current_report_title
-                    exit_code = view_report(tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True, saveable=True)
+                    exit_code = view_report(
+                        tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True, saveable=True
+                    )
                     if exit_code == 83:
                         file_name = input("\nFile name: ").strip()
                         if file_name:
@@ -1617,9 +1650,9 @@ class EdaSdkWrapper:
         freq_rank = {"F1": 1, "FF": 2, "FM": 3, "FVM": 4, "NAME": 5}
         freq = behavior.rstrip("ES")
         rank = freq_rank.get(freq, 99) * 10
-        if "E" in behavior[len(freq):]:
+        if "E" in behavior[len(freq) :]:
             rank -= 2
-        if "S" in behavior[len(freq):]:
+        if "S" in behavior[len(freq) :]:
             rank -= 1
         return rank
 
@@ -1919,7 +1952,10 @@ class EdaSdkWrapper:
                 if lib_feat_id in entity_features:
                     entity_features[lib_feat_id]["RECORD_COUNT"] += 1
                 else:
-                    print_message(f"Feature ID {lib_feat_id} on record {record['DATA_SOURCE']}: {record['RECORD_ID']} not in entity features", "warning")
+                    print_message(
+                        f"Feature ID {lib_feat_id} on record {record['DATA_SOURCE']}: {record['RECORD_ID']} not in entity features",
+                        "warning",
+                    )
 
         how_flag_list = ["SZ_HOW_ENTITY_DEFAULT_FLAGS"]
         try:
@@ -1953,7 +1989,11 @@ class EdaSdkWrapper:
                         "MEMBER_COUNT": len(step[ve_num]["MEMBER_RECORDS"]),
                         "RECORDS": record_list,
                         "FEATURES": features,
-                        "ROLE": "INBOUND" if step[ve_num]["VIRTUAL_ENTITY_ID"] == step["INBOUND_VIRTUAL_ENTITY_ID"] else "CANDIDATE",
+                        "ROLE": (
+                            "INBOUND"
+                            if step[ve_num]["VIRTUAL_ENTITY_ID"] == step["INBOUND_VIRTUAL_ENTITY_ID"]
+                            else "CANDIDATE"
+                        ),
                     }
                 )
             entity_list = sorted(entity_list, key=lambda k: k["MEMBER_COUNT"])
@@ -3471,9 +3511,7 @@ class EdaCmd(cmd.Cmd):
 
     def do_help(self, help_topic):
         if not help_topic:
-            print(
-                textwrap.dedent(
-                    f"""\
+            print(textwrap.dedent(f"""\
 
             {colorize('Adhoc entity commands:', 'highlight2')}
                 search {colorize('- search for entities by name and/or other attributes.', 'dim')}
@@ -3513,9 +3551,7 @@ class EdaCmd(cmd.Cmd):
             {colorize('Senzing Knowledge Center:', 'dim')} {colorize('https://senzing.zendesk.com/hc/en-us', 'highlight2, underline')}
             {colorize('Senzing Support Request:', 'dim')} {colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight2, underline')}
 
-             """
-                )
-            )
+             """))
         else:
             cmd.Cmd.do_help(self, help_topic)
 
@@ -3595,17 +3631,13 @@ class EdaCmd(cmd.Cmd):
         print(f"\nSenzing SDK version {sdk_wrapper.sdk_version['BUILD_VERSION']}\n")
 
     def help_set(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         {colorize('Syntax:', 'highlight2')}
             set <setting> <value>
 
         {colorize('settings:', 'highlight2')}
-        """
-            )
-        )
+        """))
 
         print(colorize(f"    {'setting':<23} {'[possible values]':<22} {'current':<13} {'description'}", "dim"))
         for setting_data in self.configurable_settings_list:
@@ -3655,16 +3687,12 @@ class EdaCmd(cmd.Cmd):
     # reports
 
     def help_load(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         {colorize('Syntax:', 'highlight2')}
             load <filename>  {colorize('load a Senzing snapshot or audit json file for review', 'dim')}
 
-        """
-            )
-        )
+        """))
 
     def complete_load(self, text, line, begidx, endidx):
         before_arg = line.rfind(" ", 0, begidx)
@@ -3738,17 +3766,13 @@ class EdaCmd(cmd.Cmd):
         view_report(tbl.render_table())
 
     def help_audit_summary(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Displays audit statistics and examples.
 
         {colorize('Syntax:', 'highlight2')}
             audit_summary
-        """
-            )
-        )
+        """))
 
     def do_audit_summary(self, arg):
         try:
@@ -3757,9 +3781,7 @@ class EdaCmd(cmd.Cmd):
             print_exception(ex)
 
     def help_entity_size_breakdown(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Displays the number of entities by how many records they contain.
 
@@ -3770,9 +3792,7 @@ class EdaCmd(cmd.Cmd):
             Review items are suggestions of records to look at because they contain multiple names, addresses, dobs, etc.
             They may be overmatches or they may just be large entities with lots of values.
 
-        """
-            )
-        )
+        """))
 
     def do_entity_size_breakdown(self, arg):
         try:
@@ -3787,17 +3807,13 @@ class EdaCmd(cmd.Cmd):
         return possibles
 
     def help_data_source_summary(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Displays the resolution statistics for each data source.
 
         {colorize('Syntax:', 'highlight2')}
             data_source_summary [dataSource]
-            """
-            )
-        )
+            """))
 
     def do_data_source_summary(self, arg):
         try:
@@ -3806,17 +3822,13 @@ class EdaCmd(cmd.Cmd):
             print_exception(ex)
 
     def help_cross_source_summary(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Displays the resolution statistics across data sources.
 
         {colorize('Syntax:', 'highlight2')}
             cross_source_summary [dataSource]
-        """
-            )
-        )
+        """))
 
     def complete_cross_source_summary(self, text, line, begidx, endidx):
         possibles = sorted(self.eda_reports.snapshot_data.get("DATA_SOURCES", {}).keys())
@@ -3831,9 +3843,7 @@ class EdaCmd(cmd.Cmd):
             print_exception(ex)
 
     def help_entity_source_summary(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Displays the number of entities resolved into data source groups.  For instance, the number of entities in
         dataSource1, the number of entities in dataSource2 and the number of entities in both.
@@ -3843,9 +3853,7 @@ class EdaCmd(cmd.Cmd):
 
         {colorize('Syntax:', 'highlight2')}
             entity_source_summary [dataSource]
-        """
-            )
-        )
+        """))
 
     def complete_entity_source_summary(self, text, line, begidx, endidx):
         possibles = sorted(self.eda_reports.snapshot_data.get("DATA_SOURCES", {}).keys())
@@ -3860,18 +3868,14 @@ class EdaCmd(cmd.Cmd):
             print_exception(ex)
 
     def help_principles_used(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Displays which principles are firing and allows you to see examples.
 
         {colorize('Syntax:', 'highlight2')}
             principles_used
 
-        """
-            )
-        )
+        """))
 
     def do_principles_used(self, arg: str) -> None:
         try:
@@ -3922,9 +3926,7 @@ class EdaCmd(cmd.Cmd):
         return arg_str, kwarg_dict
 
     def help_feature_search(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         finds entities by feature description or id
 
@@ -3937,9 +3939,7 @@ class EdaCmd(cmd.Cmd):
             feature_search is intended to be used during smallish POCs to help find entities by feature ID or description when they are not returned by search.
             feature_search can take a long time and return a lot of entities!
 
-        """
-            )
-        )
+        """))
 
     def do_feature_search(self, arg):
         if not arg:
@@ -4082,9 +4082,7 @@ class EdaCmd(cmd.Cmd):
         view_report(report)
 
     def help_search(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Search for an entity by its attributes.
 
@@ -4101,9 +4099,7 @@ class EdaCmd(cmd.Cmd):
             shown above.  The value before the first pipe is assumed to be name and use a colon to separate the 
             attribute name from its value.
             
-        """
-            )
-        )
+        """))
 
     def do_search(self, arg):
         if not arg:
@@ -4215,9 +4211,7 @@ class EdaCmd(cmd.Cmd):
         print(colorize(f"{LFTAB}{LFTAB.join(msg.split(LF))}{LF}", "caution"))
 
     def help_get_features(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Displays how a particular entity's features were parsed.
 
@@ -4227,9 +4221,7 @@ class EdaCmd(cmd.Cmd):
 
         {colorize('Notes:', 'highlight2')}
             {colorize('Add a feature type code after the entity_id to filter for only those features', 'dim')}
-        """
-            )
-        )
+        """))
 
     def do_get_features(self, arg):
         if not arg:
@@ -4238,9 +4230,7 @@ class EdaCmd(cmd.Cmd):
         self.do_get("features " + arg)
 
     def help_get(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Displays a particular entity by entity_id or by data_source and record_id.
 
@@ -4253,9 +4243,7 @@ class EdaCmd(cmd.Cmd):
             {colorize('Add the keyword ', 'dim')}DETAIL{colorize(' to display each record in the entity separately.', 'dim')}
             {colorize('Add the keyword ', 'dim')}FEATURES{colorize(' to display how its features were parsed.', 'dim')}
             {colorize('Add the keyword ', 'dim')}ALL{colorize(' to display all the attributes of the entity if they are getting cut off.', 'dim')}
-        """
-            )
-        )
+        """))
 
     def do_get(self, arg, **kwargs):
         """get an entity resume"""
@@ -4316,7 +4304,9 @@ class EdaCmd(cmd.Cmd):
             return
 
         order = "ASC" if operator == ">" else "DESC"
-        sql = sz_dbo.sql_prep(f"select RES_ENT_ID from RES_ENT where RES_ENT_ID {operator} ? order by RES_ENT_ID {order}")
+        sql = sz_dbo.sql_prep(
+            f"select RES_ENT_ID from RES_ENT where RES_ENT_ID {operator} ? order by RES_ENT_ID {order}"
+        )
         verify_sql = sz_dbo.sql_prep("select 1 from RES_ENT_OKEY where RES_ENT_ID = ?")
         for row in sz_dbo.fetch_all_rows(sz_dbo.sql_exec(sql, [starting_id])):
             candidate_id = row[0]
@@ -4340,9 +4330,7 @@ class EdaCmd(cmd.Cmd):
         self.do_previous(arg)
 
     def help_compare(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Compares a set of entities by placing them side by side in a columnar format.
 
@@ -4354,9 +4342,7 @@ class EdaCmd(cmd.Cmd):
         {colorize('Notes:', 'highlight2')}
             Comparing a single entity will compare that entity with all its relationships!
 
-                """
-            )
-        )
+                """))
 
     def do_compare(self, arg, **kwargs):
         """show entities side by side"""
@@ -4387,9 +4373,7 @@ class EdaCmd(cmd.Cmd):
             print_message(err, "error")
 
     def help_tree(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Displays an entity tree from a particular entity's point of view.
 
@@ -4397,9 +4381,7 @@ class EdaCmd(cmd.Cmd):
             tree <entity_id>                  {colorize('displays the first degree relationships of an entity', 'dim')}
             tree <entity_id> degree <n>       {colorize('displays relationships of an entity out to <n> degrees', 'dim')}
             tree <entity_id> degree <n> all   {colorize('adding the "all" tag disables the default limit of 10 per category', 'dim')}
-        """
-            )
-        )
+        """))
 
     def do_tree(self, arg, **kwargs):
         """display entity relationships in a tree"""
@@ -4434,9 +4416,7 @@ class EdaCmd(cmd.Cmd):
             return
 
     def help_why(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Shows the internal values and scores used to determine why a set of records resolved or only related.
 
@@ -4458,9 +4438,7 @@ class EdaCmd(cmd.Cmd):
             [~] indicates that this value was not used to find candidates as too many entities share it
             [!] indicates that this value was not not even scored as too many entities share it
             [#] indicates that this value was suppressed in favor of a more complete value\n
-        """
-            )
-        )
+        """))
 
     def do_why(self, arg, **kwargs):
         if not arg:
@@ -4499,9 +4477,7 @@ class EdaCmd(cmd.Cmd):
 
     def help_how(self):
         entity_id = colorize_entity("<entity_id>")
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
             Shows shows how the records in a single entity came together.
 
@@ -4511,9 +4487,7 @@ class EdaCmd(cmd.Cmd):
                 how {entity_id} tree       {colorize('shows the decision tree view', 'dim')}
                 how {entity_id} columnar   {colorize('shows the columnar view', 'dim')}
 
-                """
-            )
-        )
+                """))
 
     def do_how(self, arg, **kwargs):
         if not arg:
@@ -4545,9 +4519,7 @@ class EdaCmd(cmd.Cmd):
             return
 
     def help_score(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Compares any two features and shows the scores returned.
 
@@ -4558,9 +4530,7 @@ class EdaCmd(cmd.Cmd):
 
         {colorize('Notes:', 'highlight2')}
             Use the keyword "force" to force the two records to find each other by adding a trusted_id.
-        """
-            )
-        )
+        """))
 
     def do_score(self, arg):
         if not arg:
@@ -4615,9 +4585,7 @@ class EdaCmd(cmd.Cmd):
         return
 
     def help_export(self):
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         Exports the json records that make up the selected entities for debugging, reloading, etc.
 
@@ -4625,9 +4593,7 @@ class EdaCmd(cmd.Cmd):
             export <entity_id>, <entity_id> degree <n> to <fileName> additive
             export search to <fileName>
             export search <search index> to <fileName>\n
-        """
-            )
-        )
+        """))
 
     def do_export(self, arg):
         if not arg:
@@ -4784,7 +4750,9 @@ if __name__ == "__main__":
         sz_dbo = None
 
     try:
-        sdk_wrapper = EdaSdkWrapper(engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url, mask_pii=args.mask_pii)
+        sdk_wrapper = EdaSdkWrapper(
+            engine_config, debug_trace=args.debug_trace, webapp_url=args.webapp_url, mask_pii=args.mask_pii
+        )
     except SzError as ex:
         print_message(ex, "error")
         sys.exit(1)

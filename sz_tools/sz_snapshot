@@ -846,14 +846,10 @@ if __name__ == "__main__":
     except Exception as err:
         sz_dbo = None
         print(f"\n{err}")
-        print(
-            textwrap.dedent(
-                """\
+        print(textwrap.dedent("""\
             Direct database access not available, performing an SDK only snapshot at this time. Installing direct database access
             drivers can significantly reduce the time it takes to snapshot on very large databases.
-            """
-            )
-        )
+            """))
 
         if not args.quiet:
             if input("Continue? (y/n) ").lower() not in ("y", "yes"):

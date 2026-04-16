@@ -382,9 +382,7 @@ def audit(file_name1, file_name2, output_root, debug):
     with open(json_file_name, "w") as f:
         json.dump(stat_pack, f)
 
-    print(
-        textwrap.dedent(
-            f"""\
+    print(textwrap.dedent(f"""\
 
     {stat_pack['PAIRS']['PRIOR_COUNT']} prior pairs
     {stat_pack['PAIRS']['NEWER_COUNT']} newer pairs
@@ -404,9 +402,7 @@ def audit(file_name1, file_name2, output_root, debug):
     {stat_pack['AUDIT'].get('SPLIT', {}).get('COUNT', 0)} split entities
     {stat_pack['AUDIT'].get('SPLIT+MERGE', {}).get('COUNT', 0)} split+merge entities
 
-    """
-        )
-    )
+    """))
     if missing_prior_record_cnt or missing_newer_record_cnt:
         print(f"{missing_prior_record_cnt} missing prior records")
         print(f"{missing_newer_record_cnt} missing newer records")
@@ -481,9 +477,7 @@ def stat_checker(newer_file_name, prior_file_name):
     )
     f1_score = round((2 * precision * recall) / (precision + recall), 5) if precision + recall > 0 else 0
 
-    print(
-        textwrap.dedent(
-            f"""\
+    print(textwrap.dedent(f"""\
 
     {newer_entity_count} newer_entities
     {prior_entity_count} prior_entities
@@ -499,9 +493,7 @@ def stat_checker(newer_file_name, prior_file_name):
     {recall} recall
     {f1_score} f1-score
 
-    """
-        )
-    )
+    """))
     return 0
 
 
