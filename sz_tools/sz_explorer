@@ -223,17 +223,18 @@ def view_report(report, **kwargs):
     else:
         less_options = "-FXSR"
 
-    # Lesskey config: remap s to quit with exit code 83
-    lesskey_path = os.path.join(tempfile.gettempdir(), ".sz_lesskey")
     less_cmd = ["less", "--mouse"]
-    try:
-        with open(lesskey_path, "w") as f:
-            f.write("#command\ns   quit S\n")
-        less_cmd.append(f"--lesskey-src={lesskey_path}")
-    except Exception:
-        pass
-
-    prompt = "\u2191\u2193 scroll, /search, s save, q quit      %lt-%lb of %L"
+    if kwargs.get("saveable"):
+        lesskey_path = os.path.join(tempfile.gettempdir(), ".sz_lesskey")
+        try:
+            with open(lesskey_path, "w") as f:
+                f.write("#command\ns   quit S\n")
+            less_cmd.append(f"--lesskey-src={lesskey_path}")
+        except Exception:
+            pass
+        prompt = "\u2191\u2193 scroll, /search, s save, q quit      %lt-%lb of %L"
+    else:
+        prompt = "\u2191\u2193 scroll, /search, q quit      %lt-%lb of %L"
     less_options += f"P{prompt}"
     less_cmd.append(less_options)
 
@@ -1333,7 +1334,7 @@ class EdaReports:
                 tbl = self.generate_from(select_data, remaining, {f"BY_{k}": v for k, v in selected_values.items()})
                 if tbl:
                     tbl.title = self.current_report_title
-                    exit_code = view_report(tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True)
+                    exit_code = view_report(tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True, saveable=True)
                     if exit_code == 83:
                         file_name = input("\nFile name: ").strip()
                         if file_name:
@@ -1462,7 +1463,7 @@ class EdaReports:
                 tbl = self.generate_from(fake_data, [], {f"BY_{k}": v for k, v in (selected_values_for_browse or {}).items()})
                 if tbl:
                     tbl.title = self.current_report_title
-                    exit_code = view_report(tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True)
+                    exit_code = view_report(tbl.render_table(report_style=True, divide_by="SAMPLE"), force_scroll=True, saveable=True)
                     if exit_code == 83:
                         file_name = input("\nFile name: ").strip()
                         if file_name:
