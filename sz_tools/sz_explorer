@@ -44,6 +44,7 @@ except ImportError as ex:
     sys.exit(1)
 
 
+
 def print_exception(ex):
     print_message(f"{ex}, press any key to continue", "error")
     if get_char() in "tTdD":
@@ -215,6 +216,7 @@ def view_report(report, **kwargs):
                         break
                 print(f" {nline}{Colors.RESET}")
         return
+
 
     if kwargs.get("force_scroll"):
         less_options = "-XSR"
@@ -3371,8 +3373,8 @@ class EdaCmd(cmd.Cmd):
         self.configurable_settings_list = [
             {
                 "setting": "color_scheme",
-                "values": ["default", "light", "dark"],
-                "description": "light works better on dark backgrounds and vice-versa",
+                "values": [t.lower() for t in Colors.AVAILABLE_THEMES],
+                "description": "see color themes in _tool_helpers.Colors",
             },
             {
                 "setting": "show_relations_on_get",
