@@ -3502,7 +3502,9 @@ class EdaCmd(cmd.Cmd):
 
     def do_help(self, help_topic):
         if not help_topic:
-            print(textwrap.dedent(f"""\
+            print(
+                textwrap.dedent(
+                    f"""\
 
             {colorize('Adhoc entity commands:', 'highlight2')}
                 search {colorize('- search for entities by name and/or other attributes.', 'dim')}
@@ -3542,7 +3544,9 @@ class EdaCmd(cmd.Cmd):
             {colorize('Senzing Knowledge Center:', 'dim')} {colorize('https://senzing.zendesk.com/hc/en-us', 'highlight2, underline')}
             {colorize('Senzing Support Request:', 'dim')} {colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight2, underline')}
 
-             """))
+             """
+                )
+            )
         else:
             cmd.Cmd.do_help(self, help_topic)
 
@@ -3622,13 +3626,17 @@ class EdaCmd(cmd.Cmd):
         print(f"\nSenzing SDK version {sdk_wrapper.sdk_version['BUILD_VERSION']}\n")
 
     def help_set(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         {colorize('Syntax:', 'highlight2')}
             set <setting> <value>
 
         {colorize('settings:', 'highlight2')}
-        """))
+        """
+            )
+        )
 
         print(colorize(f"    {'setting':<23} {'[possible values]':<22} {'current':<13} {'description'}", "dim"))
         for setting_data in self.configurable_settings_list:
@@ -3678,12 +3686,16 @@ class EdaCmd(cmd.Cmd):
     # reports
 
     def help_load(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         {colorize('Syntax:', 'highlight2')}
             load <filename>  {colorize('load a Senzing snapshot or audit json file for review', 'dim')}
 
-        """))
+        """
+            )
+        )
 
     def complete_load(self, text, line, begidx, endidx):
         before_arg = line.rfind(" ", 0, begidx)
@@ -3757,13 +3769,17 @@ class EdaCmd(cmd.Cmd):
         view_report(tbl.render_table())
 
     def help_audit_summary(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Displays audit statistics and examples.
 
         {colorize('Syntax:', 'highlight2')}
             audit_summary
-        """))
+        """
+            )
+        )
 
     def do_audit_summary(self, arg):
         try:
@@ -3772,7 +3788,9 @@ class EdaCmd(cmd.Cmd):
             print_exception(ex)
 
     def help_entity_size_breakdown(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Displays the number of entities by how many records they contain.
 
@@ -3783,7 +3801,9 @@ class EdaCmd(cmd.Cmd):
             Review items are suggestions of records to look at because they contain multiple names, addresses, dobs, etc.
             They may be overmatches or they may just be large entities with lots of values.
 
-        """))
+        """
+            )
+        )
 
     def do_entity_size_breakdown(self, arg):
         try:
@@ -3798,13 +3818,17 @@ class EdaCmd(cmd.Cmd):
         return possibles
 
     def help_data_source_summary(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Displays the resolution statistics for each data source.
 
         {colorize('Syntax:', 'highlight2')}
             data_source_summary [dataSource]
-            """))
+            """
+            )
+        )
 
     def do_data_source_summary(self, arg):
         try:
@@ -3813,13 +3837,17 @@ class EdaCmd(cmd.Cmd):
             print_exception(ex)
 
     def help_cross_source_summary(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Displays the resolution statistics across data sources.
 
         {colorize('Syntax:', 'highlight2')}
             cross_source_summary [dataSource]
-        """))
+        """
+            )
+        )
 
     def complete_cross_source_summary(self, text, line, begidx, endidx):
         possibles = sorted(self.eda_reports.snapshot_data.get("DATA_SOURCES", {}).keys())
@@ -3834,17 +3862,21 @@ class EdaCmd(cmd.Cmd):
             print_exception(ex)
 
     def help_entity_source_summary(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Displays the number of entities resolved into data source groups.  For instance, the number of entities in
         dataSource1, the number of entities in dataSource2 and the number of entities in both.
-        
+
         While similar to the cross_source_summary, it can also show entities in 3 or more data sources.  However, it
         can only show the matches, not the possible matches and relationships.
 
         {colorize('Syntax:', 'highlight2')}
             entity_source_summary [dataSource]
-        """))
+        """
+            )
+        )
 
     def complete_entity_source_summary(self, text, line, begidx, endidx):
         possibles = sorted(self.eda_reports.snapshot_data.get("DATA_SOURCES", {}).keys())
@@ -3859,14 +3891,18 @@ class EdaCmd(cmd.Cmd):
             print_exception(ex)
 
     def help_principles_used(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Displays which principles are firing and allows you to see examples.
 
         {colorize('Syntax:', 'highlight2')}
             principles_used
 
-        """))
+        """
+            )
+        )
 
     def do_principles_used(self, arg: str) -> None:
         try:
@@ -3917,7 +3953,9 @@ class EdaCmd(cmd.Cmd):
         return arg_str, kwarg_dict
 
     def help_feature_search(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         finds entities by feature description or id
 
@@ -3930,7 +3968,9 @@ class EdaCmd(cmd.Cmd):
             feature_search is intended to be used during smallish POCs to help find entities by feature ID or description when they are not returned by search.
             feature_search can take a long time and return a lot of entities!
 
-        """))
+        """
+            )
+        )
 
     def do_feature_search(self, arg):
         if not arg:
@@ -4073,7 +4113,9 @@ class EdaCmd(cmd.Cmd):
         view_report(report)
 
     def help_search(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Search for an entity by its attributes.
 
@@ -4083,14 +4125,16 @@ class EdaCmd(cmd.Cmd):
             search robert smith | date_of_birth: 3/31/1954
 
         {colorize('Notes:', 'highlight2')}
-            Searching by name alone may not locate a specific entity.  Try adding a date of birth, address, or phone 
+            Searching by name alone may not locate a specific entity.  Try adding a date of birth, address, or phone
             number if your record is not found by name alone.
 
-            You can either use a valid Senzing json structure or a pipe delimited string of recognized attributes as 
-            shown above.  The value before the first pipe is assumed to be name and use a colon to separate the 
+            You can either use a valid Senzing json structure or a pipe delimited string of recognized attributes as
+            shown above.  The value before the first pipe is assumed to be name and use a colon to separate the
             attribute name from its value.
-            
-        """))
+
+        """
+            )
+        )
 
     def do_search(self, arg):
         if not arg:
@@ -4202,7 +4246,9 @@ class EdaCmd(cmd.Cmd):
         print(colorize(f"{LFTAB}{LFTAB.join(msg.split(LF))}{LF}", "caution"))
 
     def help_get_features(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Displays how a particular entity's features were parsed.
 
@@ -4212,7 +4258,9 @@ class EdaCmd(cmd.Cmd):
 
         {colorize('Notes:', 'highlight2')}
             {colorize('Add a feature type code after the entity_id to filter for only those features', 'dim')}
-        """))
+        """
+            )
+        )
 
     def do_get_features(self, arg):
         if not arg:
@@ -4221,7 +4269,9 @@ class EdaCmd(cmd.Cmd):
         self.do_get("features " + arg)
 
     def help_get(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Displays a particular entity by entity_id or by data_source and record_id.
 
@@ -4234,7 +4284,9 @@ class EdaCmd(cmd.Cmd):
             {colorize('Add the keyword ', 'dim')}DETAIL{colorize(' to display each record in the entity separately.', 'dim')}
             {colorize('Add the keyword ', 'dim')}FEATURES{colorize(' to display how its features were parsed.', 'dim')}
             {colorize('Add the keyword ', 'dim')}ALL{colorize(' to display all the attributes of the entity if they are getting cut off.', 'dim')}
-        """))
+        """
+            )
+        )
 
     def do_get(self, arg, **kwargs):
         """get an entity resume"""
@@ -4321,7 +4373,9 @@ class EdaCmd(cmd.Cmd):
         self.do_previous(arg)
 
     def help_compare(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Compares a set of entities by placing them side by side in a columnar format.
 
@@ -4333,7 +4387,9 @@ class EdaCmd(cmd.Cmd):
         {colorize('Notes:', 'highlight2')}
             Comparing a single entity will compare that entity with all its relationships!
 
-                """))
+                """
+            )
+        )
 
     def do_compare(self, arg, **kwargs):
         """show entities side by side"""
@@ -4364,7 +4420,9 @@ class EdaCmd(cmd.Cmd):
             print_message(err, "error")
 
     def help_tree(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Displays an entity tree from a particular entity's point of view.
 
@@ -4372,7 +4430,9 @@ class EdaCmd(cmd.Cmd):
             tree <entity_id>                  {colorize('displays the first degree relationships of an entity', 'dim')}
             tree <entity_id> degree <n>       {colorize('displays relationships of an entity out to <n> degrees', 'dim')}
             tree <entity_id> degree <n> all   {colorize('adding the "all" tag disables the default limit of 10 per category', 'dim')}
-        """))
+        """
+            )
+        )
 
     def do_tree(self, arg, **kwargs):
         """display entity relationships in a tree"""
@@ -4407,7 +4467,9 @@ class EdaCmd(cmd.Cmd):
             return
 
     def help_why(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Shows the internal values and scores used to determine why a set of records resolved or only related.
 
@@ -4416,7 +4478,7 @@ class EdaCmd(cmd.Cmd):
             why <entity_id1> <entity_id2>                               {colorize('shows why two or more different entities did not resolve', 'dim')}
             why <data_source1> <record_id1> <data_source2> <record_id2> {colorize('shows if the two data source records could resolve or relate', 'dim')}
             why search [optional entity_id]                             {colorize('shows the features and keys generated by a search against any candidate entities', 'dim')}
-            
+
         {colorize('Color legend:', 'highlight2')}
             {colorize('green', 'good')} indicates the values matched and contributed to the overall score
             {colorize('red', 'bad')} indicates the values did not match and hurt the overall score
@@ -4429,7 +4491,9 @@ class EdaCmd(cmd.Cmd):
             [~] indicates that this value was not used to find candidates as too many entities share it
             [!] indicates that this value was not not even scored as too many entities share it
             [#] indicates that this value was suppressed in favor of a more complete value\n
-        """))
+        """
+            )
+        )
 
     def do_why(self, arg, **kwargs):
         if not arg:
@@ -4468,7 +4532,9 @@ class EdaCmd(cmd.Cmd):
 
     def help_how(self):
         entity_id = colorize_entity("<entity_id>")
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
             Shows shows how the records in a single entity came together.
 
@@ -4478,7 +4544,9 @@ class EdaCmd(cmd.Cmd):
                 how {entity_id} tree       {colorize('shows the decision tree view', 'dim')}
                 how {entity_id} columnar   {colorize('shows the columnar view', 'dim')}
 
-                """))
+                """
+            )
+        )
 
     def do_how(self, arg, **kwargs):
         if not arg:
@@ -4510,7 +4578,9 @@ class EdaCmd(cmd.Cmd):
             return
 
     def help_score(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Compares any two features and shows the scores returned.
 
@@ -4521,7 +4591,9 @@ class EdaCmd(cmd.Cmd):
 
         {colorize('Notes:', 'highlight2')}
             Use the keyword "force" to force the two records to find each other by adding a trusted_id.
-        """))
+        """
+            )
+        )
 
     def do_score(self, arg):
         if not arg:
@@ -4576,7 +4648,9 @@ class EdaCmd(cmd.Cmd):
         return
 
     def help_export(self):
-        print(textwrap.dedent(f"""\
+        print(
+            textwrap.dedent(
+                f"""\
 
         Exports the json records that make up the selected entities for debugging, reloading, etc.
 
@@ -4584,7 +4658,9 @@ class EdaCmd(cmd.Cmd):
             export <entity_id>, <entity_id> degree <n> to <fileName> additive
             export search to <fileName>
             export search <search index> to <fileName>\n
-        """))
+        """
+            )
+        )
 
     def do_export(self, arg):
         if not arg:
