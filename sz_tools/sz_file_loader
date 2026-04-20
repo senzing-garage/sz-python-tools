@@ -776,12 +776,21 @@ def long_running_check(
             if duration > LONG_RECORD:
                 num_stuck += 1
                 stuck_record = _json_loads(payload[0])
-                logger.warning(
-                    "Long running record (%s): %s - %s",
+                stuck_data_source = stuck_record.get("DATA_SOURCE")
+                stuck_record_id = stuck_record.get("RECORD_ID")
+                if not stuck_data_source or not stuck_record_id:
+                    logger.warning(
+                    "Long running record (%s): %s",
                     f"{duration / 60:.3g}",
-                    f"{stuck_record['DATA_SOURCE']}",
-                    f"{stuck_record['RECORD_ID']}",
-                )
+                    stuck_record,
+                    )
+                else:
+                    logger.warning(
+                        "Long running record (%s): %s - %s",
+                        f"{duration / 60:.3g}",
+                        stuck_data_source,
+                        stuck_record_id
+                    )
 
     if num_stuck >= num_workers:
         logger.warning("All %s threads are stuck processing long running records", num_workers)

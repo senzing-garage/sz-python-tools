@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.39] - 2026-04-20
+
+### Fixed in 0.0.39
+
+- Long running record check in `sz_file_loader` could error on long running redo records
+
 ## [0.0.38] - 2026-04-16
 
 ### Added in 0.0.38
