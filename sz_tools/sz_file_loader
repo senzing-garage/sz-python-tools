@@ -780,9 +780,9 @@ def long_running_check(
                 stuck_record_id = stuck_record.get("RECORD_ID")
                 if not stuck_data_source or not stuck_record_id:
                     logger.warning(
-                    "Long running record (%s): %s",
-                    f"{duration / 60:.3g}",
-                    stuck_record,
+                        "Long running record (%s): %s",
+                        f"{duration / 60:.3g}",
+                        stuck_record,
                     )
                 else:
                     logger.warning(
