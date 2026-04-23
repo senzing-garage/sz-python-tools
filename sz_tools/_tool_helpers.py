@@ -310,19 +310,22 @@ def check_environment() -> None:
         # Check if set or not and that it's not set to null
         secj = os.environ.get("SENZING_ENGINE_CONFIGURATION_JSON")
         if not secj or (secj and len(secj) == 0):
-            # TODO - V4 doc links
-            print(textwrap.dedent("""\n\
+            print(
+                textwrap.dedent(
+                    """\n\
             ERROR: SENZING_ROOT or SENZING_ENGINE_CONFIGURATION_JSON environment variable is not set:
 
                 - If using a Senzing project on a bare metal install, source the setupEnv file in the project root path
                   or set the SENZING_ENGINE_CONFIGURATION_JSON environment variable
 
-                        https://senzing.com/v4-linux-quickstart-guide/
+                        https://www.senzing.com/docs/quickstart/quickstart_linux/
 
                 - If running within a container set the SENZING_ENGINE_CONFIGURATION_JSON environment variable.
 
-                        https://github.com/Senzing/knowledge-base/blob/main/lists/environment-variables.md#senzing_engine_configuration_json
-            """))
+                        https://www.senzing.com/docs/quickstart/quickstart_docker/
+            """
+                )
+            )
             sys.exit(1)
 
 
