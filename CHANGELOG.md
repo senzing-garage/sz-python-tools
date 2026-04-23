@@ -7,6 +7,12 @@ This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
+## [0.0.40] - 2026-04-23
+
+### Fixed in 0.0.40
+
+- Updated doc links in `_tool_helpers.py`
+
 ## [0.0.39] - 2026-04-20
 
 ### Fixed in 0.0.39
