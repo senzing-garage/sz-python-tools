@@ -65,10 +65,21 @@ jobs:
           source ./venv/bin/activate
           python -m pip install typing_extensions
 
+      - name: Mint staging tap token
+        if: matrix.senzingsdk-version != 'production-v4'
+        id: staging-token
+        uses: actions/create-github-app-token@v3.1.1
+        with:
+          client-id: ${{ secrets.SENZINGSDK_STAGING_CLIENT_ID }}
+          private-key: ${{ secrets.SENZINGSDK_STAGING_APP_KEY }}
+          owner: senzing-factory
+          repositories: homebrew-senzingsdk-staging
+
       - name: Install Senzing SDK
-        uses: senzing-factory/github-action-install-senzing-sdk@v4
+        uses: senzing-factory/github-action-install-senzing-sdk@v5
         with:
           senzingsdk-version: ${{ matrix.senzingsdk-version }}
+          senzingsdk-token: ${{ steps.staging-token.outputs.token || github.token }}
 
       - name: Set environment variables
         run: |
