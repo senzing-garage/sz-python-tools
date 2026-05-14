@@ -17,4 +17,3 @@ jobs:
     uses: senzing-factory/build-resources/.github/workflows/add-to-project-dependabot.yaml@v4
     with:
       project: ${{ vars.SENZING_PROJECT_GARAGE }}
-

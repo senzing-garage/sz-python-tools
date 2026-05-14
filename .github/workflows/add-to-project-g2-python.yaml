@@ -20,4 +20,3 @@ jobs:
     with:
       project-number: ${{ vars.SENZING_PROJECT_G2_PYTHON }}
       org: ${{ vars.SENZING_GITHUB_ACCOUNT_NAME }}
-

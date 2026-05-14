@@ -44,4 +44,3 @@ jobs:
         run: |
           # shellcheck disable=SC2046
           pylint $(git ls-files '*.py' ':!:docs/source/*')
-
