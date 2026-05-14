@@ -111,3 +111,12 @@ jobs:
         with:
           name: "coverage-${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
           path: "coverage.${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
+
+      - name: Notify Slack on failure
+        if: (failure() || cancelled()) && github.event_name == 'schedule'
+        uses: senzing-factory/build-resources/slack-failure-notification@v4
+        with:
+          job-status: ${{ job.status }}
+          slack-channel: ${{ secrets.SLACK_CHANNEL }}
+          slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          additional-info: "SDK: ${{ matrix.senzingsdk-version }} | Python: ${{ matrix.python-version }}"
