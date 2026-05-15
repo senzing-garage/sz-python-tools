@@ -63,10 +63,22 @@ jobs:
           .\\venv\\Scripts\\activate
           python -m pip install typing_extensions
 
+      - name: Mint staging bucket token
+        if: matrix.senzingsdk-version != 'production-v4'
+        id: staging-token
+        uses: actions/create-github-app-token@v3.1.1
+        with:
+          client-id: ${{ secrets.SENZINGSDK_STAGING_CLIENT_ID }}
+          private-key: ${{ secrets.SENZINGSDK_STAGING_APP_KEY }}
+          owner: senzing-factory # zizmor: ignore[github-app]
+          repositories: scoop-senzingsdk-staging
+          permission-contents: read
+
       - name: Install Senzing SDK
-        uses: senzing-factory/github-action-install-senzing-sdk@v4
+        uses: senzing-factory/github-action-install-senzing-sdk@v5
         with:
           senzingsdk-version: ${{ matrix.senzingsdk-version }}
+          senzingsdk-token: ${{ steps.staging-token.outputs.token || github.token }}
 
       - name: Set environment variables
         run: |
@@ -99,3 +111,12 @@ jobs:
         with:
           name: "coverage-${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
           path: "coverage.${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
+
+      - name: Notify Slack on failure
+        if: (failure() || cancelled()) && github.event_name == 'schedule'
+        uses: senzing-factory/build-resources/slack-failure-notification@v4
+        with:
+          job-status: ${{ job.status }}
+          slack-channel: ${{ secrets.SLACK_CHANNEL }}
+          slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          additional-info: "SDK: ${{ matrix.senzingsdk-version }} | Python: ${{ matrix.python-version }}"

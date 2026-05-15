@@ -68,7 +68,7 @@ jobs:
           python -m pip install typing_extensions
 
       - name: Install Senzing SDK
-        uses: senzing-factory/github-action-install-senzing-sdk@v4
+        uses: senzing-factory/github-action-install-senzing-sdk@v5
         with:
           senzingsdk-version: ${{ matrix.senzingsdk-version }}
 
@@ -106,3 +106,12 @@ jobs:
         with:
           name: "coverage-${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
           path: "coverage.${{ matrix.python-version }}-${{ matrix.senzingsdk-version }}"
+
+      - name: Notify Slack on failure
+        if: (failure() || cancelled()) && (github.ref_name == github.event.repository.default_branch || github.event_name == 'schedule')
+        uses: senzing-factory/build-resources/slack-failure-notification@v4
+        with:
+          job-status: ${{ job.status }}
+          slack-channel: ${{ secrets.SLACK_CHANNEL }}
+          slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
+          additional-info: "SDK: ${{ matrix.senzingsdk-version }} | Python: ${{ matrix.python-version }}"
