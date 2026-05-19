@@ -7,7 +7,9 @@ This project adheres to [Semantic Versioning].
 
 ## [Unreleased]
 
-### Fixed
+## [0.0.41] - 2026-05-18
+
+### Fixed in 0.0.41
 
 - `sz_explorer`: mappable attributes with null/empty values no longer appear in Additional Data (#391)
 
