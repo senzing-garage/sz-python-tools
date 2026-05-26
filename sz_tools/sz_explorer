@@ -1543,6 +1543,50 @@ class EdaReports:
                     )
 
 
+def _strip_null_values(value):
+    """Recursively drop None and empty-string entries from nested dicts/lists.
+
+    Keeps 0, False, and other non-null values. Returns None if the container
+    collapses to empty so callers can drop it from a parent.
+    """
+    if isinstance(value, dict):
+        cleaned = {}
+        for k, v in value.items():
+            if v is None or v == "":
+                continue
+            cv = _strip_null_values(v)
+            if cv is None:
+                continue
+            cleaned[k] = cv
+        return cleaned or None
+    if isinstance(value, list):
+        cleaned = []
+        for item in value:
+            if item is None or item == "":
+                continue
+            ci = _strip_null_values(item)
+            if ci is None:
+                continue
+            cleaned.append(ci)
+        return cleaned or None
+    return value
+
+
+def _clean_unmapped_data(node):
+    """Walk a parsed engine response and strip null/empty entries from every
+    UNMAPPED_DATA dict found anywhere in the structure. Mutates in place.
+    """
+    if isinstance(node, dict):
+        if "UNMAPPED_DATA" in node:
+            cleaned = _strip_null_values(node["UNMAPPED_DATA"])
+            node["UNMAPPED_DATA"] = cleaned if cleaned else {}
+        for v in node.values():
+            _clean_unmapped_data(v)
+    elif isinstance(node, list):
+        for item in node:
+            _clean_unmapped_data(item)
+
+
 class EdaSdkWrapper:
 
     def __init__(self, engine_config, **kwargs):
@@ -1692,6 +1736,8 @@ class EdaSdkWrapper:
             response_data: Dict[str, Any] = json.loads(response)
         except SzError as err:
             raise SzError(f"{api_name}: {err}") from None
+
+        _clean_unmapped_data(response_data)
 
         if self.mask_pii:
             mask_json_pii(response_data, self.mask_pii)
