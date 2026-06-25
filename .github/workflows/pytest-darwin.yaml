@@ -14,6 +14,11 @@ concurrency:
 env:
   PYTHONPATH: ${{ github.workspace }}/src
   SENZING_TOOLS_DATABASE_URL: sqlite3://na:na@nowhere/tmp/sqlite/G2C.db
+  # Homebrew 6.0 (2026-06-11) added tap trust, which refuses to load the
+  # migration-redirected `senzingsdk` cask from the third-party
+  # `senzing/senzingsdk` tap. Opt out during the transition so the Senzing SDK
+  # install action's `brew install --cask` succeeds on macOS runners.
+  HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
 
 permissions: {}
 
