@@ -610,7 +610,7 @@ class SzDatabase:
                             f"Could not import psycopg2 for database access, this is required for password authentication: {self.imported_psycopg2_error}"
                         )
 
-        elif db_type in ("MSSQL"):
+        elif db_type == "MSSQL":
             self.import_mssql()
             self.import_pyodbc()
 
