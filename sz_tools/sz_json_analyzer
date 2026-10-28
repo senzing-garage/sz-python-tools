@@ -608,9 +608,11 @@ def format_pretty_table(table_rows):
 
     for field_name in table_object.field_names:
         if field_name.endswith("Count") or field_name.endswith("Percent"):
-            table_object.align[field_name] = "r"
+            # prettytable's align getter returns a dict, only its setter takes a str
+            table_object.align[field_name] = "r"  # pylint: disable=unsupported-assignment-operation
         else:
-            table_object.align[field_name] = "l"
+            # prettytable's align getter returns a dict, only its setter takes a str
+            table_object.align[field_name] = "l"  # pylint: disable=unsupported-assignment-operation
 
     return table_object.get_string()
 
