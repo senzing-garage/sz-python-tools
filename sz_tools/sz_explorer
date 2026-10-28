@@ -400,7 +400,8 @@ class eda_table:
 
         for column_data in self.columns:
             # prettytable's align getter returns a dict, only its setter takes a str
-            table_object.align[column_data["name"]] = column_data["align"][0:1].lower()  # pylint: disable=unsupported-assignment-operation
+            # pylint: disable-next=unsupported-assignment-operation
+            table_object.align[column_data["name"]] = column_data["align"][0:1].lower()
 
         table_str = table_object.get_string()
         if super_header:
@@ -500,7 +501,8 @@ class EdaReports:
         # (feature_counts)
         for ftype_code in feature_counts:
             # sdk_wrapper is a module global set under __main__ before EdaCmd is created, or the script exits
-            ftype_excl = sdk_wrapper.ftype_code_lookup[ftype_code]["FTYPE_EXCL"]  # pylint: disable=possibly-used-before-assignment
+            # pylint: disable-next=possibly-used-before-assignment
+            ftype_excl = sdk_wrapper.ftype_code_lookup[ftype_code]["FTYPE_EXCL"]
             ftype_freq = sdk_wrapper.ftype_code_lookup[ftype_code]["FTYPE_FREQ"]
             ftype_count = feature_counts[ftype_code]
             if ftype_count > entity_size:  # a single record has reported multiple
@@ -3477,7 +3479,8 @@ class EdaCmd(cmd.Cmd):
                 setting_data["setting"], setting_data["values"][0]
             )
         # do_set only touches eda_reports for the default_how_view setting, not color_scheme
-        self.do_set(f"color_scheme {self.current_settings['color_scheme']}")  # pylint: disable=access-member-before-definition
+        # pylint: disable-next=access-member-before-definition
+        self.do_set(f"color_scheme {self.current_settings['color_scheme']}")
 
         self.last_entity_id = 0
         self.last_search_request = []
