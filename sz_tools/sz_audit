@@ -318,7 +318,8 @@ def audit(file_name1, file_name2, output_root, debug):
         if len(audit_stats[audit_category]["SUB_CATEGORY"][best_score]["SAMPLE"]) < 500:
             audit_stats[audit_category]["SUB_CATEGORY"][best_score]["SAMPLE"].append(audit_sample)
         else:
-            random_index = random.randint(1, 499)
+            # Random sampling of audit records, not used for security.
+            random_index = random.randint(1, 499)  # nosec B311
             if random_index % 10 != 0:
                 audit_stats[audit_category]["SUB_CATEGORY"][best_score]["SAMPLE"][random_index] = audit_sample
 

@@ -625,7 +625,8 @@ def format_csv_table(table_rows):
 
 
 def print_report(report_string: str):
-    less = subprocess.Popen(["less", "-FMXSR"], stdin=subprocess.PIPE)
+    # Pipes output to the user's pager with a fixed argument list and no shell.
+    less = subprocess.Popen(["less", "-FMXSR"], stdin=subprocess.PIPE)  # nosec B603, B607
     try:
         less.stdin.write(report_string.encode("utf-8"))
     except IOError:
