@@ -705,7 +705,7 @@ class SzCmdShell(cmd.Cmd):
                     if not each_cmd or each_cmd[0:1] in ("#", "-", "/"):
                         continue
 
-                    (requested_cmd, *requested_args) = each_cmd.split()
+                    requested_cmd, *requested_args = each_cmd.split()
 
                     try:
                         cmd_args = " ".join(requested_args)
@@ -728,9 +728,7 @@ class SzCmdShell(cmd.Cmd):
 
     @staticmethod
     def help_overview() -> None:
-        print(
-            textwrap.dedent(
-                f"""
+        print(textwrap.dedent(f"""
         {colorize_str('This utility allows you to interact with the Senzing SDK', 'dim')}
 
         {colorize_str('Help', 'highlight2')}
@@ -801,9 +799,7 @@ class SzCmdShell(cmd.Cmd):
             {colorize_str('- Senzing Knowledge Center:', 'dim')} {colorize_str('https://senzing.com/docs/', 'highlight1,underline')}
             {colorize_str('- SDK Docs:', 'dim')} {colorize_str('https://docs.senzing.com', 'highlight1,underline')}
 
-        """
-            )
-        )
+        """))
 
     # -----------------------------------------------------------------------------
     # szconfig commands
@@ -982,8 +978,7 @@ class SzCmdShell(cmd.Cmd):
             - This deletes all data in the Senzing database!"""
 
         purge_msg = colorize_output(
-            textwrap.dedent(
-                """
+            textwrap.dedent("""
 
                 ********** WARNING **********
 
@@ -992,8 +987,7 @@ class SzCmdShell(cmd.Cmd):
 
                 ********** WARNING **********
 
-                Are you sure you want to purge the Senzing database? Type YESPURGESENZING to purge: """
-            ),
+                Are you sure you want to purge the Senzing database? Type YESPURGESENZING to purge: """),
             "warning",
         )
 
@@ -1953,16 +1947,12 @@ class SzCmdShell(cmd.Cmd):
         # Get a list of any settings that have an extra 'value'
         config_values = [element.get("value", "") for element in CONFIG_SETTINGS.values()]
 
-        print(
-            textwrap.dedent(
-                f"""\
+        print(textwrap.dedent(f"""\
 
         {colorize_str('Syntax:', 'highlight2')}
             set {colorize_str('setting value', "dim")}
 
-        {colorize_str('Settings:', 'highlight2')} """
-            )
-        )
+        {colorize_str('Settings:', 'highlight2')} """))
         print(
             colorize_str(
                 f"    {'Setting':<17} {'Possible values':<34} {'Current':<10} {'Description':<51} {'Value' if any(config_values) else ''}",

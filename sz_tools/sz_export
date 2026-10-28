@@ -148,7 +148,7 @@ def csv_export():
         # Bypass bad rows
         if "RESOLVED_ENTITY_ID" not in export_record_dict:
             print_error(f"RESOLVED_ENTITY_ID is missing at line: {fetched_rec_count}: - {export_record.strip()}")
-            (export_record, export_record_dict) = csv_fetch_next(export_handle, csv_header)
+            export_record, export_record_dict = csv_fetch_next(export_handle, csv_header)
             bad_count_outer += 1
             fetched_rec_count += 1
             continue
@@ -160,7 +160,7 @@ def csv_export():
             # Bypass bad rows
             if "RECORD_ID" not in export_record_dict:
                 print_error(f"RECORD_ID is missing at line: {fetched_rec_count} - {export_record.strip()}")
-                (export_record, export_record_dict) = csv_fetch_next(export_handle, csv_header)
+                export_record, export_record_dict = csv_fetch_next(export_handle, csv_header)
                 bad_count_inner += 1
                 fetched_rec_count += 1
                 continue
@@ -174,7 +174,7 @@ def csv_export():
                 export_record_dict.pop("JSON_DATA", None)
 
             row_list.append(export_record_dict)
-            (export_record, export_record_dict) = csv_fetch_next(export_handle, csv_header)
+            export_record, export_record_dict = csv_fetch_next(export_handle, csv_header)
             fetched_rec_count += 1
             batch_row_count += 1
 
@@ -189,7 +189,7 @@ def csv_export():
             return total_row_count, (bad_count_outer + bad_count_inner), 1
         total_row_count += len(row_list)
 
-        (start_time, batch_row_count) = do_stats_output(total_entity_count, start_time, batch_row_count)
+        start_time, batch_row_count = do_stats_output(total_entity_count, start_time, batch_row_count)
 
     return total_row_count, (bad_count_outer + bad_count_inner), 0
 
@@ -239,13 +239,11 @@ if __name__ == "__main__":
         "--output_file",
         required=True,
         nargs="?",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
 
             Path and file name to write output to.
 
-            """
-        ),
+            """),
     )
 
     cli_args.add_argument(
@@ -253,13 +251,11 @@ if __name__ == "__main__":
         "--iniFile",
         dest="ini_file_name",
         default=None,
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
 
             Path and file name of optional sz_engine_config.ini to use.
 
-            """
-        ),
+            """),
     )
 
     cli_args.add_argument(
@@ -267,15 +263,13 @@ if __name__ == "__main__":
         "--flags",
         default=["SZ_ENTITY_BRIEF_DEFAULT_FLAGS", "SZ_EXPORT_INCLUDE_ALL_ENTITIES"],
         nargs="+",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
 
             Space separated list of export flags to apply to the export.
 
             Default: %(default)s
 
-            """
-        ),
+            """),
     )
 
     cli_args.add_argument(
@@ -284,15 +278,13 @@ if __name__ == "__main__":
         default="CSV",
         type=str.upper,
         choices=("CSV", "JSON"),
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
 
             Data format to export to, JSON or CSV.
 
             Default: %(default)s
 
-            """
-        ),
+            """),
     )
 
     cli_args.add_argument(
@@ -300,8 +292,7 @@ if __name__ == "__main__":
         "--extended",
         default=False,
         action="store_true",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
 
             Return extended details, adds RESOLVED_ENTITY_NAME & JSON_DATA.
 
@@ -316,8 +307,7 @@ if __name__ == "__main__":
             WARNING: This is not recommended! To include the JSON_DATA for every CSV record see the
             --extendCSVRelates (-xcr) argument.
 
-            """
-        ),
+            """),
     )
 
     cli_args.add_argument(
@@ -325,15 +315,13 @@ if __name__ == "__main__":
         "--outputFrequency",
         default=1000,
         type=int,
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
 
             Frequency of export output statistics.
 
             Default: %(default)s
 
-            """
-        ),
+            """),
     )
 
     cli_args.add_argument(
@@ -344,8 +332,7 @@ if __name__ == "__main__":
         nargs="?",
         type=int,
         choices=range(1, 10),
-        help=textwrap.dedent(
-            f"""\
+        help=textwrap.dedent(f"""\
 
             Compress output file with gzip. Compression level can be optionally specified.
 
@@ -354,8 +341,7 @@ if __name__ == "__main__":
 
             Default: %(const)s
 
-            """
-        ),
+            """),
     )
 
     cli_args.add_argument(
@@ -363,8 +349,7 @@ if __name__ == "__main__":
         "--extendCSVRelates",
         default=False,
         action="store_true",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
 
             WARNING: Use of this argument is not recommended!
 
@@ -372,28 +357,24 @@ if __name__ == "__main__":
 
             Only valid for CSV output format.
 
-            """
-        ),
+            """),
     )
 
     args = cli_args.parse_args()
 
     if args.extendCSVRelates and not args.extended:
         print(
-            textwrap.dedent(
-                f"""
+            textwrap.dedent(f"""
                 ERROR: Argument --extendCSVRelates (-xcr) is used to complement --extended (-x) and not used alone.')
 
                         Review the help with {MODULE_NAME} --help
-            """
-            ),
+            """),
         )
         sys.exit(0)
 
     if args.extendCSVRelates:
         print_warning(
-            textwrap.dedent(
-                f"""
+            textwrap.dedent(f"""
                 **************************************************** WARNING *****************************************************
 
                 Using the --extendCSVRelates (-xcr) argument with CSV output format will result in excessive and repeated data for
@@ -404,14 +385,12 @@ if __name__ == "__main__":
                 Review the help with {MODULE_NAME} --help
 
                 **************************************************** WARNING *****************************************************
-                """
-            ),
+                """),
         )
         time.sleep(10)
 
     print_warning(
-        textwrap.dedent(
-            f"""
+        textwrap.dedent(f"""
                 ****************************************************** WARNING *****************************************************
 
                 {MODULE_NAME} isn't intended for exporting large numbers of entities and associated data source record information.
@@ -420,8 +399,7 @@ if __name__ == "__main__":
                 For better options see: https://senzing.com/v4-replicating-to-data-warehouse/
 
                 ****************************************************** WARNING *****************************************************
-                """
-        ),
+                """),
     )
     time.sleep(5)
 
@@ -493,13 +471,11 @@ if __name__ == "__main__":
 
     # Display information for reference
     print(
-        textwrap.dedent(
-            f"""
+        textwrap.dedent(f"""
             Export output file:          {export_output}
             Export output format:        {args.outputFormat}
             Exported rows:               {row_count:,}
             Bad rows skipped:            {bad_rec_count}
             Execution time:              {round((export_finish - export_start) / 60, 1)} mins
-            """
-        ),
+            """),
     )

@@ -302,9 +302,7 @@ class SzCfgShell(cmd.Cmd):
         cmd.Cmd.do_help(self, *args)
 
     def help_overview(self):
-        print(
-            textwrap.dedent(
-                f"""
+        print(textwrap.dedent(f"""
         {colorize('This utility allows you to configure a Senzing instance.', '')}
 
         {colorize('Senzing compares records within and across data sources.  Records consist of features and features have attributes.', '')}
@@ -329,14 +327,10 @@ class SzCfgShell(cmd.Cmd):
             {colorize('https://senzing.com/wp-content/uploads/Principle-Based-Entity-Resolution-092519.pdf', 'highlight1, underline')}
             {colorize('https://senzing.com/docs/entity_specification/', 'highlight1, underline')}
 
-        """
-            )
-        )
+        """))
 
     def help_basic(self):
-        print(
-            textwrap.dedent(
-                f"""
+        print(textwrap.dedent(f"""
         {colorize('Senzing comes pre-configured with all the settings needed to resolve persons and organizations.  Usually all that is required', '')}
         {colorize('is for you to register your data sources and start loading data based on the Generic Entity Specification.', '')}
 
@@ -363,14 +357,10 @@ class SzCfgShell(cmd.Cmd):
             {colorize('knowing how they are configured and what their thresholds are can help you understand why records resolved or not, leading to the', 'caution, italics')}
             {colorize('proper course of action when working with Senzing Support.', 'caution, italics')}
 
-        """
-            )
-        )
+        """))
 
     def help_features(self):
-        print(
-            textwrap.dedent(
-                f"""
+        print(textwrap.dedent(f"""
         {colorize('New features and their attributes are rarely needed.  But when they are they are usually industry specific', '')}
         {colorize('identifiers (F1s) like medicare_provider_id or swift_code for a bank.  If you want some other kind of attribute like a grouping (FF)', '')}
         {colorize('or a physical attribute (FME, FMES), it is best to clone an existing feature by doing a getFeature, then modifying the json payload to', '')}
@@ -398,14 +388,10 @@ class SzCfgShell(cmd.Cmd):
         {colorize('Commands for using templates:', 'highlight2')}
             templateAdd             {colorize('<- add an identifier (F1) feature and attributes based on a template', 'dim')}
             templateAdd list        {colorize('<- to see the list of available templates', 'dim')}
-        """
-            )
-        )
+        """))
 
     def help_principles(self):
-        print(
-            textwrap.dedent(
-                f"""
+        print(textwrap.dedent(f"""
         {colorize('Before the principles are applied, the features and expressions created for an incoming record are used to find candidates.', '')}
         {colorize('An example of an expression is name and DOB and there is an expression call on the feature "name" to automatically create it', '')}
         {colorize('if both a name and DOB are present on the incoming record.  Features and expressions used for candidates are also referred', '')}
@@ -434,20 +420,14 @@ class SzCfgShell(cmd.Cmd):
             listFragments           {colorize('<- rules are combinations of fragments like close_name or same_name', 'dim')}
             listFunctions           {colorize('<- the comparison functions show you what is considered same, close, likely, etc.', 'dim')}
             setRule                 {colorize('<- to change whether an existing rule resolves or relates', 'dim')}
-        """
-            )
-        )
+        """))
 
     def help_support(self):
-        print(
-            textwrap.dedent(
-                f"""
+        print(textwrap.dedent(f"""
         {colorize('Senzing Knowledge Center:', 'dim')} {colorize('https://senzing.com/docs/', 'highlight1,underline')}
 
         {colorize('Senzing Support Request:', 'dim')} {colorize('https://senzing.zendesk.com/hc/en-us/requests/new', 'highlight1,underline')}
-        """
-            )
-        )
+        """))
 
     # ===== Auto completion section =====
 
@@ -674,7 +654,7 @@ class SzCfgShell(cmd.Cmd):
                 line = line.strip()
                 if len(line) > 0 and line[0:1] not in ("#", "-", "/"):
                     # *args allows for empty list if there are no args
-                    (read_cmd, *args) = line.split()
+                    read_cmd, *args = line.split()
                     process_cmd = f"do_{read_cmd}"
                     print(colorize(f"----- {read_cmd} -----", "dim"))
                     print(line)

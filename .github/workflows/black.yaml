@@ -44,4 +44,4 @@ jobs:
       - name: Run black testing
         run: |
           # shellcheck disable=SC2046
-          black --diff --check $(git ls-files '*.py' ':!:docs/source/*')
+          black --diff --check $(git ls-files '*.py' 'sz_tools/sz_*' ':!:docs/source/*')

@@ -144,28 +144,24 @@ def parse_cli_args() -> argparse.Namespace:
         default=[],
         metavar="file",
         nargs="*",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
             Path and name of file to load
 
             Default: None, skip loading but still process redo records
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-c",
         "--config-file",
         dest="config_file",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
             Optional path and file name of sz_engine_config.ini to use
 
             Default: None
             Env Var: SENZING_ENGINE_CONFIGURATION_JSON
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-w",
@@ -173,14 +169,12 @@ def parse_cli_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         dest="with_info",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
             Produce with info messages and write to a file
 
             Default: False
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-t",
@@ -188,14 +182,12 @@ def parse_cli_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         dest="debug_trace",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
             Output debug trace information
 
             Default: False
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-nt",
@@ -204,14 +196,12 @@ def parse_cli_args() -> argparse.Namespace:
         dest="num_threads",
         metavar="num_threads",
         type=int,
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
             Total number of worker threads performing load
 
             Default: Calculated
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-n",
@@ -219,15 +209,13 @@ def parse_cli_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         dest="no_redo",
-        help=textwrap.dedent(
-            f"""\
+        help=textwrap.dedent(f"""\
             Disable redo processing.
             Another instance of {MODULE_NAME} can be run in redo only mode or redo can be processed after ingestion
 
             Default: False
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-wp",
@@ -235,14 +223,12 @@ def parse_cli_args() -> argparse.Namespace:
         default="",
         dest="withinfo_path",
         metavar="path",
-        help=textwrap.dedent(
-            f"""\
+        help=textwrap.dedent(f"""\
             Alternative path for the with info file
 
             Default: {Path.cwd()}
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-ep",
@@ -250,14 +236,12 @@ def parse_cli_args() -> argparse.Namespace:
         default="",
         dest="errors_path",
         metavar="path",
-        help=textwrap.dedent(
-            f"""\
+        help=textwrap.dedent(f"""\
             Alternative path for the errors file
 
             Default: {Path.cwd()}
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-sp",
@@ -265,14 +249,12 @@ def parse_cli_args() -> argparse.Namespace:
         default="",
         dest="shuffle_path",
         metavar="path",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
             Alternative path for the shuffled file
 
             Default: Same path as file to load
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-rp",
@@ -280,14 +262,12 @@ def parse_cli_args() -> argparse.Namespace:
         default="",
         dest="redirect_path",
         metavar="path",
-        help=textwrap.dedent(
-            f"""\
+        help=textwrap.dedent(f"""\
             Alternative path for the errors, shuffle and with info file. Overrides -ep, -wp and -sp
 
             Default: {Path.cwd()}
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-sfi",
@@ -295,12 +275,10 @@ def parse_cli_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         dest="shuff_files_ignore",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
             Skip checking for previously shuffled files and prompting to use them
 
-            """
-        ),
+            """),
     )
     no_shuff_no_del = arg_parser.add_mutually_exclusive_group()
     no_shuff_no_del.add_argument(
@@ -309,13 +287,11 @@ def parse_cli_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         dest="no_shuffle",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
             Don\'t shuffle input file(s)
             Shuffling improves performance and shouldn\'t be disabled unless input file(s) are pre-shuffled
 
-            """
-        ),
+            """),
     )
     no_shuff_no_del.add_argument(
         "-snd",
@@ -323,13 +299,11 @@ def parse_cli_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         dest="shuffle_no_delete",
-        help=textwrap.dedent(
-            f"""\
+        help=textwrap.dedent(f"""\
             Don\'t delete shuffled file(s) after {MODULE_NAME} shuffles them.
             Adds {SHUFF_NO_DEL_TAG} and timestamp to the shuffled file. {MODULE_NAME} can detect and reuse shuffled files
 
-            """
-        ),
+            """),
     )
     arg_parser.add_argument(
         "-l",
@@ -337,12 +311,10 @@ def parse_cli_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         dest="logging_output",
-        help=textwrap.dedent(
-            """\
+        help=textwrap.dedent("""\
             Use logging style output
 
-            """
-        ),
+            """),
     )
     # For testing
     arg_parser.add_argument(
@@ -786,10 +758,7 @@ def long_running_check(
                     )
                 else:
                     logger.warning(
-                        "Long running record (%s): %s - %s",
-                        f"{duration / 60:.3g}",
-                        stuck_data_source,
-                        stuck_record_id
+                        "Long running record (%s): %s - %s", f"{duration / 60:.3g}", stuck_data_source, stuck_record_id
                     )
 
     if num_stuck >= num_workers:
