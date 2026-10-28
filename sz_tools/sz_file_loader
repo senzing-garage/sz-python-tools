@@ -49,7 +49,7 @@ try:
     def _json_loads(object_: Any) -> Any:
         return orjson.loads(object_)
 
-    JSONDecodeError = orjson.JSONDecodeError
+    JSONDecodeError: type[ValueError] = orjson.JSONDecodeError
     # JSONEncodeError = orjson.JSONEncodeError
 
 except ImportError:
