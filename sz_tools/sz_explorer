@@ -1258,7 +1258,7 @@ class EdaReports:
                     {"name": "count", "width": 10, "align": "right"},
                 ]
                 row_num = 0
-                if select_level in ("MATCH_KEY"):
+                if select_level == "MATCH_KEY":
                     keys = sorted(select_data.keys(), key=lambda k: select_data[k]["COUNT"], reverse=True)
                     summarized_data = {}
                     key_count = 0
@@ -2318,12 +2318,12 @@ class EdaSdkWrapper:
         key_list = re.split(r"(\+|\-)", match_key)
         i = 1
         while i < len(key_list):
-            if key_list[i] in ("-"):
+            if key_list[i] == "-":
                 i += 1
                 this_key = key_list[i]
                 minus_keys.append(this_key)
 
-            elif key_list[i] in ("+"):
+            elif key_list[i] == "+":
                 i += 1
                 this_key = key_list[i]
                 if "(" not in this_key:
