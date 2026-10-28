@@ -2120,7 +2120,8 @@ class SzCmdShell(cmd.Cmd):
     # pylint: disable=[unused-argument]
 
     # @staticmethod
-    def cmd_settings_decorator(func):
+    # Decorator applied in the class body at definition time, it receives the function, not self
+    def cmd_settings_decorator(func):  # pylint: disable=no-self-argument
         @functools.wraps(func)
         def wrapper_decorator(self, *args, **kwargs):
             comps = []
@@ -2154,7 +2155,8 @@ class SzCmdShell(cmd.Cmd):
 
             # Set kwargs to be available in the wrapper function
             kwargs["cmd_settings"] = comps
-            return func(self, *args, **kwargs)
+            # func is the decorated complete_ method, pylint infers it as the instance
+            return func(self, *args, **kwargs)  # pylint: disable=not-callable
 
         return wrapper_decorator
 

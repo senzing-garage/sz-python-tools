@@ -399,7 +399,8 @@ class eda_table:
             table_object.add_row(row)
 
         for column_data in self.columns:
-            table_object.align[column_data["name"]] = column_data["align"][0:1].lower()
+            # prettytable's align getter returns a dict, only its setter takes a str
+            table_object.align[column_data["name"]] = column_data["align"][0:1].lower()  # pylint: disable=unsupported-assignment-operation
 
         table_str = table_object.get_string()
         if super_header:
@@ -498,7 +499,8 @@ class EdaReports:
         feature_counts = list(entity_data.values())[0]
         # (feature_counts)
         for ftype_code in feature_counts:
-            ftype_excl = sdk_wrapper.ftype_code_lookup[ftype_code]["FTYPE_EXCL"]
+            # sdk_wrapper is a module global set under __main__ before EdaCmd is created, or the script exits
+            ftype_excl = sdk_wrapper.ftype_code_lookup[ftype_code]["FTYPE_EXCL"]  # pylint: disable=possibly-used-before-assignment
             ftype_freq = sdk_wrapper.ftype_code_lookup[ftype_code]["FTYPE_FREQ"]
             ftype_count = feature_counts[ftype_code]
             if ftype_count > entity_size:  # a single record has reported multiple
@@ -3474,7 +3476,8 @@ class EdaCmd(cmd.Cmd):
             self.current_settings[setting_data["setting"]] = self.current_settings.get(
                 setting_data["setting"], setting_data["values"][0]
             )
-        self.do_set(f"color_scheme {self.current_settings['color_scheme']}")
+        # do_set only touches eda_reports for the default_how_view setting, not color_scheme
+        self.do_set(f"color_scheme {self.current_settings['color_scheme']}")  # pylint: disable=access-member-before-definition
 
         self.last_entity_id = 0
         self.last_search_request = []
@@ -3611,7 +3614,8 @@ class EdaCmd(cmd.Cmd):
         file_name = f".{MODULE_NAME}_history"
         self.history_file_name = os.path.join(os.path.expanduser("~"), file_name)
 
-        self.hist_disable = args.hist_disable
+        # args is a module global set under __main__ before EdaCmd is created
+        self.hist_disable = args.hist_disable  # pylint: disable=possibly-used-before-assignment
         self.histFileError = None
         self.histAvail = False
 
@@ -3760,7 +3764,8 @@ class EdaCmd(cmd.Cmd):
         print("\nDisplays current data source stats without a snapshot\n")
 
     def do_quick_look(self, arg):
-        if not sz_dbo:
+        # sz_dbo is a module global set under __main__ in both the try and except branches before the shell starts
+        if not sz_dbo:  # pylint: disable=possibly-used-before-assignment
             print_message("Direct database access is required, database drivers must be installed", "error")
             return
         tbl = eda_table()

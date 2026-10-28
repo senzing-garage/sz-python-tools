@@ -918,9 +918,8 @@ class SzCfgShell(cmd.Cmd):
         # turn even single values into list to simplify code
         # be sure to make last item in list the ID or order to be tested/incremented!
         if isinstance(field, list):
-            if len(field) > 1:
-                senior_field = field[0:-1]
-                senior_value = value[0:-1]
+            senior_field = field[0:-1]
+            senior_value = value[0:-1]
             field = field[-1]
             value = value[-1]
         else:
@@ -2745,6 +2744,8 @@ class SzCfgShell(cmd.Cmd):
             func_table = "CFG_SFUNC"
             func_code_field = "SFUNC_CODE"
             func_id_field = "SFUNC_ID"
+        else:
+            raise ValueError(f"Unknown call type: {call_type}")
         return (
             call_table,
             bom_table,
