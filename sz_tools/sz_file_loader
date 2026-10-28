@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+# pylint: disable=chained-comparison,too-many-arguments,too-many-positional-arguments
 
 import argparse
 import atexit

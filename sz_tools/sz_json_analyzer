@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+# pylint: disable=cell-var-from-loop,consider-using-with,duplicate-code,global-statement,pointless-statement,redefined-outer-name,too-many-arguments,too-many-nested-blocks,too-many-positional-arguments
 
 import argparse
 import csv

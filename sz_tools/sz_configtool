@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+# pylint: disable=arguments-differ,arguments-renamed,attribute-defined-outside-init,consider-using-enumerate,consider-using-with,duplicate-code,empty-docstring,exec-used,implicit-str-concat,inconsistent-return-statements,no-else-break,no-else-return,too-many-arguments,too-many-positional-arguments,too-many-return-statements,try-except-raise
 
 import argparse
 import cmd

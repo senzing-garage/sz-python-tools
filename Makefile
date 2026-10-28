@@ -225,7 +225,7 @@ pydoc-web:
 pylint:
 	$(info ${\n})
 	$(info --- pylint ---------------------------------------------------------------------)
-	@$(activate-venv); pylint $(shell git ls-files '*.py' ':!:docs/source/*')
+	@$(activate-venv); pylint $(shell git ls-files '*.py' 'sz_tools/sz_*' ':!:docs/source/*')
 
 
 .PHONY: pytest
