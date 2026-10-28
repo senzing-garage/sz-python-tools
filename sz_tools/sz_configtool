@@ -11,17 +11,19 @@ import subprocess
 import sys
 import textwrap
 import traceback
+from types import ModuleType
 
 from _tool_helpers import Colors, colorize_cmd_prompt, get_engine_config
 
 try:
     import prettytable
 except (ImportError, ModuleNotFoundError):
-    prettytable = None
+    prettytable = None  # type: ignore[assignment]
 
 from senzing import SzError
 from senzing_core import SzAbstractFactoryCore
 
+readline: ModuleType | None
 try:
     import atexit
     import readline
@@ -29,7 +31,7 @@ except ImportError:
     readline = None
 
 try:
-    from pygments import formatters, highlight, lexers
+    from pygments import formatters, highlight, lexers  # type: ignore[import-untyped]
 
     pygments_installed = True
 except ImportError:

@@ -404,7 +404,7 @@ class SzJsonAnalyzer:
         ]
         table_rows = [table_headers]
         for feature in sorted(self.feature_stats.keys(), key=lambda k: self.feature_stats[k]["order"]):
-            row = ["" for x in range(len(table_headers))]
+            row: List[Any] = ["" for x in range(len(table_headers))]
             row[0] = "MAPPED"
             row[1] = feature
             row[2] = self.feature_stats[feature]["count"]
@@ -680,7 +680,7 @@ if __name__ == "__main__":
             DIALECT = "pipe"
         else:
             DIALECT = "excel"
-        reader = csv.DictReader(input_file_handle, dialect=DIALECT)
+        reader: Union[csv.DictReader, JsonlReader] = csv.DictReader(input_file_handle, dialect=DIALECT)
     else:
         reader = JsonlReader(input_file_handle)
 

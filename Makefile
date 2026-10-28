@@ -199,6 +199,7 @@ mypy:
 	$(info ${\n})
 	$(info --- mypy -----------------------------------------------------------------------)
 	@$(activate-venv); mypy $(shell git ls-files '*.py' ':!:docs/source/*')
+	@$(activate-venv); rc=0; for f in $(shell git ls-files 'sz_tools/sz_*'); do mypy "$$f" || rc=1; done; exit $$rc
 
 .PHONY: prettier
 prettier:
