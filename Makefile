@@ -170,7 +170,7 @@ bearer:
 black:
 	$(info ${\n})
 	$(info --- black ----------------------------------------------------------------------)
-	@$(activate-venv); black $(shell git ls-files '*.py' ':!:docs/source/*')
+	@$(activate-venv); black $(shell git ls-files '*.py' 'sz_tools/sz_*' ':!:docs/source/*')
 
 
 .PHONY: cspell
@@ -191,7 +191,7 @@ flake8:
 isort:
 	$(info ${\n})
 	$(info --- isort ----------------------------------------------------------------------)
-	@$(activate-venv); isort $(shell git ls-files '*.py' ':!:docs/source/*')
+	@$(activate-venv); isort $(shell git ls-files '*.py' 'sz_tools/sz_*' ':!:docs/source/*')
 
 
 .PHONY: mypy
