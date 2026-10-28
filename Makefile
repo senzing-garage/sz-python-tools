@@ -156,7 +156,7 @@ print-make-variables:
 bandit:
 	$(info ${\n})
 	$(info --- bandit ---------------------------------------------------------------------)
-	@$(activate-venv); bandit -c pyproject.toml $(shell git ls-files '*.py' ':!:docs/source/*')
+	@$(activate-venv); bandit -c pyproject.toml $(shell git ls-files '*.py' 'sz_tools/sz_*' ':!:docs/source/*')
 
 
 .PHONY: bearer

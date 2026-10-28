@@ -92,7 +92,8 @@ def mask_pii(text, visible=2):
         return text
     tokens = []
     for token in re.split(r"(\s+|[,;:|/\\-])", str(text)):
-        if token and not token.isspace() and token not in ",;:|/\\-":
+        # Compares against a punctuation string, not a password.
+        if token and not token.isspace() and token not in ",;:|/\\-":  # nosec B105
             if len(token) <= visible:
                 tokens.append(token)
             else:
@@ -234,7 +235,8 @@ def view_report(report, **kwargs):
             with open(lesskey_path, "w") as f:
                 f.write("#command\ns   quit S\n")
             less_cmd.append(f"--lesskey-src={lesskey_path}")
-        except Exception:
+        # The lesskey file is optional; less works without it.
+        except Exception:  # nosec B110
             pass
         prompt = "\u2191\u2193\u2190\u2192 scroll, /search, s save, h help, q quit      %lt-%lb of %L"
     else:
@@ -242,7 +244,8 @@ def view_report(report, **kwargs):
     less_options += f"P{prompt}"
     less_cmd.append(less_options)
 
-    less = subprocess.Popen(less_cmd, stdin=subprocess.PIPE)
+    # Pipes output to the user's pager; less_cmd is built from fixed options, with no shell.
+    less = subprocess.Popen(less_cmd, stdin=subprocess.PIPE)  # nosec B603
     with suppress(Exception):
         less.stdin.write(report.encode())
     with suppress(Exception):
@@ -711,7 +714,8 @@ class EdaReports:
         for entity_id in entity_ids:
             try:
                 json_data = sdk_wrapper.call_sdk("get_entity_by_entity_id", get_flag_list, int(entity_id))
-            except Exception:
+            # Skip entities that can no longer be retrieved.
+            except Exception:  # nosec B112
                 continue
             entity = json_data["RESOLVED_ENTITY"]
             review_list = review_map.get(str(entity_id), [])
@@ -759,7 +763,8 @@ class EdaReports:
                         if ftype_code not in feature_columns:
                             feature_columns.append(ftype_code)
                     rows.append(row)
-            except Exception:
+            # The related entity is optional; show the rows gathered so far.
+            except Exception:  # nosec B110
                 pass
         return rows, feature_columns
 
@@ -3535,7 +3540,8 @@ class EdaCmd(cmd.Cmd):
         try:
             with open(self.settings_file_name, "w", encoding="utf-8") as f:
                 json.dump(self.current_settings, f)
-        except Exception:
+        # Failing to save settings on exit is not fatal.
+        except Exception:  # nosec B110
             pass
 
     # basic commands
@@ -3549,7 +3555,8 @@ class EdaCmd(cmd.Cmd):
         return True
 
     def do_clear(self, arg):
-        os.system("clear")
+        # Clears the screen with a fixed command.
+        os.system("clear")  # nosec B607
         eda_splash()
 
     def do_help(self, help_topic):
@@ -3946,7 +3953,8 @@ class EdaCmd(cmd.Cmd):
                 kwarg_dict["features_only"] = True
             elif token.upper() == "SEARCH":
                 kwarg_dict["search"] = 0
-            elif token.isdigit() and prior_token == "SEARCH":
+            # Compares against a command keyword, not a password.
+            elif token.isdigit() and prior_token == "SEARCH":  # nosec B105
                 kwarg_dict["search"] = int(token)
             elif token.upper() in sdk_wrapper.ftype_code_lookup:
                 feature_list.append(token)

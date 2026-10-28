@@ -338,7 +338,8 @@ class SnapshotWriter:
                 json.dump(self.stat_pack, outfile, indent=4)
 
     def get_random_index(self):
-        target_index = int(self.sample_size * random.random())
+        # Random sampling for the snapshot report, not used for security.
+        target_index = int(self.sample_size * random.random())  # nosec B311
         if target_index % 10 != 0:
             return target_index
         return 0
