@@ -26,4 +26,16 @@ jobs:
         uses: PyCQA/bandit-action@v1
         with:
           python-version: ${{ matrix.python-version }}
-          targets: sz_tools
+          targets: >-
+            sz_tools
+            sz_tools/sz_audit
+            sz_tools/sz_command
+            sz_tools/sz_configtool
+            sz_tools/sz_create_project
+            sz_tools/sz_explorer
+            sz_tools/sz_export
+            sz_tools/sz_file_loader
+            sz_tools/sz_json_analyzer
+            sz_tools/sz_setup_config
+            sz_tools/sz_snapshot
+            sz_tools/sz_update_project

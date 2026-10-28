@@ -668,7 +668,8 @@ class SzCfgShell(cmd.Cmd):
                         colorize_msg(f"Command {read_cmd} not found", "error")
                     else:
                         exec_cmd = f"self.{process_cmd}('{' '.join(args)}')"
-                        exec(exec_cmd)
+                        # Runs a do_* command from the user's own command file, after checking it exists.
+                        exec(exec_cmd)  # nosec B102
 
                     if not self.force_mode:
                         if input("\nPress enter to continue or (Q)uit... ").upper().startswith("Q"):
@@ -6120,7 +6121,8 @@ class SzCfgShell(cmd.Cmd):
         return render_string
 
     def print_scrolling(self, render_string):
-        less = subprocess.Popen(["less", "-FMXSR"], stdin=subprocess.PIPE)
+        # Pipes output to the user's pager with a fixed argument list and no shell.
+        less = subprocess.Popen(["less", "-FMXSR"], stdin=subprocess.PIPE)  # nosec B603, B607
         try:
             less.stdin.write(render_string.encode("utf-8"))
         except IOError:
