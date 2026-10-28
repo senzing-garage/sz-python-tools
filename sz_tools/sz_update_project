@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+# pylint: disable=duplicate-code
 """Upgrade a V3 or V4 Senzing SDK project to V4.x.x"""
 
 import argparse

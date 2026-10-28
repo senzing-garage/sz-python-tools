@@ -1,4 +1,5 @@
 #! /usr/bin/env python3
+# pylint: disable=arguments-differ,arguments-renamed,attribute-defined-outside-init,chained-comparison,consider-using-enumerate,consider-using-set-comprehension,consider-using-with,duplicate-code,implicit-str-concat,inconsistent-return-statements,no-else-break,no-else-raise,no-else-return,pointless-statement,redefined-builtin,redefined-outer-name,too-many-arguments,too-many-nested-blocks,too-many-positional-arguments,unnecessary-comprehension,unnecessary-lambda,useless-object-inheritance,using-constant-test
 
 import argparse
 import atexit

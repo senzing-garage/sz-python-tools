@@ -134,6 +134,7 @@
     "FROMVERSION",
     "frozenset",
     "FRSX",
+    "fstring",
     "ftype",
     "ftypes",
     "FUNCLIB",
