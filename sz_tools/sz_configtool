@@ -1477,7 +1477,7 @@ class SzCfgShell(cmd.Cmd):
         if efuncID > 0 or cfuncID > 0:
             expressedCnt = comparedCnt = 0
             for element in parm_data["ELEMENTLIST"]:
-                if type(element) == dict:
+                if type(element) is dict:
                     element = dict_keys_upper(element)
                     if "EXPRESSED" in element and element["EXPRESSED"].upper() == "YES":
                         expressedCnt += 1
@@ -1562,7 +1562,7 @@ class SzCfgShell(cmd.Cmd):
         for element in parm_data["ELEMENTLIST"]:
             fbomOrder += 1
 
-            if type(element) == dict:
+            if type(element) is dict:
                 element_record = dict_keys_upper(element)
                 element_record["ELEMENT"] = element_record["ELEMENT"].upper()
             else:
@@ -5534,7 +5534,7 @@ class SzCfgShell(cmd.Cmd):
             colorize_msg(f"Command error: {err}", "error")
             return
 
-        if not "SETTINGS" in self.config_data["G2_CONFIG"]:
+        if "SETTINGS" not in self.config_data["G2_CONFIG"]:
             self.config_data["G2_CONFIG"]["SETTINGS"] = {}
 
         self.config_data["G2_CONFIG"]["SETTINGS"][parm_data["NAME"]] = parm_data["VALUE"]
@@ -6038,7 +6038,7 @@ class SzCfgShell(cmd.Cmd):
             json_obj = json.loads(json_obj)
 
         if self.current_output_format_record == "table":
-            render_string = self.print_json_as_table(json_obj if type(json_obj) == list else [json_obj])
+            render_string = self.print_json_as_table(json_obj if type(json_obj) is list else [json_obj])
             self.print_scrolling(render_string)
             return
 

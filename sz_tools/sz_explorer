@@ -874,7 +874,7 @@ class EdaReports:
                 colorize_dsrc(data_source),
                 self.fmt_statistic(report_segment["RECORD_COUNT"]),
                 self.fmt_statistic(report_segment["ENTITY_COUNT"]),
-                f"{round(compression,2)}%",
+                f"{round(compression, 2)}%",
                 self.fmt_statistic(report_segment["MATCH"]["RECORD_COUNT"]),
                 self.fmt_statistic(report_segment["MATCH"]["ENTITY_COUNT"]),
                 self.fmt_statistic(report_segment["AMBIGUOUS_MATCH"]["RELATION_COUNT"]),
@@ -2338,7 +2338,7 @@ class EdaSdkWrapper:
                         role1 = this_key[l2 + 4 : l3 - 1]
                         role2 = this_key[l3 + 4 : -1]
                         rel_keys.append(f"{domain}({role1}:{role2})")
-                    except:
+                    except Exception:
                         print(f"Could not parse: {this_key}")
                 else:
                     # format: DOMAIN(ROLE:ROLE) left role is from this entity's point of view
@@ -2621,7 +2621,7 @@ class EdaSdkWrapper:
                 tree_nodes[entity_id].add_child(tree_nodes[category_node_id])
             tree_nodes[category_node_id].counter1 += 1
             tree_nodes[category_node_id].node_desc = (
-                f"{self.match_category_desc[category]} ({tree_nodes[category_node_id].counter1 })"
+                f"{self.match_category_desc[category]} ({tree_nodes[category_node_id].counter1})"
             )
 
             if group_node_id not in tree_nodes:
@@ -3529,7 +3529,7 @@ class EdaCmd(cmd.Cmd):
         try:
             with open(self.settings_file_name, "w", encoding="utf-8") as f:
                 json.dump(self.current_settings, f)
-        except:
+        except Exception:
             pass
 
     # basic commands

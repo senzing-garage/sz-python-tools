@@ -184,7 +184,7 @@ cspell:
 flake8:
 	$(info ${\n})
 	$(info --- flake8 ---------------------------------------------------------------------)
-	@$(activate-venv); flake8 $(shell git ls-files '*.py' ':!:docs/source/*')
+	@$(activate-venv); flake8 $(shell git ls-files '*.py' 'sz_tools/sz_*' ':!:docs/source/*')
 
 
 .PHONY: isort

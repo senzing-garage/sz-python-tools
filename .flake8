@@ -10,3 +10,5 @@ extend-ignore =
     F841,
     W503
 max-line-length=88
+filename = *.py,sz_*
+extend-exclude = *.egg-info
