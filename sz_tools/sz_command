@@ -12,7 +12,7 @@ import shlex
 import sys
 import textwrap
 import time
-from typing import Any, Callable, Dict, List, TypeVar, Union, cast
+from typing import Any, Callable, Dict, List, NoReturn, TypeVar, Union, cast
 
 from _tool_helpers import (
     Colors,
@@ -249,7 +249,7 @@ def do_methods_decorator(do_method: _WrappedFunc) -> _WrappedFunc:
 class SzCommandArgumentParser(argparse.ArgumentParser):
     """Subclass ArgumentParser, override error() with custom message"""
 
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         self.exit(
             2,
             print_error(message),
@@ -2077,7 +2077,7 @@ class SzCmdShell(cmd.Cmd):
                 config_setting = SETTINGS_TO_CONFIG_MAP[cmd_setting][1]
                 # Per command settings are always bools
                 if isinstance(config_setting, bool):
-                    self.per_cmd_config[config_key] = config_setting  # type: ignore
+                    self.per_cmd_config[config_key] = config_setting  # type: ignore[index]
 
     def get_per_cmd_settings(self, cmd_line: str) -> List[str]:
         """Get the settings from a command"""

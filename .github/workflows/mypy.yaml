@@ -45,3 +45,6 @@ jobs:
         run: |
           # shellcheck disable=SC2046
           mypy $(git ls-files '*.py' ':!:docs/source/*')
+          rc=0
+          for f in $(git ls-files 'sz_tools/sz_*'); do mypy "$f" || rc=1; done
+          exit $rc
