@@ -25,7 +25,7 @@ jobs:
       - name: Run Bandit Scan
         # The v1 tag (v1.0.1) predates the python-version input and hardcodes Python 3.8,
         # which ubuntu-latest (26.04) no longer provides. Pin to a main commit until a new tag ships.
-        uses: PyCQA/bandit-action@e36a96f6c601754d1553b8c7f4933415e860ae8c # main 2026-10-27
+        uses: PyCQA/bandit-action@8970b6163696044b1b81bd86df0d01a7695e65df # main 2026-10-27
         with:
           python-version: ${{ matrix.python-version }}
           targets: >-
